@@ -105,7 +105,12 @@ tests, and `make check` runs clippy (host and riscv32imac) plus a fmt check.
 - Expected at boot: `WARN RcFastDivClk calibration failed`. It comes from
   esp-hal's clock setup and doesn't stop the boot. The cause hasn't been
   looked into.
-- on-device tests: _tbd_
+- on-device tests: `make test-device` _(works)_. `embedded-test` flashes
+  each file in `firmware/tests/` and reports pass or fail like `cargo test`.
+  Checked both ways: a broken assertion shows `FAILED` and exits 1.
+- `make check` lints the firmware with `--bins --tests`, not
+  `--all-targets`: that would also build the binary as a test, which
+  needs the `test` crate the C6 doesn't have.
 
 ## Start over
 
@@ -141,3 +146,5 @@ Then run steps 1 and 2 again.
   core builds for riscv32imac.
 - 2026-10-15: firmware boots on the C6 and logs a heartbeat every second
   over probe-rs (`make run`).
+- 2026-10-15: on-device tests with embedded-test 0.7.2. `smoke` passes on
+  the board.

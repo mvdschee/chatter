@@ -10,6 +10,10 @@ name = "chatter-firmware"
 path = "src/main.rs"
 test = false
 
+[[test]]
+name = "smoke"
+harness = false
+
 [dependencies]
 # HAL and runtime
 esp-hal = { version = "=1.2.2", features = ["defmt", "esp32c6", "unstable"] }
@@ -24,6 +28,10 @@ embassy-time = { version = "=0.5.0", features = ["defmt"] }
 defmt = "1.2.0"
 rtt-target = { version = "0.6.2", features = ["defmt"] }
 panic-rtt-target = { version = "0.2.0", features = ["defmt"] }
+
+[dev-dependencies]
+# on-device tests, flashed and run over probe-rs
+embedded-test = { version = "=0.7.2", features = ["defmt", "embassy-010", "external-executor"] }
 
 [lints.rust]
 unsafe_code = "forbid"
