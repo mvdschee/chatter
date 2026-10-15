@@ -161,9 +161,21 @@ Every 60 s, one JSON document:
       "retries": 1,
       "rssi_max": -41
     }
-  ]
+  ],
+  "broadcast": [{ "net": 1, "rx_frames": 40, "rx_bytes": 5200 }],
+  "overflow": 0
 }
 ```
+
+- **Broadcast and multicast** from the router count toward one total per
+  network, not toward a device. A wireless sender's own broadcast already
+  counts as its `tx` on the way up to the router; the totals catch storms and
+  scans from wired hosts the sensor can't see otherwise.
+- **`rssi_max`** comes from uplink frames only: downlink RSSI is the router's
+  signal, not the device's.
+- **The device table holds 128 devices** and is emptied by each report, so it
+  only needs to fit the devices active within one minute. `overflow` counts
+  frames from devices that didn't fit.
 
 - **No clock on the board.** `seq` and `uptime_s` let the collector spot
   restarts and gaps, and the collector stamps the receive time. That avoids
@@ -207,8 +219,8 @@ Where the inkday template doesn't carry over:
 - **`unsafe_code = "forbid"`:** works for both crates. The esp macros
   (`esp_app_desc!`, `#[esp_rtos::main]`, `rtt_init_defmt!`) don't trip it.
 - **Errors:** core can't use the firmware's `Error`, because the dependency
-  runs the other way. Core needs its own error type, or `error.rs` moves into
-  core. To decide when core is written.
+  runs the other way. So far core needs no error type: decoding returns
+  `Option`, and a frame that doesn't fit is dropped.
 
 **Raw bytes or a decoded `Frame`?** Decoded, inside the callback, using a
 decode function that lives in core:
@@ -224,10 +236,9 @@ decode function that lives in core:
 - The decode is plain fixed offsets: frame control, three addresses, and the
   retry bit. No allocation, and nothing is copied until the final struct.
 - Same idea as `TryFrom<PgRow>`: core owns the decode, the adapter only feeds
-  it bytes. Something like
-  `fn decode(header: &[u8], watched: &[Mac]) -> Option<Frame>` in
-  `core/src/models/`, tested on the Mac against the address table. The exact
-  shape is settled when core is written.
+  it bytes: `decode(data, len, rssi, &watched) -> Option<Frame>` and
+  `beacon(data) -> Option<(Mac, &[u8])>` in `core/src/models/frame.rs`,
+  tested on the Mac against the address table.
 
 ## Pitfalls
 
@@ -300,9 +311,10 @@ don't need the antenna. Each install or setup step also goes into
    counts frames by type, bytes, and frames in our BSS, with atomics only, and
    logs them every 10 s.
    Check: frames arrive while connected.
-7. **Core:** `Frame` decode (with beacon SSIDs, to learn the watched BSSIDs),
-   `Counters` and the aggregation handler.
-   Check: unit tests on the host for the address table above.
+7. **Core** _(done)_: `Frame` decode (with beacon SSIDs, to learn the watched
+   BSSIDs), `Counters`, and the aggregation handler.
+   Check: 19 host tests, covering every row of the address table. A mirrored
+   upload address makes them fail.
 8. **Per-device counts:** the callback decodes with core and queues `Frame`s;
    an aggregation task keeps per-MAC counters and logs them every 10 s.
    Check: a known 2.4 GHz device downloads a large file, and its rx bytes
@@ -310,8 +322,10 @@ don't need the antenna. Each install or setup step also goes into
 9. **Report** to a collector stub on the Mac.
    Check: reports arrive every 60 s, with `seq` going up and `dropped`
    reported.
-10. **Collector on the home server.**
-   Check: per-device minute rows in SQLite.
+10. **Collector on the home server.** It keeps the long-term device list:
+    a device with no traffic for 14 days counts as gone, and a MAC it has
+    never seen before is flagged as new.
+    Check: per-device minute rows in SQLite.
 
 ## Validation
 
