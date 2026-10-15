@@ -29,8 +29,8 @@ pub fn init(wifi: WIFI<'static>) -> Result<WifiController<'static>> {
 	Ok(controller)
 }
 
-/// Keeps trying until the station is connected.
-pub async fn connect(controller: &mut WifiController<'static>) {
+/// Keeps trying until the station is connected; returns the AP's BSSID.
+pub async fn connect(controller: &mut WifiController<'static>) -> [u8; 6] {
 	loop {
 		match controller.connect_async().await {
 			Ok(connected) => {
@@ -39,7 +39,7 @@ pub async fn connect(controller: &mut WifiController<'static>) {
 					"wifi: connected, bssid {=[u8]:02x}, channel {}, rssi {}",
 					connected.bssid, connected.channel, rssi
 				);
-				return;
+				return connected.bssid;
 			},
 			// log the reason only: the error also carries the SSID
 			Err(ConnectionError::Failed(failed)) => {

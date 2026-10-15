@@ -157,3 +157,6 @@ Then run steps 1 and 2 again.
 - 2026-10-15: router restart test. The board dropped (`SaQueryTimeout`),
   retried through `NoAccessPointFound` while the router booted, and came
   back on the same BSSID and channel by itself.
+- 2026-10-15: sniffer spike (chunk 6). Promiscuous mode works next to the
+  connected station. About 85 frames/s on channel 6, and no header-less
+  frames.

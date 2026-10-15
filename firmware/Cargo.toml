@@ -22,7 +22,8 @@ esp-bootloader-esp-idf = { version = "=0.6.0", features = ["defmt", "esp32c6"] }
 esp-alloc = { version = "=0.11.0", features = ["defmt", "esp32c6"] }
 
 # Wi-Fi
-esp-radio = { version = "=1.0.0-beta.1", features = ["defmt", "esp-alloc", "esp32c6", "unstable", "wifi"] }
+esp-radio = { version = "=1.0.0-beta.1", features = ["defmt", "esp-alloc", "esp32c6", "sniffer", "unstable", "wifi"] }
+critical-section = "1.2.0"
 
 # Async
 embassy-executor = { version = "=0.10.0", features = ["defmt"] }

@@ -165,6 +165,7 @@ version = "0.1.0"
 name = "chatter-firmware"
 version = "0.1.0"
 dependencies = [
+ "critical-section",
  "defmt 1.2.0",
  "embassy-executor",
  "embassy-time",

@@ -254,8 +254,9 @@ decode function that lives in core:
 
 ## Still unsure
 
-1. Does the sniffer deliver frames while the station is connected on
-   esp-radio 1.0.0-beta.1? This is the first thing the spike settles.
+1. ~~Does the sniffer deliver frames while the station is connected?~~ Yes
+   (2026-10-15). Per 10 s it sees about 150–190 management and 530–670 data
+   frames, 45–95 of them in our BSS.
 2. How much of the router's 802.11ax traffic the C6 decodes, and how much
    arrives as MIMO length-only.
 3. ~~Is `RxControlInfo` the same on the C6 as on the ESP32?~~ No. The C6 uses
@@ -264,7 +265,9 @@ decode function that lives in core:
    read from the esp-radio 1.0.0-beta.1 source and still needs confirming on
    hardware.
 4. Callback load on a busy channel: how often the channel fills and frames
-   are dropped.
+   are dropped. The first spike measured about 85 frames/s on channel 6, an
+   evening with light use; we have no busy-channel numbers yet. No
+   header-less (MIMO length-only) frames showed up.
 5. Do both SSIDs really have their own BSSID on the same channel? The
    beacons show it. If they share one BSSID, the filter can't tell the networks
    apart, and `net` would have to come from somewhere else.
@@ -293,16 +296,21 @@ don't need the antenna. Each install or setup step also goes into
 5. **Wi-Fi connect** (antenna on): station connects, power save off, and the
    log shows channel and RSSI.
    Check: it connects, and reconnects after the router restarts.
-6. **Sniffer spike:** sniffer on next to the station, printing per-MAC frame
-   counts every 10 s.
+6. **Sniffer spike** _(done)_: sniffer on next to the station; the callback
+   counts frames by type, bytes, and frames in our BSS, with atomics only, and
+   logs them every 10 s.
+   Check: frames arrive while connected.
+7. **Core:** `Frame` decode (with beacon SSIDs, to learn the watched BSSIDs),
+   `Counters` and the aggregation handler.
+   Check: unit tests on the host for the address table above.
+8. **Per-device counts:** the callback decodes with core and queues `Frame`s;
+   an aggregation task keeps per-MAC counters and logs them every 10 s.
    Check: a known 2.4 GHz device downloads a large file, and its rx bytes
    jump by roughly that amount.
-7. **Core:** `Frame`, `Counters` and the aggregation handler.
-   Check: unit tests on the host for the address table above.
-8. **Report** to a collector stub on the Mac.
+9. **Report** to a collector stub on the Mac.
    Check: reports arrive every 60 s, with `seq` going up and `dropped`
    reported.
-9. **Collector on the home server.**
+10. **Collector on the home server.**
    Check: per-device minute rows in SQLite.
 
 ## Validation
