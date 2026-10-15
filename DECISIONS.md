@@ -29,3 +29,9 @@
 **Decision:** The sniffer callback calls a decode function from `chatter-core` on the raw header and queues the small `Copy` `Frame` it returns, not the raw bytes. No `ieee80211` crate; the decode reads three fixed offsets.
 **Why:** esp-radio doesn't parse 802.11 headers, and its `&[u8]` is gone when the callback returns, so something gets copied either way. A decoded `Frame` (about 12 bytes) is smaller than the raw header plus metadata (about 32), and the callback has to read the header anyway for the BSSID filter. Core still owns the decode and tests it on the Mac, the same way `TryFrom<PgRow>` lives in core.
 **Alternatives:** Queue raw header bytes and decode in core's aggregation task (a cleaner split, but double the queue memory and a second read of the header); the `ieee80211` crate (zero-copy, but a dependency for three offsets).
+
+## 2026-10-15 - Logging with defmt over RTT
+
+**Decision:** The firmware logs with `defmt` through `rtt-target`, and panics go through `panic-rtt-target`. probe-rs decodes and prints them.
+**Why:** With probe-rs as the runner, `esp-generate` only offers this pairing. defmt sends compact indices instead of formatted strings, which keeps flash and CPU cost low. That matters once the sniffer callback is busy.
+**Alternatives:** `log` + `esp-println` over the USB serial port (readable without probe-rs, but it formats on the device and needs espflash as the monitor); `utils.rs`-style `println!` macros like the server projects (there's no `println!` in `no_std`).

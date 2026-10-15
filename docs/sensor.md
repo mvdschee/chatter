@@ -172,15 +172,17 @@ with Rust's own `core`.
 
 Where the inkday template doesn't carry over:
 
-- **`.cargo/config.toml`:** no `target-cpu=native` or lld. The firmware needs
-  `[target.riscv32imac-unknown-none-elf]` with the probe-rs runner and the
-  esp-hal linker script. It must not set a default `build.target` for the
-  whole workspace, or `cargo test -p chatter-core` stops running on the Mac.
-- **Logging:** there is no `println!` in `no_std`. `utils.rs`-style macros
-  would wrap `defmt` or `esp-println` instead. To decide in the scaffold chunk.
-- **`unsafe_code = "forbid"`:** may clash with the esp macros
-  (`esp_app_desc!`, `#[esp_rtos::main]`). Fine for `chatter-core`; check
-  for the firmware.
+- **`.cargo/config.toml`:** no `target-cpu=native` or lld. It only sets the
+  probe-rs runner for `riscv32imac-unknown-none-elf`; the linker scripts are
+  in `firmware/build.rs`. There's no default `build.target`, or
+  `cargo test -p chatter-core` would stop running on the Mac. Instead
+  `default-members = ["core"]` keeps a plain `cargo build` on the Mac, and
+  the makefile passes `--target` for the firmware.
+- **Logging:** there is no `println!` in `no_std`. The firmware logs with
+  `defmt` over RTT (`defmt::info!` and friends, no `utils.rs` macros), and
+  `DEFMT_LOG` in `.cargo/config.toml` sets the level.
+- **`unsafe_code = "forbid"`:** works for both crates. The esp macros
+  (`esp_app_desc!`, `#[esp_rtos::main]`, `rtt_init_defmt!`) don't trip it.
 - **Errors:** core can't use the firmware's `Error`, because the dependency
   runs the other way. Core needs its own error type, or `error.rs` moves into
   core. To decide when core is written.

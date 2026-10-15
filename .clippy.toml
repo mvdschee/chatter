@@ -1,0 +1,2 @@
+# the C6 has a small stack; clippy::large_stack_frames is denied in the firmware
+stack-size-threshold = 1024

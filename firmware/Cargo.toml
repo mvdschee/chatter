@@ -1,0 +1,32 @@
+[package]
+name = "chatter-firmware"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[[bin]]
+name = "chatter-firmware"
+path = "src/main.rs"
+test = false
+
+[dependencies]
+# HAL and runtime
+esp-hal = { version = "=1.2.2", features = ["defmt", "esp32c6", "unstable"] }
+esp-rtos = { version = "=0.4.0", features = ["defmt", "embassy", "esp32c6"] }
+esp-bootloader-esp-idf = { version = "=0.6.0", features = ["defmt", "esp32c6"] }
+
+# Async
+embassy-executor = { version = "=0.10.0", features = ["defmt"] }
+embassy-time = { version = "=0.5.0", features = ["defmt"] }
+
+# Logging over RTT
+defmt = "1.0.1"
+rtt-target = { version = "0.6.2", features = ["defmt"] }
+panic-rtt-target = { version = "0.2.0", features = ["defmt"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+# early development; remove once the firmware has settled
+dead_code = "allow"
+unused = "allow"

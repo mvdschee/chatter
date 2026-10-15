@@ -1,0 +1,11 @@
+edition = "2024"
+hard_tabs = true
+merge_derives = true
+reorder_imports = true
+reorder_modules = true
+match_block_trailing_comma = true
+use_field_init_shorthand = true
+use_small_heuristics = "Off"
+# clean up multiple use crate:: that share the same root import
+# run with cargo +nightly fmt
+imports_granularity = "Crate"

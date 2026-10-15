@@ -95,7 +95,16 @@ tests, and `make check` runs clippy (host and riscv32imac) plus a fmt check.
 - core still `no_std`: `cargo build -p chatter-core --target
   riscv32imac-unknown-none-elf` _(works)_. This fails as soon as
   anything in core pulls in `std`.
-- firmware build, flash and log: _tbd_
+- firmware build, flash and log: `make run` _(works)_. It builds for
+  riscv32imac, flashes over USB-JTAG, then streams `defmt` logs until Ctrl-C.
+  The first build takes about 20 s.
+- Not copied from the esp-generate template: `[unstable] build-std` (nightly
+  only, and the target ships a prebuilt `core`), `rust-src`, and
+  `force-frame-pointers` (only needed for `esp-backtrace`). It builds and runs
+  on stable without them.
+- Expected at boot: `WARN RcFastDivClk calibration failed`. It comes from
+  esp-hal's clock setup and doesn't stop the boot. The cause hasn't been
+  looked into.
 - on-device tests: _tbd_
 
 ## Start over
@@ -130,3 +139,5 @@ Then run steps 1 and 2 again.
   serves `channel-rust-1.99.0.toml`.
 - 2026-10-15: workspace with `chatter-core`. Host tests run (0 tests), and
   core builds for riscv32imac.
+- 2026-10-15: firmware boots on the C6 and logs a heartbeat every second
+  over probe-rs (`make run`).

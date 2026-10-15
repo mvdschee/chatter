@@ -1,3 +1,15 @@
 [workspace]
 resolver = "3"
-members = ["core"]
+members = ["core", "firmware"]
+# plain `cargo test` / `cargo build` stay on the Mac; firmware needs --target (see makefile)
+default-members = ["core"]
+
+[profile.dev]
+# unoptimized builds are too slow and too big for the C6
+opt-level = "s"
+
+[profile.release]
+codegen-units = 1
+debug = 2
+lto = "fat"
+opt-level = "s"

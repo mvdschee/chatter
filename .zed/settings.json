@@ -1,0 +1,14 @@
+// rust-analyzer checks for the C6, so firmware has no false errors. core is
+// no_std and checks fine for the same target; `make test` runs its tests on the Mac.
+{
+	"lsp": {
+		"rust-analyzer": {
+			"initialization_options": {
+				"cargo": {
+					"allTargets": false,
+					"target": "riscv32imac-unknown-none-elf"
+				}
+			}
+		}
+	}
+}
