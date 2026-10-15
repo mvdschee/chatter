@@ -148,3 +148,12 @@ Then run steps 1 and 2 again.
   over probe-rs (`make run`).
 - 2026-10-15: on-device tests with embedded-test 0.7.2. `smoke` passes on
   the board.
+- 2026-10-15: esp-radio 1.0.0-beta.2 turned out to be yanked; pinned
+  1.0.0-beta.1 instead (same source apart from an S31 build fix).
+- 2026-10-15: Wi-Fi (chunk 5). `.env` is read by `firmware/build.rs`. The
+  station joins the IoT network on channel 6 with power save off. The first
+  attempt or two after boot fail (`AuthenticationFailed`,
+  `FourWayHandshakeTimeout`) before it connects; the retry loop covers it.
+- 2026-10-15: router restart test. The board dropped (`SaQueryTimeout`),
+  retried through `NoAccessPointFound` while the router booted, and came
+  back on the same BSSID and channel by itself.

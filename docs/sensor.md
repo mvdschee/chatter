@@ -1,7 +1,8 @@
 # The sensor
 
 Goal: a C6 near the router counts, per device and per minute, how many frames
-and bytes each device on our own Wi-Fi sends and receives. It posts those
+and bytes each device on our own Wi-Fi (both the main and the IoT network)
+sends and receives. It posts those
 counts to a collector on a home server. Over weeks that gives each device an hourly
 profile, so "the camera sent 400 MB at 3 a.m." shows up without owning the
 router.
@@ -26,7 +27,7 @@ router.
 | Piece                      | Crate                                                                         | Version (2026-10-15) |
 | -------------------------- | ----------------------------------------------------------------------------- | -------------------- |
 | HAL                        | `esp-hal` (`unstable`)                                                        | 1.2.2                |
-| Wi-Fi + sniffer            | `esp-radio` (`wifi`, `sniffer`, `unstable`)                                   | 1.0.0-beta.2         |
+| Wi-Fi + sniffer            | `esp-radio` (`wifi`, `sniffer`, `unstable`)                                   | 1.0.0-beta.1         |
 | Scheduler / Embassy glue   | `esp-rtos` (`esp-radio`, `embassy`)                                           | 0.4.0                |
 | Executor                   | `embassy-executor`                                                            | 0.10.0               |
 | Network stack              | `embassy-net`                                                                 | 0.9.1                |
@@ -36,8 +37,9 @@ router.
 | 802.11 parsing             | none: core reads three fixed offsets (`ieee80211` 0.4 only if decoding grows) | —                    |
 | HTTP client                | `reqwless`, or a hand-written POST over `embassy-net` TCP                     | 0.14.0               |
 
-This is the set `esp-generate` 1.4.0 emits (it pins `esp-radio`
-1.0.0-beta.1; beta.2 needs the same esp-hal).
+This is the set `esp-generate` 1.4.0 emits. `esp-radio` 1.0.0-beta.2 was
+yanked; its only change from beta.1 was a fix for S31 builds, and the source
+is otherwise identical, so we pin beta.1.
 
 - **Toolchain:** stable Rust 1.99.0 (esp-hal 1.2 needs ≥ 1.95), target
   `riscv32imac-unknown-none-elf` (the C6 is RISC-V). No `espup`, no ESP-IDF
@@ -62,13 +64,13 @@ This is the set `esp-generate` 1.4.0 emits (it pins `esp-radio`
 radio RX path (driver context)          Embassy tasks
 ──────────────────────────────          ────────────────────────────────
 sniffer callback                        aggregate: Channel → per-MAC counters
-  filter: our BSSID only        ──►       every 60 s: hand a report over
+  filter: watched BSSIDs        ──►       every 60 s: hand a report over
   take: addrs, len, rssi, flags         send: POST report to the collector
   try_send into a static Channel        wifi: connect, reconnect, keep PS off
   (full → drop, bump a counter)
 ```
 
-### The esp-radio API (1.0.0-beta.2)
+### The esp-radio API (1.0.0-beta.1)
 
 Read from the crate source, not yet run.
 
@@ -95,12 +97,32 @@ short … post an event to the application task".
 
 - Call core's decode on the header: frame control, the three addresses, and
   the retry bit (see "Raw bytes or a decoded `Frame`?" below).
-- Drop anything whose BSSID isn't ours. Do it here: that is the cheapest
+- Drop anything whose BSSID isn't one we watch. Do it here: that is the cheapest
   place, and it keeps the neighbours' metadata out of memory entirely.
 - `try_send` the decoded `Copy` `Frame` into an `embassy_sync::channel::Channel`
   with a `CriticalSectionRawMutex`. Never block or allocate. When the channel
   is full, drop the frame and increment an `AtomicU32`, so the report says
   how much was lost.
+
+### Which networks
+
+The router runs two SSIDs, a main one and an IoT one. On one 2.4 GHz radio
+that should mean two BSSIDs on the same channel, so one sensor hears both.
+
+- The sensor **joins the IoT network**. That's where the devices it watches
+  are, and the IoT network can reach the home server.
+- It **counts both**. The sniffer learns the BSSID of each SSID in
+  `CHATTER_WATCH_SSIDS` from beacons, which carry both. The callback then keeps
+  frames from any of them. The filter is a set of two MACs, so it costs no more
+  than one. The joined network's BSSID is also known straight away from the
+  connect result.
+- No scan: esp-radio's `scan_async` returned 0 access points on the C6, both
+  before and after connecting (2026-10-15). Beacons need no extra API and
+  keep working if the router changes BSSIDs.
+- Each device in the report carries `net`, the index of its SSID in
+  `CHATTER_WATCH_SSIDS`. The SSID names stay out of the report.
+- The SSIDs identify the household. They live in `.env` only: not in the repo,
+  the docs or the logs.
 
 ### Who is the device in a frame
 
@@ -131,6 +153,7 @@ Every 60 s, one JSON document:
   "devices": [
     {
       "mac": "aa:bb:…",
+      "net": 1,
       "tx_frames": 10,
       "tx_bytes": 1200,
       "rx_frames": 8,
@@ -160,7 +183,7 @@ its own crate so its tests run on the Mac (see `DECISIONS.md`):
 | `core/src/models/`                 | `Frame` (decoded header), `Counters`, `Report`      |
 | `core/src/handlers/`               | the aggregation: frames in, a report per minute out |
 | `firmware/src/main.rs`             | init, spawn tasks                                   |
-| `firmware/src/config.rs`           | SSID, PSK and collector URL from build-time `env!`  |
+| `firmware/src/config.rs`           | SSID, PSK, watched SSIDs and collector URL, from `.env` at build time |
 | `firmware/src/error.rs`            | one `Error` enum                                    |
 | `firmware/src/services/wifi.rs`    | connect, reconnect, power save off                  |
 | `firmware/src/services/sniffer.rs` | callback plumbing, BSSID filter, static channel     |
@@ -202,7 +225,7 @@ decode function that lives in core:
   retry bit. No allocation, and nothing is copied until the final struct.
 - Same idea as `TryFrom<PgRow>`: core owns the decode, the adapter only feeds
   it bytes. Something like
-  `fn decode(header: &[u8], bssid: Mac) -> Option<Frame>` in
+  `fn decode(header: &[u8], watched: &[Mac]) -> Option<Frame>` in
   `core/src/models/`, tested on the Mac against the address table. The exact
   shape is settled when core is written.
 
@@ -224,23 +247,27 @@ decode function that lives in core:
   fine for one POST a minute.
 - **MAC randomisation.** Phones may use a private MAC per network, and some
   rotate it. Expect "new" devices that aren't.
-- **Credentials.** The SSID and PSK come in through `env!` at build time from
-  a git-ignored `.env`. Never commit them, and keep them out of logs.
+- **Credentials.** The SSIDs and PSK come from a git-ignored `.env`, which
+  `firmware/build.rs` reads at build time. Never commit them, and keep them
+  out of logs. They do end up inside the firmware binary in `target/`.
 - **Unstable API.** Pin versions (see Stack).
 
 ## Still unsure
 
 1. Does the sniffer deliver frames while the station is connected on
-   esp-radio 1.0.0-beta.2? This is the first thing the spike settles.
+   esp-radio 1.0.0-beta.1? This is the first thing the spike settles.
 2. How much of the router's 802.11ax traffic the C6 decodes, and how much
    arrives as MIMO length-only.
 3. ~~Is `RxControlInfo` the same on the C6 as on the ESP32?~~ No. The C6 uses
    the second layout (`wifi_mac_version = "2"`, with 802.11ax fields): `rssi`,
    `rate`, `sig_len`, `channel`, `noise_floor`, `is_group` and more. This was
-   read from the esp-radio 1.0.0-beta.2 source and still needs confirming on
+   read from the esp-radio 1.0.0-beta.1 source and still needs confirming on
    hardware.
 4. Callback load on a busy channel: how often the channel fills and frames
    are dropped.
+5. Do both SSIDs really have their own BSSID on the same channel? The
+   beacons show it. If they share one BSSID, the filter can't tell the networks
+   apart, and `net` would have to come from somewhere else.
 
 ## Plan
 
@@ -299,8 +326,8 @@ Judged by hand, not by tests:
 - [esp-hal `examples/wifi/sniffer`](https://github.com/esp-rs/esp-hal/tree/main/examples/wifi/sniffer)
   (Cargo.toml with `esp32c6`, `sniffer`, `unstable`, `ieee80211`). It
   tracks unreleased `main` through path dependencies, so its code can be
-  ahead of 1.0.0-beta.2.
-- esp-radio 1.0.0-beta.2 source (`src/wifi/sniffer.rs`, `src/wifi/mod.rs`),
+  ahead of 1.0.0-beta.1.
+- esp-radio 1.0.0-beta.1 source (`src/wifi/sniffer.rs`, `src/wifi/mod.rs`),
   read from the crates.io tarball.
 - `esp-generate` 1.4.0 template (`src/template_files.rs`): the release set and
   the probe-rs runner line.

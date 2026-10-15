@@ -2,7 +2,7 @@
 
 ## 2026-10-15 - Embassy on esp-hal + esp-radio, not esp-idf-svc
 
-**Decision:** The firmware is `no_std` on `esp-hal` 1.2, with `esp-radio` 1.0.0-beta.2 (`wifi`, `sniffer`, `unstable`), `esp-rtos` 0.4 for Embassy, and `embassy-net`. It builds on stable Rust for `riscv32imac-unknown-none-elf`. Versions are pinned, as one release set (see `docs/sensor.md`, Stack).
+**Decision:** The firmware is `no_std` on `esp-hal` 1.2, with `esp-radio` 1.0.0-beta.1 (`wifi`, `sniffer`, `unstable`), `esp-rtos` 0.4 for Embassy, and `embassy-net`. It builds on stable Rust for `riscv32imac-unknown-none-elf`. Versions are pinned, as one release set (see `docs/sensor.md`, Stack).
 **Why:** Embassy is the preferred async runtime, and plain cargo on stable keeps the toolchain light: no `espup`, no ESP-IDF download. esp-hal's repo has a C6-capable `sniffer` example (on unreleased `main`, with path dependencies). Underneath it's the same Espressif Wi-Fi driver as ESP-IDF, so the sniffer behaves the same. The cost is that the sniffer API is `unstable` and changed between releases, hence the pins. We picked the 1.2 set over the older esp-hal 1.1 + esp-radio 0.18 set because `esp-generate` 1.4 emits it, and it saves a 0.18 → 1.0 migration later.
 **Alternatives:** `esp-idf-svc` (std) calling `esp_wifi_set_promiscuous_rx_cb` through `esp-idf-sys` (a stable C API and ESP-IDF's HTTP/NVS, but a heavy first build and nightly `build-std`); C on ESP-IDF (no Rust); esp-hal 1.1 + esp-radio 0.18 (older, and a migration ahead).
 
@@ -35,3 +35,9 @@
 **Decision:** The firmware logs with `defmt` through `rtt-target`, and panics go through `panic-rtt-target`. probe-rs decodes and prints them.
 **Why:** With probe-rs as the runner, `esp-generate` only offers this pairing. defmt sends compact indices instead of formatted strings, which keeps flash and CPU cost low. That matters once the sniffer callback is busy.
 **Alternatives:** `log` + `esp-println` over the USB serial port (readable without probe-rs, but it formats on the device and needs espflash as the monitor); `utils.rs`-style `println!` macros like the server projects (there's no `println!` in `no_std`).
+
+## 2026-10-15 - Learn watched BSSIDs from beacons, not a scan
+
+**Decision:** The sniffer maps each watched SSID to its BSSID from beacon frames. The joined network's BSSID comes from the connect result.
+**Why:** `scan_async` in esp-radio 1.0.0-beta.1 returned 0 access points on the C6, both before and after connecting. Beacons carry both the SSID and the BSSID, need no extra API, and keep working if the router changes BSSIDs.
+**Alternatives:** Debug esp-radio's scan (open-ended); BSSIDs in `.env` (simple, but breaks when the router changes).

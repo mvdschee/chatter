@@ -17,8 +17,12 @@ harness = false
 [dependencies]
 # HAL and runtime
 esp-hal = { version = "=1.2.2", features = ["defmt", "esp32c6", "unstable"] }
-esp-rtos = { version = "=0.4.0", features = ["defmt", "embassy", "esp32c6"] }
+esp-rtos = { version = "=0.4.0", features = ["defmt", "embassy", "esp-alloc", "esp-radio", "esp32c6"] }
 esp-bootloader-esp-idf = { version = "=0.6.0", features = ["defmt", "esp32c6"] }
+esp-alloc = { version = "=0.11.0", features = ["defmt", "esp32c6"] }
+
+# Wi-Fi
+esp-radio = { version = "=1.0.0-beta.1", features = ["defmt", "esp-alloc", "esp32c6", "unstable", "wifi"] }
 
 # Async
 embassy-executor = { version = "=0.10.0", features = ["defmt"] }
