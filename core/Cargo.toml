@@ -1,0 +1,13 @@
+[package]
+name = "chatter-core"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
+# early development; remove once core has settled
+dead_code = "allow"
+unused = "allow"

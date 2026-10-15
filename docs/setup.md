@@ -8,24 +8,32 @@ actually been run. Until then it's marked _not run yet_.
 
 - Everything comes from `rustup` or `cargo install --locked <crate>@<version>`.
   No cloned repos, no hand-built C libraries, no `espup`, no ESP-IDF.
+- Crates come through a local panamax mirror, which `~/.cargo/config.toml`
+  sets up with `replace-with` (outside this repo). Without it, cargo falls
+  back to crates.io and nothing else changes.
+- Toolchains come through the same mirror: `RUSTUP_DIST_SERVER` and
+  `RUSTUP_UPDATE_ROOT` are set in `~/.zshenv`. The mirror only serves the
+  versioned manifest (`dist/channel-rust-<version>.toml`) for versions
+  pinned in panamax's config. When `rust-toolchain.toml` changes, add the
+  new version there and re-sync first, or the install fails with a 404.
 - Versions are pinned here and in `rust-toolchain.toml`. Upgrading is a
   deliberate step: change the version here, reinstall, and add a log entry.
-- Some crates compile a little C while installing (probe-rs builds `hidapi`).
-  That's fine. It uses Xcode's clang and needs nothing extra.
+- Some crates compile a little C while installing (probe-rs builds `hidapi`
+  and `capstone`). That's fine. It uses Xcode's clang and needs nothing extra.
 - One prebuilt binary is unavoidable: Espressif's Wi-Fi driver, inside
   `esp-wifi-sys-esp32c6`. It's a normal cargo dependency of the firmware, so
   there is nothing to install for it.
 
 ## Prerequisites
 
-| What | Why | Check |
-|---|---|---|
-| `rustup` | installs the pinned toolchain and target | `rustup --version` |
-| Xcode Command Line Tools | the C compiler some crates use while installing | `xcode-select -p` |
+| What                     | Why                                             | Check              |
+| ------------------------ | ----------------------------------------------- | ------------------ |
+| `rustup`                 | installs the pinned toolchain and target        | `rustup --version` |
+| Xcode Command Line Tools | the C compiler some crates use while installing | `xcode-select -p`  |
 
 Both are already on this Mac (2026-10-15).
 
-## 1. Toolchain _(not run yet)_
+## 1. Toolchain _(done 2026-10-15)_
 
 `rust-toolchain.toml` at the repo root:
 
@@ -44,10 +52,19 @@ rustup toolchain install   # no arguments: reads rust-toolchain.toml
 
 esp-hal 1.2 needs Rust ≥ 1.95.
 
+Never run `rustup show` or `cargo` in the repo while `rust-toolchain.toml`
+names a channel that isn't installed: rustup auto-installs whatever is
+written there, typos included (it warns that this behaviour is deprecated).
+Use `rustup toolchain install` on purpose instead.
+
 Check: `rustup show` lists `riscv32imac-unknown-none-elf` under the active
 toolchain.
 
-## 2. Tools _(not run yet)_
+Result: the download took seconds, and `rustup show` reports `1.99.0`,
+"overridden by rust-toolchain.toml", with both `aarch64-apple-darwin` and
+`riscv32imac-unknown-none-elf` installed.
+
+## 2. Tools _(done 2026-10-15)_
 
 ```sh
 cargo install --locked probe-rs-tools@0.32.0   # probe-rs, cargo-flash, cargo-embed
@@ -58,16 +75,26 @@ cargo install --locked esp-generate@1.4.0      # reference scaffold only
   It talks to the C6's built-in USB-JTAG through the board's USB-C port.
   On macOS that needs no driver.
 - **esp-generate** generates a fresh project in a temp dir, to copy from. It
-  never writes into this repo.
+  never writes into this repo. It checks crates.io for a newer version on
+  each run; pass `--skip-update-check` to stop that.
 
 Check: `probe-rs list` shows the C6 with the board plugged in. This needs no
 antenna, because Wi-Fi stays off.
 
+Result: the builds took about 55 s (probe-rs) and 17 s (esp-generate).
+`probe-rs list` shows `ESP JTAG -- 303a:1001 (EspJtag)`, and
+`probe-rs info` reports `Detected chip: esp32c6`. The probe's serial number
+is the board's MAC address, so keep it out of the docs and logs.
+
 ## 3. Build, flash, test _(not run yet)_
 
-Filled in by Plan steps 2–4 in `docs/sensor.md`:
+Filled in by Plan steps 2–4 in `docs/sensor.md`. `make test` runs the core
+tests, and `make check` runs clippy (host and riscv32imac) plus a fmt check.
 
-- core tests on the Mac: `cargo test -p chatter-core`
+- core tests on the Mac: `cargo test -p chatter-core` _(works)_
+- core still `no_std`: `cargo build -p chatter-core --target
+  riscv32imac-unknown-none-elf` _(works)_. This fails as soon as
+  anything in core pulls in `std`.
 - firmware build, flash and log: _tbd_
 - on-device tests: _tbd_
 
@@ -94,3 +121,12 @@ Then run steps 1 and 2 again.
 
 - 2026-10-15: picked the release set (esp-hal 1.2.2, esp-radio
   1.0.0-beta.2, esp-rtos 0.4.0) and the tools. Nothing installed yet.
+- 2026-10-15: steps 1 and 2. Rust 1.99.0 with the riscv32imac target,
+  probe-rs-tools 0.32.0 and esp-generate 1.4.0 installed. probe-rs sees the
+  C6 over USB-C.
+- 2026-10-15: moved the channel from 1.99.0 to 1.96.0 to match the other
+  projects. The tools didn't need reinstalling.
+- 2026-10-15: back to 1.99.0. Pinned 1.99.0 in panamax, and the mirror now
+  serves `channel-rust-1.99.0.toml`.
+- 2026-10-15: workspace with `chatter-core`. Host tests run (0 tests), and
+  core builds for riscv32imac.

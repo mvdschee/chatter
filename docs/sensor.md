@@ -23,18 +23,18 @@ router.
 
 ## Stack
 
-| Piece | Crate | Version (2026-10-15) |
-|---|---|---|
-| HAL | `esp-hal` (`unstable`) | 1.2.2 |
-| Wi-Fi + sniffer | `esp-radio` (`wifi`, `sniffer`, `unstable`) | 1.0.0-beta.2 |
-| Scheduler / Embassy glue | `esp-rtos` (`esp-radio`, `embassy`) | 0.4.0 |
-| Executor | `embassy-executor` | 0.10.0 |
-| Network stack | `embassy-net` | 0.9.1 |
-| Heap (the radio needs one) | `esp-alloc` | 0.11.0 |
-| Bootloader header | `esp-bootloader-esp-idf` | 0.6.0 |
-| On-device tests | `embedded-test` (`embassy-010`) | 0.7.2 |
-| 802.11 parsing | none: core reads three fixed offsets (`ieee80211` 0.4 only if decoding grows) | — |
-| HTTP client | `reqwless`, or a hand-written POST over `embassy-net` TCP | 0.14.0 |
+| Piece                      | Crate                                                                         | Version (2026-10-15) |
+| -------------------------- | ----------------------------------------------------------------------------- | -------------------- |
+| HAL                        | `esp-hal` (`unstable`)                                                        | 1.2.2                |
+| Wi-Fi + sniffer            | `esp-radio` (`wifi`, `sniffer`, `unstable`)                                   | 1.0.0-beta.2         |
+| Scheduler / Embassy glue   | `esp-rtos` (`esp-radio`, `embassy`)                                           | 0.4.0                |
+| Executor                   | `embassy-executor`                                                            | 0.10.0               |
+| Network stack              | `embassy-net`                                                                 | 0.9.1                |
+| Heap (the radio needs one) | `esp-alloc`                                                                   | 0.11.0               |
+| Bootloader header          | `esp-bootloader-esp-idf`                                                      | 0.6.0                |
+| On-device tests            | `embedded-test` (`embassy-010`)                                               | 0.7.2                |
+| 802.11 parsing             | none: core reads three fixed offsets (`ieee80211` 0.4 only if decoding grows) | —                    |
+| HTTP client                | `reqwless`, or a hand-written POST over `embassy-net` TCP                     | 0.14.0               |
 
 This is the set `esp-generate` 1.4.0 emits (it pins `esp-radio`
 1.0.0-beta.1; beta.2 needs the same esp-hal).
@@ -106,12 +106,12 @@ short … post an event to the application task".
 
 For frames in our BSS, the station is the address that isn't the BSSID:
 
-| ToDS | FromDS | addr1 | addr2 | addr3 | Station | Direction |
-|---|---|---|---|---|---|---|
-| 1 | 0 | BSSID | station | destination | addr2 | upload (tx) |
-| 0 | 1 | station | BSSID | source | addr1 | download (rx) |
-| 0 | 0 | — | — | BSSID | addr1 or addr2 | management |
-| 1 | 1 | — | — | — | — | mesh/WDS: ignore |
+| ToDS | FromDS | addr1   | addr2   | addr3       | Station        | Direction        |
+| ---- | ------ | ------- | ------- | ----------- | -------------- | ---------------- |
+| 1    | 0      | BSSID   | station | destination | addr2          | upload (tx)      |
+| 0    | 1      | station | BSSID   | source      | addr1          | download (rx)    |
+| 0    | 0      | —       | —       | BSSID       | addr1 or addr2 | management       |
+| 1    | 1      | —       | —       | —           | —              | mesh/WDS: ignore |
 
 - **Retries** (retry bit set) are retransmissions of the same frame. Count
   them separately, or byte counts inflate on a noisy link.
@@ -123,9 +123,23 @@ For frames in our BSS, the station is the address that isn't the BSSID:
 Every 60 s, one JSON document:
 
 ```json
-{"sensor":"c6-1","seq":42,"uptime_s":2520,"dropped":0,
- "devices":[{"mac":"aa:bb:…","tx_frames":10,"tx_bytes":1200,
-             "rx_frames":8,"rx_bytes":9000,"retries":1,"rssi_max":-41}]}
+{
+  "sensor": "c6-1",
+  "seq": 42,
+  "uptime_s": 2520,
+  "dropped": 0,
+  "devices": [
+    {
+      "mac": "aa:bb:…",
+      "tx_frames": 10,
+      "tx_bytes": 1200,
+      "rx_frames": 8,
+      "rx_bytes": 9000,
+      "retries": 1,
+      "rssi_max": -41
+    }
+  ]
+}
 ```
 
 - **No clock on the board.** `seq` and `uptime_s` let the collector spot
@@ -139,19 +153,19 @@ Every 60 s, one JSON document:
 Same split as `inkday/docs/project-structure.md`, adapted for firmware. Core is
 its own crate so its tests run on the Mac (see `DECISIONS.md`):
 
-| Path | What |
-|---|---|
-| `Cargo.toml` | workspace: `core`, `firmware` |
-| `core/Cargo.toml` | `chatter-core`, `no_std`, no esp deps |
-| `core/src/models/` | `Frame` (decoded header), `Counters`, `Report` |
-| `core/src/handlers/` | the aggregation: frames in, a report per minute out |
-| `firmware/src/main.rs` | init, spawn tasks |
-| `firmware/src/config.rs` | SSID, PSK and collector URL from build-time `env!` |
-| `firmware/src/error.rs` | one `Error` enum |
-| `firmware/src/services/wifi.rs` | connect, reconnect, power save off |
-| `firmware/src/services/sniffer.rs` | callback plumbing, BSSID filter, static channel |
-| `firmware/src/services/report.rs` | HTTP POST, retry ring buffer |
-| `firmware/tests/` | on-device adapter tests (`embedded-test`) |
+| Path                               | What                                                |
+| ---------------------------------- | --------------------------------------------------- |
+| `Cargo.toml`                       | workspace: `core`, `firmware`                       |
+| `core/Cargo.toml`                  | `chatter-core`, `no_std`, no esp deps               |
+| `core/src/models/`                 | `Frame` (decoded header), `Counters`, `Report`      |
+| `core/src/handlers/`               | the aggregation: frames in, a report per minute out |
+| `firmware/src/main.rs`             | init, spawn tasks                                   |
+| `firmware/src/config.rs`           | SSID, PSK and collector URL from build-time `env!`  |
+| `firmware/src/error.rs`            | one `Error` enum                                    |
+| `firmware/src/services/wifi.rs`    | connect, reconnect, power save off                  |
+| `firmware/src/services/sniffer.rs` | callback plumbing, BSSID filter, static channel     |
+| `firmware/src/services/report.rs`  | HTTP POST, retry ring buffer                        |
+| `firmware/tests/`                  | on-device adapter tests (`embedded-test`)           |
 
 The package is `chatter-core`, not `core`: a crate named `core` would clash
 with Rust's own `core`.
