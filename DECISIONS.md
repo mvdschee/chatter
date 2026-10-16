@@ -51,7 +51,7 @@
 ## 2026-10-16 - Validate counts with an ESP32-C3 test client
 
 **Decision:** `crates/testclient/` (its own workspace) runs on an ESP32-C3 and downloads a known file from a LAN HTTP server. The sensor's counts for its MAC are compared with the exact byte count the C3 logs.
-**Why:** The sensor can only decode single-stream frames. A MacBook, being MIMO, was invisible, so it can't validate anything. The C3 is single-stream like most IoT gear, and it reports exactly what it received.
+**Why:** The sensor can only decode single-stream frames. A multi-stream (MIMO) laptop was invisible, so it can't validate anything. The C3 is single-stream like most IoT gear, and it reports exactly what it received.
 **Alternatives:** A real IoT device compared against router stats (the router has no per-client stats); a phone or laptop (MIMO, invisible).
 
 ## 2026-10-16 - Deduplicate retries by sequence number, not the retry bit
@@ -75,5 +75,5 @@
 ## 2026-10-16 - Learn BSSIDs from probe responses too
 
 **Decision:** `announcement()` in core takes the SSID→BSSID mapping from probe responses as well as beacons. The report lists which networks are known (`nets_known`).
-**Why:** In two runs, both at the far end of the house and next to the router, the network the sensor doesn't join was only learned at uptime 789–790 s. While connected, the C6's driver passes almost no beacons from other access points, but it does pass their probe responses, which carry the same SSID element. `nets_known` makes this visible at the collector, without USB logs.
+**Why:** In two runs, both far from the router and right next to it, the network the sensor doesn't join was only learned at uptime 789–790 s. While connected, the C6's driver passes almost no beacons from other access points, but it does pass their probe responses, which carry the same SSID element. `nets_known` makes this visible at the collector, without USB logs.
 **Alternatives:** BSSIDs in `.env` (breaks when the router changes them); guessing the second BSSID from the first (vendor-specific).

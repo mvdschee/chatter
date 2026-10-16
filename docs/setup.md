@@ -174,14 +174,14 @@ Then run steps 1 and 2 again.
 - 2026-10-15: esp-radio 1.0.0-beta.2 turned out to be yanked; pinned
   1.0.0-beta.1 instead (same source apart from an S31 build fix).
 - 2026-10-15: Wi-Fi (chunk 5). `.env` is read by `firmware/build.rs`. The
-  station joins the IoT network on channel 6 with power save off. The first
+  station joins its network with power save off. The first
   attempt or two after boot fail (`AuthenticationFailed`,
   `FourWayHandshakeTimeout`) before it connects; the retry loop covers it.
 - 2026-10-15: router restart test. The board dropped (`SaQueryTimeout`),
   retried through `NoAccessPointFound` while the router booted, and came
   back on the same BSSID and channel by itself.
 - 2026-10-15: sniffer spike (chunk 6). Promiscuous mode works next to the
-  connected station. About 85 frames/s on channel 6, and no header-less
+  connected station. About 85 frames/s, and no header-less
   frames.
 - 2026-10-15: core (chunk 7). Decode, counters and aggregation; `make test`
   runs 19 host tests.
@@ -196,9 +196,10 @@ Then run steps 1 and 2 again.
   collector) with one shared `target/`. The Python collector stub and the
   Python file server were replaced by `crates/collector` (Rust). Checked end to
   end: the C3 downloaded `/test.bin` from it, and the sensor's reports arrived.
-- 2026-10-16: the first hour-long run showed 453 MACs against 22 real devices.
+- 2026-10-16: the first hour-long run showed hundreds of MACs against a couple
+  of dozen real devices.
   Probe requests and responses are now left out of device counts.
-- 2026-10-16: second hour-long run, next to the router: 25 MACs (20 known),
+- 2026-10-16: second hour-long run, next to the router: only real devices,
   stronger signal. The non-joined network still only showed up at uptime 789 s,
   so BSSIDs are now also learned from probe responses, and reports carry
   `nets_known`.

@@ -1,8 +1,8 @@
 # The sensor
 
 Goal: a C6 near the router counts, per device and per minute, how many frames
-and bytes each device on our own Wi-Fi (both the main and the IoT network)
-sends and receives. It posts those
+and bytes each device on our own Wi-Fi (one or more networks of the same
+router) sends and receives. It posts those
 counts to a collector on a home server. Over weeks that gives each device an hourly
 profile, so "the camera sent 400 MB at 3 a.m." shows up without owning the
 router.
@@ -106,18 +106,19 @@ short … post an event to the application task".
 
 ### Which networks
 
-The router runs two SSIDs, a main one and an IoT one. On one 2.4 GHz radio
-that should mean two BSSIDs on the same channel, so one sensor hears both.
+A router can run several SSIDs, for example a main one and one for IoT. On
+one 2.4 GHz radio that means one BSSID each, on the same channel, so one
+sensor hears them all.
 
-- The sensor **joins the IoT network**. That's where the devices it watches
-  are, and the IoT network can reach the home server.
-- It **counts both**. The sniffer learns the BSSID of each SSID in
+- The sensor **joins one of them** (`CHATTER_WIFI_SSID`), one that can reach
+  the collector.
+- It **counts all watched networks**. The sniffer learns the BSSID of each SSID in
   `CHATTER_WATCH_SSIDS` from beacons and probe responses, which both carry the
   SSID and the BSSID. While connected, the C6's driver passes almost no beacons
   from other access points, but it does pass their probe responses (the router
   answers every phone that probes). The callback then keeps
-  frames from any of them. The filter is a set of two MACs, so it costs no more
-  than one. The joined network's BSSID is also known straight away from the
+  frames from any of them. The filter is a set of up to four MACs, so it costs
+  about the same as one. The joined network's BSSID is also known straight away from the
   connect result.
 - No scan: esp-radio's `scan_async` returned 0 access points on the C6, both
   before and after connecting (2026-10-15). Beacons need no extra API and
@@ -144,7 +145,7 @@ For frames in our BSS, the station is the address that isn't the BSSID:
   for that device and direction. Dropping every retry undercounted by about
   4%; counting every retry would inflate bytes on a noisy link.
 - **Probe requests and responses don't count.** They come from devices
-  *looking* for a network. Counting them turned about 430 passing phones
+  *looking* for a network. Counting them turned hundreds of passing phones
   (random MACs, receive-only, often on both networks at once) into "devices"
   in the first hour-long run (2026-10-16). Authentication, association,
   deauthentication and action frames still count: those come from members
@@ -300,14 +301,14 @@ decode function that lives in core:
    read from the esp-radio 1.0.0-beta.1 source and still needs confirming on
    hardware.
 4. Callback load on a busy channel: how often the channel fills and frames
-   are dropped. The first spike measured about 85 frames/s on channel 6, an
-   evening with light use; we have no busy-channel numbers yet. No
+   are dropped. The first spike measured about 85 frames/s on the router's
+   channel, in a quiet hour; we have no busy-channel numbers yet. No
    header-less (MIMO length-only) frames showed up.
 5. ~~Do both SSIDs have their own BSSID on the same channel?~~ Yes: both are
-   learned from beacons on channel 6.
+   learned on the router's channel.
 6. In the first two hour-long runs, the network the sensor doesn't join was
-   only learned at uptime 789–790 s, both at the far end of the house and next
-   to the router, so it isn't reception. Beacons from other access points
+   only learned at uptime 789–790 s, both far from the router and right next
+   to it, so it isn't reception. Beacons from other access points
    rarely get through the driver while connected. Fix (2026-10-16): learn from
    probe responses too. Check: `nets_known` in the report lists both networks
    from the first minutes.
@@ -360,7 +361,7 @@ don't need the antenna. Each install or setup step also goes into
    **within 1% (+0.8%)**. The small overcount fits A-MPDU block-ack retries:
    they arrive after later sequence numbers, so remembering only the last
    one misses a few duplicates.
-   A MacBook (MIMO) downloading 100 MB was invisible; see
+   A multi-stream (MIMO) laptop downloading 100 MB was invisible; see
    `docs/traffic-visibility.md`.
 9. **Report** to a collector stub on the Mac _(done)_.
    Check, 2026-10-16: reports arrived every 60 s (about 2.6–3.5 KB for 20–28
