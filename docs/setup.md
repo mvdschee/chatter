@@ -203,11 +203,10 @@ Then run steps 1 and 2 again.
   stronger signal. The non-joined network still only showed up at uptime 789 s,
   so BSSIDs are now also learned from probe responses, and reports carry
   `nets_known`.
-- 2026-10-16: open issue. With the probe-response firmware, both networks were
-  known within the first minute, but only report 0 arrived; after that every POST
-  failed (`send`, then `connect`). Ruled out: the probe-rs/RTT attachment and
-  the Mac (firewall off, address unchanged). The old firmware, which had sent
-  53 reports in a row earlier that day, then couldn't connect to Wi-Fi at all,
-  so the cause is most likely outside the code. Suspect: the antenna connector
-  after moving the board. **The board currently runs the old firmware.** Next:
-  check the antenna, reflash (`make run`), run 10 minutes with `make collector`.
+- 2026-10-16: reports after the first failed (`send`, then `connect`). A/B
+  flashes showed it wasn't the probe-response change: small reports (~0.4 KB)
+  always arrived, ~3 KB reports didn't. Cause: a 1.5 KB send buffer with a 5 s
+  timeout, so writing a report had to wait for ACKs midway, which failed once
+  the link got slower. Fixed with a send buffer that fits a whole report, a
+  15 s timeout and one retry; after that every ~3.2 KB report arrived on the
+  first attempt. Also fixed: a report could be sent twice after a long DHCP wait.

@@ -199,8 +199,14 @@ Every 60 s, one JSON document:
   buffer (a full 128-device report fits, see core's tests) and a separate task
   posts it, so a slow collector never stalls counting. If the previous report
   is still sending, the new one is skipped, and the gap shows in `seq`.
-- **When a POST fails,** that report is lost for now: the collector sees a gap
-  in `seq`. Later, keep a few in a small ring buffer and send them when the
+- **Sending:** the socket's send buffer holds a whole report (24 KiB), the
+  connection gives up after 15 s without an ACK, and a failed POST is retried
+  once after 2 s. With a 1.5 KB buffer and a 5 s timeout, ~3 KB reports failed
+  as soon as the link got slower, because writing had to wait for ACKs midway.
+- **Before DHCP completes** nothing can be sent. Newer reports replace the
+  waiting one, so the first minutes can show as a gap in `seq`.
+- **When a POST fails twice,** that report is lost for now: the collector sees
+  a gap in `seq`. Later, keep a few in a small ring buffer and send them when the
   collector is back, dropping the oldest first.
 
 ## Layout

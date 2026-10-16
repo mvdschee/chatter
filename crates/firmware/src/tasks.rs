@@ -14,7 +14,7 @@ use chatter_core::{
 use defmt::{info, warn};
 use embassy_net::Stack;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, signal::Signal};
-use embassy_time::{Duration, Instant, with_deadline};
+use embassy_time::{Duration, Instant, Timer, with_deadline};
 use esp_radio::wifi::sniffer::Sniffer;
 use static_cell::ConstStaticCell;
 
@@ -22,6 +22,9 @@ use crate::{
 	config::{COLLECTOR_ADDR, PERIOD_SECS, SENSOR_NAME},
 	services::{report, sniffer, wifi},
 };
+
+const SEND_ATTEMPTS: u32 = 2;
+const RETRY_DELAY_SECS: u64 = 2;
 
 // ~5 KB: in static memory, so it never sits on the stack
 static TABLE: ConstStaticCell<DeviceTable> = ConstStaticCell::new(DeviceTable::new());
@@ -41,7 +44,8 @@ static PENDING: Mutex<CriticalSectionRawMutex, Pending> = Mutex::new(Pending {
 static READY: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 static SOCKET_RX: ConstStaticCell<[u8; 256]> = ConstStaticCell::new([0; 256]);
-static SOCKET_TX: ConstStaticCell<[u8; 1536]> = ConstStaticCell::new([0; 1536]);
+// a whole report fits, so writing it never waits for ACKs halfway
+static SOCKET_TX: ConstStaticCell<[u8; REPORT_BUF]> = ConstStaticCell::new([0; REPORT_BUF]);
 
 /// Formats bytes for logging; `from_utf8` does not allocate.
 fn fmt(bytes: u32, buf: &mut [u8; 16]) -> &str {
@@ -149,9 +153,22 @@ pub async fn send_reports(stack: Stack<'static>) {
 		READY.wait().await;
 		stack.wait_config_up().await;
 		let pending = PENDING.lock().await;
-		match report::post(stack, addr, &pending.json[..pending.len], rx, tx).await {
-			Ok(()) => info!("report {}: sent, {} B", pending.seq, pending.len),
-			Err(e) => warn!("report {}: not sent: {}", pending.seq, e),
+		// reports written while we waited all landed in `pending`; this sends the
+		// newest, so a signal raised meanwhile must not send it a second time
+		READY.reset();
+		let body = &pending.json[..pending.len];
+		for attempt in 1..=SEND_ATTEMPTS {
+			match report::post(stack, addr, body, rx, tx).await {
+				Ok(()) => {
+					info!("report {}: sent, {} B (attempt {})", pending.seq, pending.len, attempt);
+					break;
+				},
+				Err(e) if attempt < SEND_ATTEMPTS => {
+					warn!("report {}: attempt {} failed: {}, retrying", pending.seq, attempt, e);
+					Timer::after(Duration::from_secs(RETRY_DELAY_SECS)).await;
+				},
+				Err(e) => warn!("report {}: not sent: {}", pending.seq, e),
+			}
 		}
 	}
 }

@@ -10,7 +10,8 @@ use embedded_io_async::Write;
 use crate::{Error, Result};
 
 const PATH: &str = "/report";
-const TIMEOUT_SECS: u64 = 5;
+// no ACK for this long aborts the connection; Wi-Fi in promiscuous mode can be slow
+const TIMEOUT_SECS: u64 = 15;
 
 /// Sends `body` as JSON and expects a 2xx status back.
 pub async fn post(

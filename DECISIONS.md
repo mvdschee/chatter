@@ -65,6 +65,7 @@
 **Decision:** Core writes the report as JSON with `core::fmt` into a 24 KiB buffer (no allocation, and the full-table worst case fits, checked by a test). The aggregate task fills one shared pending buffer and signals a report task, which posts it with plain HTTP/1.0 (`POST /report`, `Content-Length`). If the previous report is still sending, the new one is skipped and the gap shows in `seq`.
 **Why:** Posting inside the counting loop would stall the frame queue for as long as the collector takes, and the queue only holds 64 frames. With one pending buffer, a slow or missing collector costs reports, never counts. HTTP/1.0 with a known length needs no chunking or keep-alive code.
 **Alternatives:** Stream the JSON into the socket (no 24 KiB buffer, but the Content-Length is unknown and serialization would hold the table during network I/O); `reqwless` (more dependencies for one POST); MQTT (needs a broker).
+**Update 2026-10-16:** the socket's send buffer is also 24 KiB, the timeout 15 s, and a failed POST is retried once. With a 1.5 KB buffer and a 5 s timeout, reports over the buffer size failed whenever the link slowed down.
 
 ## 2026-10-16 - All crates under crates/, all tooling in Rust
 
