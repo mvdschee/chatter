@@ -11,7 +11,12 @@ extern crate alloc;
 mod config;
 mod error;
 mod services;
+mod tasks;
 
+use chatter_core::models::{
+	frame::Mac,
+	watched::{Watched, net_for_ssid},
+};
 use defmt::info;
 use embassy_executor::Spawner;
 use esp_hal::{clock::CpuClock, timer::timg::TimerGroup};
@@ -38,9 +43,16 @@ async fn main(spawner: Spawner) -> ! {
 
 	let mut controller = wifi::init(peripherals.WIFI).expect("wifi init failed");
 	let bssid = wifi::connect(&mut controller).await;
-	let sniffer = sniffer::start(&controller, bssid).expect("sniffer start failed");
+
+	// the joined network is known right away; beacons fill in the others
+	let mut watched = Watched::new();
+	if let Some(net) = net_for_ssid(config::WIFI_SSID.as_bytes(), config::WATCH_SSIDS) {
+		watched.learn(net, Mac(bssid));
+	}
+	let sniffer = sniffer::start(&controller, watched).expect("sniffer start failed");
+
 	spawner.spawn(wifi::connection(controller).expect("wifi task already running"));
-	spawner.spawn(sniffer::report(sniffer).expect("sniffer task already running"));
+	spawner.spawn(tasks::aggregate(sniffer).expect("aggregate task already running"));
 
 	loop {
 		core::future::pending::<()>().await;

@@ -5,3 +5,5 @@ pub const WIFI_PASSWORD: &str = env!("CHATTER_WIFI_PASSWORD");
 pub const WATCH_SSIDS: &str = env!("CHATTER_WATCH_SSIDS");
 
 pub const RECONNECT_DELAY_SECS: u64 = 5;
+/// How often the device table is logged and emptied.
+pub const PERIOD_SECS: u64 = 10;

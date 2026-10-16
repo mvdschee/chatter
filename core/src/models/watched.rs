@@ -5,12 +5,22 @@ use crate::models::frame::Mac;
 
 pub const MAX_NETS: usize = 4;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Watched {
 	bssids: [Option<Mac>; MAX_NETS],
 }
 
 impl Watched {
+	pub const fn new() -> Self {
+		Self {
+			bssids: [None; MAX_NETS],
+		}
+	}
+
+	pub fn bssid(&self, net: u8) -> Option<Mac> {
+		self.bssids.get(net as usize).copied().flatten()
+	}
+
 	pub fn net_of(&self, bssid: &Mac) -> Option<u8> {
 		self.bssids.iter().position(|b| b.as_ref() == Some(bssid)).map(|net| net as u8)
 	}
@@ -24,6 +34,12 @@ impl Watched {
 			},
 			_ => false,
 		}
+	}
+}
+
+impl Default for Watched {
+	fn default() -> Self {
+		Self::new()
 	}
 }
 
@@ -50,6 +66,7 @@ mod tests {
 		assert!(w.learn(1, A));
 		assert!(!w.learn(1, A));
 		assert_eq!(w.net_of(&A), Some(1));
+		assert_eq!((w.bssid(0), w.bssid(1)), (None, Some(A)));
 		// the router changed BSSID
 		assert!(w.learn(1, B));
 		assert_eq!((w.net_of(&A), w.net_of(&B)), (None, Some(1)));

@@ -1,89 +1,82 @@
-//! Sniffer spike: counts what the radio hears while the station is connected.
-//! The callback runs in the Wi-Fi driver's receive path, so it only touches
-//! atomics: no blocking, no allocation, no logging.
+//! Sniffer plumbing. The callback runs in the Wi-Fi driver's receive path: it
+//! decodes with core, learns watched BSSIDs from beacons, and queues `Frame`s.
+//! No blocking, no allocation, no logging in there.
 
 use core::{
 	cell::Cell,
 	sync::atomic::{AtomicU32, Ordering::Relaxed},
 };
 
+use chatter_core::models::{
+	frame::{self, Frame},
+	watched::{Watched, net_for_ssid},
+};
 use critical_section::Mutex;
-use defmt::info;
-use embassy_time::{Duration, Timer};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use esp_radio::wifi::{
 	WifiController,
 	sniffer::{PromiscuousPkt, Sniffer},
 };
 
-use crate::Result;
+use crate::{Result, config::WATCH_SSIDS};
 
-// `wifi_promiscuous_pkt_type_t` values; esp-radio doesn't re-export them
-const MGMT: usize = 0;
-const DATA: usize = 2;
-const MISC: usize = 3;
+const QUEUE_LEN: usize = 64;
 
-// frame control (2) + duration (2), then addr1, addr2, addr3
-const ADDR_OFFSETS: [usize; 3] = [4, 10, 16];
-const HEADER_LEN: usize = 24;
-
-const REPORT_SECS: u64 = 10;
-
-static BSSID: Mutex<Cell<[u8; 6]>> = Mutex::new(Cell::new([0; 6]));
-static FRAMES: [AtomicU32; 4] = [const { AtomicU32::new(0) }; 4];
-static BYTES: AtomicU32 = AtomicU32::new(0);
-static OURS_FRAMES: AtomicU32 = AtomicU32::new(0);
-static OURS_DATA: AtomicU32 = AtomicU32::new(0);
-static OURS_BYTES: AtomicU32 = AtomicU32::new(0);
-static SHORT: AtomicU32 = AtomicU32::new(0);
+static WATCHED: Mutex<Cell<Watched>> = Mutex::new(Cell::new(Watched::new()));
+static QUEUE: Channel<CriticalSectionRawMutex, Frame, QUEUE_LEN> = Channel::new();
+static DROPPED: AtomicU32 = AtomicU32::new(0);
+static BEACONS: AtomicU32 = AtomicU32::new(0);
+static BEACONS_WATCHED: AtomicU32 = AtomicU32::new(0);
 
 /// Turns promiscuous mode on. Keep the returned `Sniffer` alive: dropping it
 /// turns sniffing off again.
-pub fn start(controller: &WifiController<'static>, bssid: [u8; 6]) -> Result<Sniffer> {
-	critical_section::with(|cs| BSSID.borrow(cs).set(bssid));
+pub fn start(controller: &WifiController<'static>, watched: Watched) -> Result<Sniffer> {
+	critical_section::with(|cs| WATCHED.borrow(cs).set(watched));
 	let mut sniffer = controller.sniffer();
 	sniffer.set_receive_cb(on_frame);
 	sniffer.set_promiscuous_mode(true)?;
 	Ok(sniffer)
 }
 
-fn on_frame(pkt: PromiscuousPkt<'_>) {
-	FRAMES[(pkt.frame_type as usize).min(MISC)].fetch_add(1, Relaxed);
-	BYTES.fetch_add(pkt.len as u32, Relaxed);
+pub async fn next_frame() -> Frame {
+	QUEUE.receive().await
+}
 
-	// MIMO frames arrive as a length only, without a header
-	if pkt.data.len() < HEADER_LEN {
-		SHORT.fetch_add(1, Relaxed);
+pub fn watched() -> Watched {
+	critical_section::with(|cs| WATCHED.borrow(cs).get())
+}
+
+/// Frames lost because the queue was full, since the last call.
+pub fn take_dropped() -> u32 {
+	DROPPED.swap(0, Relaxed)
+}
+
+/// `(beacons heard, beacons from a watched SSID)` since the last call.
+pub fn take_beacons() -> (u32, u32) {
+	(BEACONS.swap(0, Relaxed), BEACONS_WATCHED.swap(0, Relaxed))
+}
+
+fn on_frame(pkt: PromiscuousPkt<'_>) {
+	if let Some((bssid, ssid)) = frame::beacon(pkt.data) {
+		BEACONS.fetch_add(1, Relaxed);
+		if let Some(net) = net_for_ssid(ssid, WATCH_SSIDS) {
+			BEACONS_WATCHED.fetch_add(1, Relaxed);
+			critical_section::with(|cs| {
+				let cell = WATCHED.borrow(cs);
+				let mut watched = cell.get();
+				if watched.learn(net, bssid) {
+					cell.set(watched);
+				}
+			});
+		}
 		return;
 	}
 
-	let bssid = critical_section::with(|cs| BSSID.borrow(cs).get());
-	let ours = ADDR_OFFSETS.iter().any(|&at| pkt.data[at..at + 6] == bssid);
-	if ours {
-		OURS_FRAMES.fetch_add(1, Relaxed);
-		OURS_BYTES.fetch_add(pkt.len as u32, Relaxed);
-		if pkt.frame_type as usize == DATA {
-			OURS_DATA.fetch_add(1, Relaxed);
-		}
-	}
-}
-
-/// Logs and resets the counters every 10 s. Owns the `Sniffer` to keep it on.
-#[embassy_executor::task]
-pub async fn report(sniffer: Sniffer) {
-	let _sniffer = sniffer;
-	loop {
-		Timer::after(Duration::from_secs(REPORT_SECS)).await;
-		info!(
-			"sniff {}s: mgmt {} data {} misc {}, {} bytes | ours {} frames ({} data), {} bytes | short {}",
-			REPORT_SECS,
-			FRAMES[MGMT].swap(0, Relaxed),
-			FRAMES[DATA].swap(0, Relaxed),
-			FRAMES[MISC].swap(0, Relaxed),
-			BYTES.swap(0, Relaxed),
-			OURS_FRAMES.swap(0, Relaxed),
-			OURS_DATA.swap(0, Relaxed),
-			OURS_BYTES.swap(0, Relaxed),
-			SHORT.swap(0, Relaxed),
-		);
+	let len = pkt.len.min(u16::MAX as usize) as u16;
+	let rssi = pkt.rx_cntl.rssi.clamp(i8::MIN as i32, i8::MAX as i32) as i8;
+	if let Some(frame) = frame::decode(pkt.data, len, rssi, &watched())
+		&& QUEUE.try_send(frame).is_err()
+	{
+		DROPPED.fetch_add(1, Relaxed);
 	}
 }

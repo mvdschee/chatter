@@ -41,3 +41,9 @@
 **Decision:** The sniffer maps each watched SSID to its BSSID from beacon frames. The joined network's BSSID comes from the connect result.
 **Why:** `scan_async` in esp-radio 1.0.0-beta.1 returned 0 access points on the C6, both before and after connecting. Beacons carry both the SSID and the BSSID, need no extra API, and keep working if the router changes BSSIDs.
 **Alternatives:** Debug esp-radio's scan (open-ended); BSSIDs in `.env` (simple, but breaks when the router changes).
+
+## 2026-10-15 - Byte formatting writes into a caller buffer, with integer math
+
+**Decision:** `format_bytes(bytes: u32, buf: &mut [u8; 16]) -> usize` in core writes `"<value> <unit>"` into the buffer (`512 B`, `1.5 KiB`; one truncated decimal above bytes), and `&buf[..len]` is the text. Units are binary (`KiB`/`MiB`/`GiB`, dividing by 1024), up to GiB, which is as far as a `u32` goes. Integer math only.
+**Why:** Core is `no_std` without `alloc`, so there is no `String` to return, and the C6 (RV32IMAC) has no FPU. The fixed 16-byte array makes "fits any `u32`" a compile-time fact, so there is no truncation path. Binary units are labelled as such, because a `kB`/`MB` label on 1024-based values is off by 2.4–4.9%, as large as the Wi-Fi overhead the download test measures.
+**Alternatives:** f64 scaling into a `String` (needs `alloc`, and soft-float on the C6); returning `(value, unit)` and formatting in the firmware (digit math in two places); decimal units dividing by 1000 (fine too, but file sizes and tools disagree on which they mean).

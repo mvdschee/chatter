@@ -165,9 +165,11 @@ version = "0.1.0"
 name = "chatter-firmware"
 version = "0.1.0"
 dependencies = [
+ "chatter-core",
  "critical-section",
  "defmt 1.2.0",
  "embassy-executor",
+ "embassy-sync 0.8.0",
  "embassy-time",
  "embedded-test",
  "esp-alloc",
@@ -177,6 +179,7 @@ dependencies = [
  "esp-rtos",
  "panic-rtt-target",
  "rtt-target",
+ "static_cell",
 ]
 
 [[package]]
