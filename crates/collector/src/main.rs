@@ -154,10 +154,11 @@ fn take_report(body: &[u8], config: &Config, last_seq: &LastSeq) -> Result<(), S
 	let devices = report["devices"].as_array().map(Vec::as_slice).unwrap_or_default();
 	let sum = |key: &str| devices.iter().filter_map(|d| d[key].as_u64()).sum::<u64>();
 	println!(
-		"{} seq {seq} uptime {}s ch {}: {} devices, rx {} B, tx {} B, dropped {}, overflow {}, {} B{gap}",
+		"{} seq {seq} uptime {}s ch {} nets {}: {} devices, rx {} B, tx {} B, dropped {}, overflow {}, {} B{gap}",
 		utc_time(now),
 		report["uptime_s"],
 		report["channel"],
+		report["nets_known"],
 		devices.len(),
 		sum("rx_bytes"),
 		sum("tx_bytes"),

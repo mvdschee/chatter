@@ -1,5 +1,6 @@
 //! Sniffer plumbing. The callback runs in the Wi-Fi driver's receive path: it
-//! decodes with core, learns watched BSSIDs from beacons, and queues `Frame`s.
+//! decodes with core, learns watched BSSIDs from beacons and probe responses,
+//! and queues `Frame`s.
 //! No blocking, no allocation, no logging in there.
 
 use core::{
@@ -25,8 +26,6 @@ const QUEUE_LEN: usize = 64;
 static WATCHED: Mutex<Cell<Watched>> = Mutex::new(Cell::new(Watched::new()));
 static QUEUE: Channel<CriticalSectionRawMutex, Frame, QUEUE_LEN> = Channel::new();
 static DROPPED: AtomicU32 = AtomicU32::new(0);
-static BEACONS: AtomicU32 = AtomicU32::new(0);
-static BEACONS_WATCHED: AtomicU32 = AtomicU32::new(0);
 
 /// Turns promiscuous mode on. Keep the returned `Sniffer` alive: dropping it
 /// turns sniffing off again.
@@ -51,16 +50,9 @@ pub fn take_dropped() -> u32 {
 	DROPPED.swap(0, Relaxed)
 }
 
-/// `(beacons heard, beacons from a watched SSID)` since the last call.
-pub fn take_beacons() -> (u32, u32) {
-	(BEACONS.swap(0, Relaxed), BEACONS_WATCHED.swap(0, Relaxed))
-}
-
 fn on_frame(pkt: PromiscuousPkt<'_>) {
-	if let Some((bssid, ssid)) = frame::beacon(pkt.data) {
-		BEACONS.fetch_add(1, Relaxed);
+	if let Some((bssid, ssid)) = frame::announcement(pkt.data) {
 		if let Some(net) = net_for_ssid(ssid, WATCH_SSIDS) {
-			BEACONS_WATCHED.fetch_add(1, Relaxed);
 			critical_section::with(|cs| {
 				let cell = WATCHED.borrow(cs);
 				let mut watched = cell.get();

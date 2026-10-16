@@ -90,6 +90,7 @@ fn finish_period(table: &mut DeviceTable, seq: u32) {
 		channel: wifi::channel(),
 		dropped: sniffer::take_dropped(),
 		overflow,
+		nets_known: core::array::from_fn(|net| sniffer::watched().bssid(net as u8).is_some()),
 	};
 	let mut devices = 0;
 	let logged = aggregate::drain(table).inspect(|d| {

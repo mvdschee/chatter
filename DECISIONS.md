@@ -71,3 +71,9 @@
 **Decision:** Every crate lives in `crates/`: `core` and `firmware` form the main workspace, while `testclient` (ESP32-C3) and `collector` (host, std) are their own workspaces. All of them share one `target/`, and the makefile is the single entry point. The development collector, which also serves the test client's download, is Rust: std plus `serde_json`.
 **Why:** One place for code, and no Python next to the Rust. The extra workspaces aren't arbitrary: Cargo merges chip features within a workspace (`esp32c3` with `esp32c6`), and rust-analyzer checks the whole workspace for the C6 target, where std doesn't exist.
 **Alternatives:** One workspace with `forced-target` per crate (nightly only); keeping the Python stub (works, but a second language to maintain).
+
+## 2026-10-16 - Learn BSSIDs from probe responses too
+
+**Decision:** `announcement()` in core takes the SSID→BSSID mapping from probe responses as well as beacons. The report lists which networks are known (`nets_known`).
+**Why:** In two runs, both at the far end of the house and next to the router, the network the sensor doesn't join was only learned at uptime 789–790 s. While connected, the C6's driver passes almost no beacons from other access points, but it does pass their probe responses, which carry the same SSID element. `nets_known` makes this visible at the collector, without USB logs.
+**Alternatives:** BSSIDs in `.env` (breaks when the router changes them); guessing the second BSSID from the first (vendor-specific).

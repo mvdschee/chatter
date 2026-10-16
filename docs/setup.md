@@ -196,3 +196,17 @@ Then run steps 1 and 2 again.
   collector) with one shared `target/`. The Python collector stub and the
   Python file server were replaced by `crates/collector` (Rust). Checked end to
   end: the C3 downloaded `/test.bin` from it, and the sensor's reports arrived.
+- 2026-10-16: the first hour-long run showed 453 MACs against 22 real devices.
+  Probe requests and responses are now left out of device counts.
+- 2026-10-16: second hour-long run, next to the router: 25 MACs (20 known),
+  stronger signal. The non-joined network still only showed up at uptime 789 s,
+  so BSSIDs are now also learned from probe responses, and reports carry
+  `nets_known`.
+- 2026-10-16: open issue. With the probe-response firmware, both networks were
+  known within the first minute, but only report 0 arrived; after that every POST
+  failed (`send`, then `connect`). Ruled out: the probe-rs/RTT attachment and
+  the Mac (firewall off, address unchanged). The old firmware, which had sent
+  53 reports in a row earlier that day, then couldn't connect to Wi-Fi at all,
+  so the cause is most likely outside the code. Suspect: the antenna connector
+  after moving the board. **The board currently runs the old firmware.** Next:
+  check the antenna, reflash (`make run`), run 10 minutes with `make collector`.

@@ -112,7 +112,10 @@ that should mean two BSSIDs on the same channel, so one sensor hears both.
 - The sensor **joins the IoT network**. That's where the devices it watches
   are, and the IoT network can reach the home server.
 - It **counts both**. The sniffer learns the BSSID of each SSID in
-  `CHATTER_WATCH_SSIDS` from beacons, which carry both. The callback then keeps
+  `CHATTER_WATCH_SSIDS` from beacons and probe responses, which both carry the
+  SSID and the BSSID. While connected, the C6's driver passes almost no beacons
+  from other access points, but it does pass their probe responses (the router
+  answers every phone that probes). The callback then keeps
   frames from any of them. The filter is a set of two MACs, so it costs no more
   than one. The joined network's BSSID is also known straight away from the
   connect result.
@@ -140,6 +143,12 @@ For frames in our BSS, the station is the address that isn't the BSSID:
   original, that is, when its sequence control differs from the last one seen
   for that device and direction. Dropping every retry undercounted by about
   4%; counting every retry would inflate bytes on a noisy link.
+- **Probe requests and responses don't count.** They come from devices
+  *looking* for a network. Counting them turned about 430 passing phones
+  (random MACs, receive-only, often on both networks at once) into "devices"
+  in the first hour-long run (2026-10-16). Authentication, association,
+  deauthentication and action frames still count: those come from members
+  joining, leaving or managing the link.
 - **Broadcast and multicast** downlink (`addr1` is `ff:…` or has the group
   bit) belongs to no single device.
 
@@ -152,7 +161,10 @@ Every 60 s, one JSON document:
   "sensor": "c6-1",
   "seq": 42,
   "uptime_s": 2520,
+  "channel": 6,
   "dropped": 0,
+  "overflow": 0,
+  "nets_known": [0, 1],
   "devices": [
     {
       "mac": "aa:bb:…",
@@ -165,8 +177,7 @@ Every 60 s, one JSON document:
       "rssi_max": -41
     }
   ],
-  "broadcast": [{ "net": 1, "rx_frames": 40, "rx_bytes": 5200 }],
-  "overflow": 0
+  "broadcast": [{ "net": 1, "rx_frames": 40, "rx_bytes": 5200 }]
 }
 ```
 
@@ -292,9 +303,14 @@ decode function that lives in core:
    are dropped. The first spike measured about 85 frames/s on channel 6, an
    evening with light use; we have no busy-channel numbers yet. No
    header-less (MIMO length-only) frames showed up.
-5. Do both SSIDs really have their own BSSID on the same channel? The
-   beacons show it. If they share one BSSID, the filter can't tell the networks
-   apart, and `net` would have to come from somewhere else.
+5. ~~Do both SSIDs have their own BSSID on the same channel?~~ Yes: both are
+   learned from beacons on channel 6.
+6. In the first two hour-long runs, the network the sensor doesn't join was
+   only learned at uptime 789–790 s, both at the far end of the house and next
+   to the router, so it isn't reception. Beacons from other access points
+   rarely get through the driver while connected. Fix (2026-10-16): learn from
+   probe responses too. Check: `nets_known` in the report lists both networks
+   from the first minutes.
 
 ## Plan
 

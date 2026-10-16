@@ -21,6 +21,9 @@ pub struct ReportHeader<'a> {
 	pub dropped: u32,
 	/// Frames from devices that didn't fit in the table.
 	pub overflow: u32,
+	/// Which watched networks have a learned BSSID; until then, their frames
+	/// can't be told apart from the neighbours' and aren't counted.
+	pub nets_known: [bool; MAX_NETS],
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -50,9 +53,18 @@ fn write_all(
 ) -> fmt::Result {
 	write!(
 		out,
-		r#"{{"sensor":"{}","seq":{},"uptime_s":{},"channel":{},"dropped":{},"overflow":{},"devices":["#,
+		r#"{{"sensor":"{}","seq":{},"uptime_s":{},"channel":{},"dropped":{},"overflow":{},"nets_known":["#,
 		h.sensor, h.seq, h.uptime_s, h.channel, h.dropped, h.overflow
 	)?;
+	let mut first = true;
+	for net in (0..MAX_NETS).filter(|&net| h.nets_known[net]) {
+		if !first {
+			out.write_char(',')?;
+		}
+		first = false;
+		write!(out, "{net}")?;
+	}
+	out.write_str(r#"],"devices":["#)?;
 	for (i, d) in devices.enumerate() {
 		if i > 0 {
 			out.write_char(',')?;
@@ -126,6 +138,7 @@ mod tests {
 			channel: 6,
 			dropped: 1,
 			overflow: 0,
+			nets_known: [true, false, true, false],
 		}
 	}
 
@@ -160,6 +173,7 @@ mod tests {
 		assert_eq!(v["seq"], 42);
 		assert_eq!(v["channel"], 6);
 		assert_eq!(v["dropped"], 1);
+		assert_eq!(v["nets_known"], serde_json::json!([0, 2]));
 		assert_eq!(v["devices"].as_array().unwrap().len(), 0);
 		assert_eq!(v["broadcast"].as_array().unwrap().len(), 0);
 	}

@@ -13,14 +13,17 @@ const SEQ_CTRL: usize = 22;
 // frame control, byte 0: type in bits 2-3, subtype in bits 4-7
 const TYPE_MGMT: u8 = 0;
 const TYPE_DATA: u8 = 2;
+const SUBTYPE_PROBE_REQUEST: u8 = 4;
+const SUBTYPE_PROBE_RESPONSE: u8 = 5;
 const SUBTYPE_BEACON: u8 = 8;
 // frame control, byte 1
 const TO_DS: u8 = 0x01;
 const FROM_DS: u8 = 0x02;
 const RETRY: u8 = 0x08;
 
-// beacon body: timestamp (8), interval (2), capabilities (2), then elements
-const BEACON_ELEMENTS: usize = HEADER_LEN + 12;
+// beacon and probe response body: timestamp (8), interval (2), capabilities
+// (2), then elements
+const ANNOUNCEMENT_ELEMENTS: usize = HEADER_LEN + 12;
 const ELEMENT_SSID: u8 = 0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,7 +65,9 @@ pub struct Frame {
 }
 
 /// Applies the address table from docs/sensor.md. `None` for frames from
-/// other networks, control frames, beacons, WDS, and anything too short.
+/// other networks, control frames, beacons, probes, WDS, and anything too
+/// short. Probe requests and responses come from devices *looking* for a
+/// network, mostly passing phones with random MACs, not from members of it.
 pub fn decode(data: &[u8], len: u16, rssi: i8, watched: &Watched) -> Option<Frame> {
 	if data.len() < HEADER_LEN {
 		return None;
@@ -74,7 +79,12 @@ pub fn decode(data: &[u8], len: u16, rssi: i8, watched: &Watched) -> Option<Fram
 	let (bssid, station, direction) = match (kind, flags & TO_DS != 0, flags & FROM_DS != 0) {
 		(TYPE_DATA, true, false) => (Mac::at(data, ADDR1), Mac::at(data, ADDR2), Direction::Up),
 		(TYPE_DATA, false, true) => (Mac::at(data, ADDR2), Mac::at(data, ADDR1), Direction::Down),
-		(TYPE_MGMT, false, false) if subtype != SUBTYPE_BEACON => {
+		(TYPE_MGMT, false, false)
+			if !matches!(
+				subtype,
+				SUBTYPE_BEACON | SUBTYPE_PROBE_REQUEST | SUBTYPE_PROBE_RESPONSE
+			) =>
+		{
 			let bssid = Mac::at(data, ADDR3);
 			let (addr1, addr2) = (Mac::at(data, ADDR1), Mac::at(data, ADDR2));
 			if addr2 == bssid {
@@ -99,19 +109,21 @@ pub fn decode(data: &[u8], len: u16, rssi: i8, watched: &Watched) -> Option<Fram
 	})
 }
 
-/// `(bssid, ssid)` if this is a beacon. Hidden networks give an empty or
-/// zeroed SSID.
-pub fn beacon(data: &[u8]) -> Option<(Mac, &[u8])> {
-	if data.len() < BEACON_ELEMENTS {
+/// `(bssid, ssid)` if this frame announces a network: a beacon, or a probe
+/// response. While connected, the C6's driver passes few beacons from other
+/// access points, but it does pass their probe responses, which carry the same
+/// SSID element. Hidden networks give an empty or zeroed SSID.
+pub fn announcement(data: &[u8]) -> Option<(Mac, &[u8])> {
+	if data.len() < ANNOUNCEMENT_ELEMENTS {
 		return None;
 	}
 	let kind = (data[0] >> 2) & 0x03;
 	let subtype = data[0] >> 4;
-	if kind != TYPE_MGMT || subtype != SUBTYPE_BEACON {
+	if kind != TYPE_MGMT || !matches!(subtype, SUBTYPE_BEACON | SUBTYPE_PROBE_RESPONSE) {
 		return None;
 	}
 
-	let mut at = BEACON_ELEMENTS;
+	let mut at = ANNOUNCEMENT_ELEMENTS;
 	while at + 2 <= data.len() {
 		let (id, len) = (data[at], data[at + 1] as usize);
 		let body = data.get(at + 2..at + 2 + len)?;
@@ -137,6 +149,8 @@ mod tests {
 	const QOS_DATA: u8 = (TYPE_DATA << 2) | (8 << 4);
 	const PROBE_REQUEST: u8 = (TYPE_MGMT << 2) | (4 << 4);
 	const PROBE_RESPONSE: u8 = (TYPE_MGMT << 2) | (5 << 4);
+	const ASSOC_REQUEST: u8 = TYPE_MGMT << 2;
+	const ACTION: u8 = (TYPE_MGMT << 2) | (13 << 4);
 	const BEACON: u8 = (TYPE_MGMT << 2) | (SUBTYPE_BEACON << 4);
 	const ACK: u8 = (1 << 2) | (13 << 4);
 
@@ -188,9 +202,9 @@ mod tests {
 
 	#[test]
 	fn management_both_ways() {
-		let down = decode_header(&header(PROBE_RESPONSE, 0, STATION, BSSID, BSSID)).unwrap();
+		let down = decode_header(&header(ACTION, 0, STATION, BSSID, BSSID)).unwrap();
 		assert_eq!((down.station, down.direction), (STATION, Direction::Down));
-		let up = decode_header(&header(PROBE_REQUEST, 0, BSSID, STATION, BSSID)).unwrap();
+		let up = decode_header(&header(ASSOC_REQUEST, 0, BSSID, STATION, BSSID)).unwrap();
 		assert_eq!((up.station, up.direction), (STATION, Direction::Up));
 	}
 
@@ -216,16 +230,18 @@ mod tests {
 		assert!(decode_header(&header(DATA, TO_DS | FROM_DS, BSSID, STATION, PEER)).is_none());
 		// control
 		assert!(decode_header(&header(ACK, 0, STATION, BSSID, BSSID)).is_none());
-		// beacons go through `beacon()`
+		// beacons go through `announcement()`
 		assert!(decode_header(&header(BEACON, 0, BROADCAST, BSSID, BSSID)).is_none());
-		// broadcast probe request: addr3 isn't a BSSID
+		// probes: a device looking for networks, not a member of ours
 		assert!(decode_header(&header(PROBE_REQUEST, 0, BROADCAST, STATION, BROADCAST)).is_none());
+		assert!(decode_header(&header(PROBE_REQUEST, 0, BSSID, STATION, BSSID)).is_none());
+		assert!(decode_header(&header(PROBE_RESPONSE, 0, STATION, BSSID, BSSID)).is_none());
 		// too short (MIMO length-only)
 		assert!(decode_header(&header(DATA, TO_DS, BSSID, STATION, PEER)[..20]).is_none());
 	}
 
-	fn beacon_frame(ssid: &[u8]) -> Vec<u8> {
-		let mut f = header(BEACON, 0, BROADCAST, BSSID, BSSID).to_vec();
+	fn announcing(fc0: u8, a1: Mac, ssid: &[u8]) -> Vec<u8> {
+		let mut f = header(fc0, 0, a1, BSSID, BSSID).to_vec();
 		f.extend_from_slice(&[0; 12]);
 		// a non-SSID element first, to check the walk
 		f.extend_from_slice(&[1, 2, 0x82, 0x84]);
@@ -235,14 +251,23 @@ mod tests {
 	}
 
 	#[test]
-	fn beacon_gives_bssid_and_ssid() {
-		assert_eq!(beacon(&beacon_frame(b"home")), Some((BSSID, &b"home"[..])));
+	fn beacon_announces() {
+		let f = announcing(BEACON, BROADCAST, b"home");
+		assert_eq!(announcement(&f), Some((BSSID, &b"home"[..])));
 	}
 
 	#[test]
-	fn beacon_rejects_other_frames_and_truncation() {
-		assert!(beacon(&header(PROBE_RESPONSE, 0, STATION, BSSID, BSSID)).is_none());
-		let full = beacon_frame(b"home");
-		assert!(beacon(&full[..full.len() - 1]).is_none());
+	fn probe_response_announces() {
+		let f = announcing(PROBE_RESPONSE, STATION, b"iot");
+		assert_eq!(announcement(&f), Some((BSSID, &b"iot"[..])));
+	}
+
+	#[test]
+	fn other_frames_and_truncation_announce_nothing() {
+		// same layout, but a probe request comes from a device, not a network
+		assert!(announcement(&announcing(PROBE_REQUEST, BSSID, b"home")).is_none());
+		assert!(announcement(&announcing(ACTION, STATION, b"home")).is_none());
+		let full = announcing(BEACON, BROADCAST, b"home");
+		assert!(announcement(&full[..full.len() - 1]).is_none());
 	}
 }
