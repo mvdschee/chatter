@@ -183,27 +183,36 @@ Every 60 s, one JSON document:
 - **No clock on the board.** `seq` and `uptime_s` let the collector spot
   restarts and gaps, and the collector stamps the receive time. That avoids
   SNTP for now.
-- **When a POST fails,** keep a few reports in a small ring buffer and send
-  them later. Drop the oldest first.
+- **One report waits at a time.** The aggregate task writes it into a 24 KiB
+  buffer (a full 128-device report fits, see core's tests) and a separate task
+  posts it, so a slow collector never stalls counting. If the previous report
+  is still sending, the new one is skipped, and the gap shows in `seq`.
+- **When a POST fails,** that report is lost for now: the collector sees a gap
+  in `seq`. Later, keep a few in a small ring buffer and send them when the
+  collector is back, dropping the oldest first.
 
 ## Layout
 
 Same split as `inkday/docs/project-structure.md`, adapted for firmware. Core is
 its own crate so its tests run on the Mac (see `DECISIONS.md`):
 
-| Path                               | What                                                |
-| ---------------------------------- | --------------------------------------------------- |
-| `Cargo.toml`                       | workspace: `core`, `firmware`                       |
-| `core/Cargo.toml`                  | `chatter-core`, `no_std`, no esp deps               |
-| `core/src/models/`                 | `Frame` (decoded header), `Counters`, `Report`      |
-| `core/src/handlers/`               | the aggregation: frames in, a report per minute out |
-| `firmware/src/main.rs`             | init, spawn tasks                                   |
-| `firmware/src/config.rs`           | SSID, PSK, watched SSIDs and collector URL, from `.env` at build time |
-| `firmware/src/error.rs`            | one `Error` enum                                    |
-| `firmware/src/services/wifi.rs`    | connect, reconnect, power save off                  |
-| `firmware/src/services/sniffer.rs` | callback plumbing, BSSID filter, static channel     |
-| `firmware/src/services/report.rs`  | HTTP POST, retry ring buffer                        |
-| `firmware/tests/`                  | on-device adapter tests (`embedded-test`)           |
+| Path | What |
+| --- | --- |
+| `Cargo.toml` | main workspace: `crates/core`, `crates/firmware` |
+| `crates/core/` | `chatter-core`: `no_std`, no esp deps, host tests |
+| `crates/core/src/models/` | `Frame` decode, `Watched`, `Counters`, the JSON report |
+| `crates/core/src/handlers/` | the aggregation: frames in, per-device counters out |
+| `crates/firmware/src/main.rs` | init, spawn tasks |
+| `crates/firmware/src/config.rs` | SSID, PSK, watched SSIDs and collector address, from `.env` at build time |
+| `crates/firmware/src/error.rs` | one `Error` enum |
+| `crates/firmware/src/services/wifi.rs` | connect, reconnect, power save off |
+| `crates/firmware/src/services/sniffer.rs` | callback plumbing, BSSID learning, static queue |
+| `crates/firmware/src/services/net.rs` | IP stack on the station: DHCP, TCP |
+| `crates/firmware/src/services/report.rs` | HTTP POST of one report |
+| `crates/firmware/src/tasks.rs` | aggregation loop, pending report, report sender |
+| `crates/firmware/tests/` | on-device adapter tests (`embedded-test`) |
+| `crates/testclient/` | ESP32-C3 download client for validating counts (own workspace) |
+| `crates/collector/` | dev collector, plus the test client's download (own workspace, std) |
 
 The package is `chatter-core`, not `core`: a crate named `core` would clash
 with Rust's own `core`.
@@ -212,7 +221,7 @@ Where the inkday template doesn't carry over:
 
 - **`.cargo/config.toml`:** no `target-cpu=native` or lld. It only sets the
   probe-rs runner for `riscv32imac-unknown-none-elf`; the linker scripts are
-  in `firmware/build.rs`. There's no default `build.target`, or
+  in `crates/firmware/build.rs`. There's no default `build.target`, or
   `cargo test -p chatter-core` would stop running on the Mac. Instead
   `default-members = ["core"]` keeps a plain `cargo build` on the Mac, and
   the makefile passes `--target` for the firmware.
@@ -241,7 +250,7 @@ decode function that lives in core:
   retry bit. No allocation, and nothing is copied until the final struct.
 - Same idea as `TryFrom<PgRow>`: core owns the decode, the adapter only feeds
   it bytes: `decode(data, len, rssi, &watched) -> Option<Frame>` and
-  `beacon(data) -> Option<(Mac, &[u8])>` in `core/src/models/frame.rs`,
+  `beacon(data) -> Option<(Mac, &[u8])>` in `crates/core/src/models/frame.rs`,
   tested on the Mac against the address table.
 
 ## Pitfalls
@@ -263,7 +272,7 @@ decode function that lives in core:
 - **MAC randomisation.** Phones may use a private MAC per network, and some
   rotate it. Expect "new" devices that aren't.
 - **Credentials.** The SSIDs and PSK come from a git-ignored `.env`, which
-  `firmware/build.rs` reads at build time. Never commit them, and keep them
+  `crates/firmware/build.rs` reads at build time. Never commit them, and keep them
   out of logs. They do end up inside the firmware binary in `target/`.
 - **Unstable API.** Pin versions (see Stack).
 
@@ -297,12 +306,12 @@ don't need the antenna. Each install or setup step also goes into
    `esp-generate`.
    Check: `rustup show` lists the target, and `probe-rs list` sees the C6
    over USB-C.
-2. **Workspace:** root `Cargo.toml`, `core/Cargo.toml`, and a `.gitignore`
+2. **Workspace:** root `Cargo.toml`, `crates/core/Cargo.toml`, and a `.gitignore`
    with `target/` and `.env` (before the first build).
-   `core/src/lib.rs` starts as `#![cfg_attr(not(test), no_std)]`.
+   `crates/core/src/lib.rs` starts as `#![cfg_attr(not(test), no_std)]`.
    Check: `cargo test -p chatter-core` runs on the Mac.
 3. **Firmware boots:** generate a reference project with `esp-generate` in
-   a temp dir. Copy into `firmware/` only what's needed (main, `.cargo`
+   a temp dir. Copy into `crates/firmware/` only what's needed (main, `.cargo`
    config, linker setup, logging). Log a heartbeat every second.
    Check: it builds, clippy is clean, and `cargo run` flashes the board and
    shows the heartbeat.
@@ -322,7 +331,7 @@ don't need the antenna. Each install or setup step also goes into
 8. **Per-device counts** _(done)_: the callback decodes with core and queues
    `Frame`s; an aggregation task keeps per-MAC counters and logs them every
    10 s.
-   Check, 2026-10-16: an ESP32-C3 test client (`testclient/`, single-stream)
+   Check, 2026-10-16: an ESP32-C3 test client (`crates/testclient/`, single-stream)
    downloaded exactly 10,485,962 bytes from a LAN HTTP server. Over the same
    window the sensor counted 6,884 rx frames, about 10.1 MB, plus 4,400
    retries, with 0 dropped. At about 1,460 B of TCP payload per frame the
@@ -337,9 +346,14 @@ don't need the antenna. Each install or setup step also goes into
    one misses a few duplicates.
    A MacBook (MIMO) downloading 100 MB was invisible; see
    `docs/traffic-visibility.md`.
-9. **Report** to a collector stub on the Mac.
-   Check: reports arrive every 60 s, with `seq` going up and `dropped`
-   reported.
+9. **Report** to a collector stub on the Mac _(done)_.
+   Check, 2026-10-16: reports arrived every 60 s (about 2.6–3.5 KB for 20–28
+   devices), `seq` went up, and `dropped` was reported (0). With the stub
+   stopped for one period, that report logged `not sent: Report(connect)`;
+   counting went on, and the next report arrived, leaving the gap 0, 1, 2, 4.
+9b. **Retry ring buffer:** keep the last few unsent reports and send them once
+   the collector is back.
+   Check: stop the stub for 3 minutes; after restarting it, the gap is filled.
 10. **Collector on the home server.** It keeps the long-term device list:
     a device with no traffic for 14 days counts as gone, and a MAC it has
     never seen before is flagged as new.

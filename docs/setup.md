@@ -105,8 +105,12 @@ tests, and `make check` runs clippy (host and riscv32imac) plus a fmt check.
 - Expected at boot: `WARN RcFastDivClk calibration failed`. It comes from
   esp-hal's clock setup and doesn't stop the boot. The cause hasn't been
   looked into.
+- collector: `make collector` _(works)_ runs `crates/collector` (Rust, std plus
+  `serde_json`) on `CHATTER_COLLECTOR_ADDR` from `.env`, and appends each
+  report to `/tmp/chatter-reports.jsonl`. The firmware build needs that key
+  too: reports go to `POST /report` there.
 - on-device tests: `make test-device` _(works)_. `embedded-test` flashes
-  each file in `firmware/tests/` and reports pass or fail like `cargo test`.
+  each file in `crates/firmware/tests/` and reports pass or fail like `cargo test`.
   Checked both ways: a broken assertion shows `FAILED` and exits 1.
 - `make check` lints the firmware with `--bins --tests`, not
   `--all-targets`: that would also build the binary as a test, which
@@ -114,25 +118,22 @@ tests, and `make check` runs clippy (host and riscv32imac) plus a fmt check.
 
 ## 4. Test client on an ESP32-C3 _(works)_
 
-`testclient/` is a single-stream client that downloads a known file, so the
-sensor's counts can be checked against an exact number.
+`crates/testclient` is a single-stream client that downloads a known file, so
+the sensor's counts can be checked against an exact number.
 
-- It's its own workspace (`exclude` in the root `Cargo.toml`). Inside the main
-  one, its `esp32c3` features would merge with the firmware's `esp32c6` ones
-  whenever rust-analyzer checks everything for one target.
+- It's its own workspace (`exclude` in the root `Cargo.toml`), and so is
+  `crates/collector`. Inside the main one, the C3's `esp32c3` features would
+  merge with the firmware's `esp32c6` ones, and the collector's `std` can't
+  build for the C6 target rust-analyzer checks everything for. All three
+  workspaces share the repo's `target/` (`build.target-dir` in
+  `.cargo/config.toml`).
 - The target is `riscv32imc-unknown-none-elf` (the C3 has no atomics
   extension), listed in `rust-toolchain.toml`. The mirror serves it.
-- `.env` gets `CHATTER_TEST_ADDR=<ip>:<port>` of a LAN HTTP server that serves
-  `/test.bin`, plus `CHATTER_PROBE_C6` and `CHATTER_PROBE_C3` (the
-  `VID:PID:serial` from `probe-rs list`; the serial is the board's MAC). The
-  makefile passes them as `PROBE_RS_PROBE`.
-- A file server on the Mac, for example:
-  ```sh
-  mkdir -p /tmp/chatter-serve
-  dd if=/dev/urandom of=/tmp/chatter-serve/test.bin bs=1048576 count=10
-  python3 -m http.server 8000 --bind "$(ipconfig getifaddr en0)" --directory /tmp/chatter-serve
-  ```
-- `make run` (sensor) and `make test-client` (C3) in two terminals.
+- `.env` gets `CHATTER_PROBE_C6` and `CHATTER_PROBE_C3` (the `VID:PID:serial`
+  from `probe-rs list`; the serial is the board's MAC). The makefile passes
+  them as `PROBE_RS_PROBE`. The client downloads from `CHATTER_COLLECTOR_ADDR`.
+- Three terminals: `make collector-test` (the collector, plus a 10 MiB
+  `GET /test.bin`), `make run` (sensor), `make test-client` (C3).
 
 ## Start over
 
@@ -189,3 +190,9 @@ Then run steps 1 and 2 again.
   the sensor counted about 96% of the frames as new, plus retries.
 - 2026-10-16: sequence-number deduplication. The C3 rerun is within 1% of the
   expected on-air bytes (11,338,668 B counted against about 11,253,600 B expected).
+- 2026-10-16: reporting (chunk 9). The period is now 60 s; a JSON report goes
+  to the collector stub over HTTP. New `.env` key: `CHATTER_COLLECTOR_ADDR`.
+- 2026-10-16: everything moved under `crates/` (core, firmware, testclient,
+  collector) with one shared `target/`. The Python collector stub and the
+  Python file server were replaced by `crates/collector` (Rust). Checked end to
+  end: the C3 downloaded `/test.bin` from it, and the sensor's reports arrived.

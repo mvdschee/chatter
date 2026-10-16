@@ -2,8 +2,8 @@
 
 ## Override of the global rules
 
-- **Claude writes `core/` in this project**, both `core/src/models/` and
-  `core/src/handlers/`. This replaces "The Core Rule" in the global
+- **Claude writes `crates/core/` in this project**, both `crates/core/src/models/` and
+  `crates/core/src/handlers/`. This replaces "The Core Rule" in the global
   CLAUDE.md. Everything else there still applies.
 - Work in small, reviewable chunks, one commit each, following the plan in
   `docs/sensor.md`.

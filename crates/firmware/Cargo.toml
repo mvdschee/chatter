@@ -27,6 +27,10 @@ esp-alloc = { version = "=0.11.0", features = ["defmt", "esp32c6"] }
 esp-radio = { version = "=1.0.0-beta.1", features = ["defmt", "esp-alloc", "esp32c6", "sniffer", "unstable", "wifi"] }
 critical-section = "1.2.0"
 embassy-sync = "0.8.0"
+
+# Network
+embassy-net = { version = "=0.9.1", features = ["defmt", "dhcpv4", "medium-ethernet", "tcp"] }
+embedded-io-async = "0.7.0"
 static_cell = "2.1.1"
 
 # Async

@@ -36,7 +36,7 @@ panic-rtt-target = { version = "0.2.0", features = ["defmt"] }
 [lints.rust]
 unsafe_code = "forbid"
 
-# not part of the main workspace (see ../Cargo.toml), so it has its own profiles
+# not part of the main workspace (see ../../Cargo.toml), so it has its own profiles
 [workspace]
 
 [profile.dev]

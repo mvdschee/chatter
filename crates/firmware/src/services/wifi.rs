@@ -1,6 +1,8 @@
 //! Station connection: join the network from `.env`, keep power save off, and
 //! reconnect when the link drops. SSIDs and the password are never logged.
 
+use core::sync::atomic::{AtomicU8, Ordering::Relaxed};
+
 use defmt::{info, warn};
 use embassy_time::{Duration, Timer};
 use esp_hal::peripherals::WIFI;
@@ -13,6 +15,13 @@ use crate::{
 	Result,
 	config::{RECONNECT_DELAY_SECS, WIFI_PASSWORD, WIFI_SSID},
 };
+
+static CHANNEL: AtomicU8 = AtomicU8::new(0);
+
+/// The channel of the current connection; 0 before the first one.
+pub fn channel() -> u8 {
+	CHANNEL.load(Relaxed)
+}
 
 #[allow(
 	clippy::large_stack_frames,
@@ -39,6 +48,7 @@ pub async fn connect(controller: &mut WifiController<'static>) -> [u8; 6] {
 					"wifi: connected, bssid {=[u8]:02x}, channel {}, rssi {}",
 					connected.bssid, connected.channel, rssi
 				);
+				CHANNEL.store(connected.channel, Relaxed);
 				return connected.bssid;
 			},
 			// log the reason only: the error also carries the SSID

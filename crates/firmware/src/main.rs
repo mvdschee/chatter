@@ -23,7 +23,8 @@ use esp_hal::{clock::CpuClock, timer::timg::TimerGroup};
 use panic_rtt_target as _;
 
 pub use error::{Error, Result};
-use services::{sniffer, wifi};
+use esp_radio::wifi::Interface;
+use services::{net, sniffer, wifi};
 
 // app descriptor the esp-idf bootloader expects
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -51,8 +52,12 @@ async fn main(spawner: Spawner) -> ! {
 	}
 	let sniffer = sniffer::start(&controller, watched).expect("sniffer start failed");
 
+	let (stack, runner) = net::init(Interface::station());
+
 	spawner.spawn(wifi::connection(controller).expect("wifi task already running"));
+	spawner.spawn(net::run(runner).expect("net task already running"));
 	spawner.spawn(tasks::aggregate(sniffer).expect("aggregate task already running"));
+	spawner.spawn(tasks::send_reports(stack).expect("report task already running"));
 
 	loop {
 		core::future::pending::<()>().await;

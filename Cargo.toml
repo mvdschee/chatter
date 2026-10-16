@@ -1,11 +1,12 @@
 [workspace]
 resolver = "3"
-members = ["core", "firmware"]
-# its own workspace: in this one, its esp32c3 features would clash with the
-# firmware's esp32c6 ones whenever rust-analyzer checks everything together
-exclude = ["testclient"]
+members = ["crates/core", "crates/firmware"]
+# each its own workspace: the test client's esp32c3 features would clash with
+# the firmware's esp32c6 ones, and the collector needs std, which the C6 target
+# that rust-analyzer checks everything for doesn't have
+exclude = ["crates/testclient", "crates/collector"]
 # plain `cargo test` / `cargo build` stay on the Mac; firmware needs --target (see makefile)
-default-members = ["core"]
+default-members = ["crates/core"]
 
 [profile.dev]
 # unoptimized builds are too slow and too big for the C6

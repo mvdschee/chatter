@@ -14,7 +14,7 @@
 
 ## 2026-10-15 - Core is its own crate, tested on the Mac
 
-**Decision:** A Cargo workspace: `core/` is a `no_std` library with no esp dependencies, and `firmware/` is the binary (main, config, error, services), which depends on core.
+**Decision:** A Cargo workspace: `crates/core/` is a `no_std` library with no esp dependencies, and `crates/firmware/` is the binary (main, config, error, services), which depends on core.
 **Why:** A test binary built for `riscv32imac` can't run on the Mac. Core is pure logic (header bytes in, counters out), so it should be tested with a plain `cargo test` in seconds. Cargo then enforces that core never imports esp code.
 **Alternatives:** One crate with esp deps gated to `riscv32` and tests run with `--target aarch64-apple-darwin` (it works, but only convention keeps core clean); all tests on the device (a flash cycle per run, which doesn't help pure logic).
 
@@ -50,7 +50,7 @@
 
 ## 2026-10-16 - Validate counts with an ESP32-C3 test client
 
-**Decision:** `testclient/` (its own workspace) runs on an ESP32-C3 and downloads a known file from a LAN HTTP server. The sensor's counts for its MAC are compared with the exact byte count the C3 logs.
+**Decision:** `crates/testclient/` (its own workspace) runs on an ESP32-C3 and downloads a known file from a LAN HTTP server. The sensor's counts for its MAC are compared with the exact byte count the C3 logs.
 **Why:** The sensor can only decode single-stream frames. A MacBook, being MIMO, was invisible, so it can't validate anything. The C3 is single-stream like most IoT gear, and it reports exactly what it received.
 **Alternatives:** A real IoT device compared against router stats (the router has no per-client stats); a phone or laptop (MIMO, invisible).
 
@@ -59,3 +59,15 @@
 **Decision:** Every retry counts toward `retries`. Its frames and bytes only count when its sequence control differs from the last one seen for that device and direction, that is, when the sensor missed the original.
 **Why:** Dropping every retry undercounted a known 10 MiB download by about 4%: when the sensor missed a first transmission, the retry was the only copy it heard. With deduplication the count is within 1% of the expected on-air bytes.
 **Alternatives:** Ignore the retry bit (inflates bytes on noisy links); keep a window of recent sequence numbers per device (catches A-MPDU block-ack retries that arrive out of order, but costs more memory per device for well under 1%).
+
+## 2026-10-16 - Reports: JSON in a fixed buffer, posted by a separate task
+
+**Decision:** Core writes the report as JSON with `core::fmt` into a 24 KiB buffer (no allocation, and the full-table worst case fits, checked by a test). The aggregate task fills one shared pending buffer and signals a report task, which posts it with plain HTTP/1.0 (`POST /report`, `Content-Length`). If the previous report is still sending, the new one is skipped and the gap shows in `seq`.
+**Why:** Posting inside the counting loop would stall the frame queue for as long as the collector takes, and the queue only holds 64 frames. With one pending buffer, a slow or missing collector costs reports, never counts. HTTP/1.0 with a known length needs no chunking or keep-alive code.
+**Alternatives:** Stream the JSON into the socket (no 24 KiB buffer, but the Content-Length is unknown and serialization would hold the table during network I/O); `reqwless` (more dependencies for one POST); MQTT (needs a broker).
+
+## 2026-10-16 - All crates under crates/, all tooling in Rust
+
+**Decision:** Every crate lives in `crates/`: `core` and `firmware` form the main workspace, while `testclient` (ESP32-C3) and `collector` (host, std) are their own workspaces. All of them share one `target/`, and the makefile is the single entry point. The development collector, which also serves the test client's download, is Rust: std plus `serde_json`.
+**Why:** One place for code, and no Python next to the Rust. The extra workspaces aren't arbitrary: Cargo merges chip features within a workspace (`esp32c3` with `esp32c6`), and rust-analyzer checks the whole workspace for the C6 target, where std doesn't exist.
+**Alternatives:** One workspace with `forced-target` per crate (nightly only); keeping the Python stub (works, but a second language to maintain).

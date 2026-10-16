@@ -1,6 +1,6 @@
 //! ESP32-C3 test client. Single-stream, so the sensor can decode its traffic:
-//! it joins the network, downloads `/test.bin` from `CHATTER_TEST_ADDR` once a
-//! minute, and logs exactly how many bytes arrived. Compare that with the
+//! it joins the network, downloads `/test.bin` from the collector
+//! (`make collector-test`) once a minute, and logs exactly how many bytes arrived. Compare that with the
 //! sensor's rx bytes for this board's MAC.
 
 #![no_std]
@@ -28,7 +28,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 
 const SSID: &str = env!("CHATTER_WIFI_SSID");
 const PASSWORD: &str = env!("CHATTER_WIFI_PASSWORD");
-const ADDR: &str = env!("CHATTER_TEST_ADDR");
+const ADDR: &str = env!("CHATTER_COLLECTOR_ADDR");
 const PATH: &str = "/test.bin";
 const EVERY_SECS: u64 = 60;
 
@@ -51,7 +51,7 @@ async fn main(spawner: Spawner) -> ! {
 	let timg0 = TimerGroup::new(peripherals.TIMG0);
 	esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
 
-	let addr: SocketAddrV4 = ADDR.parse().expect("CHATTER_TEST_ADDR is not <ip>:<port>");
+	let addr: SocketAddrV4 = ADDR.parse().expect("CHATTER_COLLECTOR_ADDR is not <ip>:<port>");
 
 	let mut controller =
 		WifiController::new(peripherals.WIFI, Default::default()).expect("wifi init failed");
