@@ -53,3 +53,9 @@
 **Decision:** `testclient/` (its own workspace) runs on an ESP32-C3 and downloads a known file from a LAN HTTP server. The sensor's counts for its MAC are compared with the exact byte count the C3 logs.
 **Why:** The sensor can only decode single-stream frames. A MacBook, being MIMO, was invisible, so it can't validate anything. The C3 is single-stream like most IoT gear, and it reports exactly what it received.
 **Alternatives:** A real IoT device compared against router stats (the router has no per-client stats); a phone or laptop (MIMO, invisible).
+
+## 2026-10-16 - Deduplicate retries by sequence number, not the retry bit
+
+**Decision:** Every retry counts toward `retries`. Its frames and bytes only count when its sequence control differs from the last one seen for that device and direction, that is, when the sensor missed the original.
+**Why:** Dropping every retry undercounted a known 10 MiB download by about 4%: when the sensor missed a first transmission, the retry was the only copy it heard. With deduplication the count is within 1% of the expected on-air bytes.
+**Alternatives:** Ignore the retry bit (inflates bytes on noisy links); keep a window of recent sequence numbers per device (catches A-MPDU block-ack retries that arrive out of order, but costs more memory per device for well under 1%).

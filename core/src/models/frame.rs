@@ -7,6 +7,8 @@ const HEADER_LEN: usize = 24;
 const ADDR1: usize = 4;
 const ADDR2: usize = 10;
 const ADDR3: usize = 16;
+// sequence control: fragment number (bits 0-3), sequence number (bits 4-15)
+const SEQ_CTRL: usize = 22;
 
 // frame control, byte 0: type in bits 2-3, subtype in bits 4-7
 const TYPE_MGMT: u8 = 0;
@@ -45,8 +47,9 @@ pub enum Direction {
 	Down,
 }
 
-/// One frame from a watched network, about 12 bytes. When `station` is a
+/// One frame from a watched network, about 14 bytes. When `station` is a
 /// group address, it's a broadcast or multicast from the router to everyone.
+/// `seq` is the raw sequence control: a retransmission repeats it exactly.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Frame {
 	pub station: Mac,
@@ -55,6 +58,7 @@ pub struct Frame {
 	pub len: u16,
 	pub rssi: i8,
 	pub retry: bool,
+	pub seq: u16,
 }
 
 /// Applies the address table from docs/sensor.md. `None` for frames from
@@ -91,6 +95,7 @@ pub fn decode(data: &[u8], len: u16, rssi: i8, watched: &Watched) -> Option<Fram
 		len,
 		rssi,
 		retry: flags & RETRY != 0,
+		seq: u16::from_le_bytes([data[SEQ_CTRL], data[SEQ_CTRL + 1]]),
 	})
 }
 
@@ -158,7 +163,7 @@ mod tests {
 	#[test]
 	fn frame_stays_small() {
 		// it's copied through the sniffer queue for every frame
-		assert!(core::mem::size_of::<Frame>() <= 12);
+		assert!(core::mem::size_of::<Frame>() <= 14);
 	}
 
 	#[test]
@@ -187,6 +192,14 @@ mod tests {
 		assert_eq!((down.station, down.direction), (STATION, Direction::Down));
 		let up = decode_header(&header(PROBE_REQUEST, 0, BSSID, STATION, BSSID)).unwrap();
 		assert_eq!((up.station, up.direction), (STATION, Direction::Up));
+	}
+
+	#[test]
+	fn sequence_control() {
+		let mut h = header(DATA, TO_DS, BSSID, STATION, PEER);
+		// sequence number 0x123, fragment 4
+		h[SEQ_CTRL..SEQ_CTRL + 2].copy_from_slice(&0x1234u16.to_le_bytes());
+		assert_eq!(decode_header(&h).unwrap().seq, 0x1234);
 	}
 
 	#[test]

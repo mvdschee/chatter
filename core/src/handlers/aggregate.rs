@@ -10,7 +10,8 @@ use crate::models::{
 pub fn record(table: &mut DeviceTable, frame: &Frame) {
 	if frame.station.is_group() {
 		if let Some(total) = table.broadcast.get_mut(frame.net as usize) {
-			total.add(frame);
+			// group frames get no ACK, so they're never retried
+			total.add(frame, false);
 		}
 		return;
 	}
@@ -19,7 +20,7 @@ pub fn record(table: &mut DeviceTable, frame: &Frame) {
 	for (i, slot) in table.devices.iter_mut().enumerate() {
 		match slot {
 			Some(device) if device.mac == frame.station && device.net == frame.net => {
-				device.counters.add(frame);
+				device.add(frame);
 				return;
 			},
 			None if free.is_none() => free = Some(i),
@@ -29,13 +30,9 @@ pub fn record(table: &mut DeviceTable, frame: &Frame) {
 
 	match free {
 		Some(i) => {
-			let mut counters = Counters::default();
-			counters.add(frame);
-			table.devices[i] = Some(Device {
-				mac: frame.station,
-				net: frame.net,
-				counters,
-			});
+			let mut device = Device::new(frame.station, frame.net);
+			device.add(frame);
+			table.devices[i] = Some(device);
 		},
 		None => table.overflow += 1,
 	}
@@ -68,6 +65,7 @@ mod tests {
 			len: 100,
 			rssi: -50,
 			retry: false,
+			seq: 0,
 		}
 	}
 

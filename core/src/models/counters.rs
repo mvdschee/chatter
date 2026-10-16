@@ -61,7 +61,8 @@ pub struct Counters {
 	pub tx_bytes: u32,
 	pub rx_frames: u32,
 	pub rx_bytes: u32,
-	/// Retransmissions; not in the frame and byte counts.
+	/// Retransmissions seen. Only those whose original was also seen are left
+	/// out of the frame and byte counts.
 	pub retries: u32,
 	/// Strongest signal from the device itself (uplink only); `i8::MIN` if none.
 	pub rssi_max: i8,
@@ -83,9 +84,13 @@ impl Counters {
 		rssi_max: i8::MIN,
 	};
 
-	pub fn add(&mut self, frame: &Frame) {
+	/// Every retry counts toward `retries`. Frames and bytes skip `duplicate`s:
+	/// retries of a frame that was already counted.
+	pub fn add(&mut self, frame: &Frame, duplicate: bool) {
 		if frame.retry {
 			self.retries += 1;
+		}
+		if duplicate {
 			return;
 		}
 		let len = u32::from(frame.len);
@@ -108,6 +113,29 @@ pub struct Device {
 	pub mac: Mac,
 	pub net: u8,
 	pub counters: Counters,
+	/// Last sequence control seen per direction (`Up`, `Down`), to spot
+	/// retries of frames that were already counted.
+	last_seq: [Option<u16>; 2],
+}
+
+impl Device {
+	pub fn new(mac: Mac, net: u8) -> Self {
+		Self {
+			mac,
+			net,
+			counters: Counters::EMPTY,
+			last_seq: [None; 2],
+		}
+	}
+
+	/// Counts `frame`. A retry only adds bytes when its original was missed,
+	/// that is, when its sequence control differs from the last one seen.
+	pub fn add(&mut self, frame: &Frame) {
+		let last = &mut self.last_seq[frame.direction as usize];
+		let duplicate = frame.retry && *last == Some(frame.seq);
+		*last = Some(frame.seq);
+		self.counters.add(frame, duplicate);
+	}
 }
 
 #[derive(Debug)]
@@ -147,25 +175,55 @@ mod tests {
 			len,
 			rssi,
 			retry,
+			seq: 0,
 		}
 	}
 
 	#[test]
 	fn up_and_down() {
 		let mut c = Counters::default();
-		c.add(&frame(Direction::Up, 100, -50, false));
-		c.add(&frame(Direction::Up, 50, -40, false));
-		c.add(&frame(Direction::Down, 1500, -10, false));
+		c.add(&frame(Direction::Up, 100, -50, false), false);
+		c.add(&frame(Direction::Up, 50, -40, false), false);
+		c.add(&frame(Direction::Down, 1500, -10, false), false);
 		assert_eq!((c.tx_frames, c.tx_bytes, c.rx_frames, c.rx_bytes), (2, 150, 1, 1500));
 		// downlink RSSI is the router's signal, not the device's
 		assert_eq!(c.rssi_max, -40);
 	}
 
 	#[test]
-	fn retries_are_counted_apart() {
+	fn duplicates_only_count_as_retries() {
 		let mut c = Counters::default();
-		c.add(&frame(Direction::Up, 100, -50, true));
+		c.add(&frame(Direction::Up, 100, -50, true), true);
 		assert_eq!((c.retries, c.tx_frames, c.tx_bytes, c.rssi_max), (1, 0, 0, i8::MIN));
+		// a retry whose original was missed still carries the bytes
+		c.add(&frame(Direction::Up, 100, -50, true), false);
+		assert_eq!((c.retries, c.tx_frames, c.tx_bytes), (2, 1, 100));
+	}
+
+	fn seq_frame(direction: Direction, retry: bool, seq: u16) -> Frame {
+		Frame {
+			seq,
+			..frame(direction, 100, -50, retry)
+		}
+	}
+
+	#[test]
+	fn device_skips_retries_it_already_counted() {
+		let mut d = Device::new(Mac([0x02, 0, 0, 0, 0, 1]), 0);
+		d.add(&seq_frame(Direction::Down, false, 10));
+		d.add(&seq_frame(Direction::Down, true, 10)); // retry of a counted frame
+		d.add(&seq_frame(Direction::Down, true, 11)); // retry, original missed
+		d.add(&seq_frame(Direction::Down, true, 11)); // second retry of it
+		assert_eq!((d.counters.rx_frames, d.counters.rx_bytes, d.counters.retries), (2, 200, 3));
+	}
+
+	#[test]
+	fn directions_keep_their_own_sequence() {
+		let mut d = Device::new(Mac([0x02, 0, 0, 0, 0, 1]), 0);
+		d.add(&seq_frame(Direction::Up, false, 5));
+		// same number the other way is a different frame
+		d.add(&seq_frame(Direction::Down, true, 5));
+		assert_eq!((d.counters.tx_frames, d.counters.rx_frames), (1, 1));
 	}
 
 	fn fmt(bytes: u32) -> String {

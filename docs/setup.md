@@ -187,3 +187,5 @@ Then run steps 1 and 2 again.
 - 2026-10-16: per-device counts (chunk 8) and the C3 test client. embassy-time
   moved to 0.5.1, because embassy-net 0.9.1 needs it. The C3 got 10,485,962 B;
   the sensor counted about 96% of the frames as new, plus retries.
+- 2026-10-16: sequence-number deduplication. The C3 rerun is within 1% of the
+  expected on-air bytes (11,338,668 B counted against about 11,253,600 B expected).

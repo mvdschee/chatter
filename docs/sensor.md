@@ -135,8 +135,11 @@ For frames in our BSS, the station is the address that isn't the BSSID:
 | 0    | 0      | —       | —       | BSSID       | addr1 or addr2 | management       |
 | 1    | 1      | —       | —       | —           | —              | mesh/WDS: ignore |
 
-- **Retries** (retry bit set) are retransmissions of the same frame. Count
-  them separately, or byte counts inflate on a noisy link.
+- **Retries** (retry bit set) are retransmissions of the same frame. Each one
+  counts toward `retries`. Its bytes only count when the sensor missed the
+  original, that is, when its sequence control differs from the last one seen
+  for that device and direction. Dropping every retry undercounted by about
+  4%; counting every retry would inflate bytes on a noisy link.
 - **Broadcast and multicast** downlink (`addr1` is `ff:…` or has the group
   bit) belongs to no single device.
 
@@ -229,8 +232,9 @@ decode function that lives in core:
   (`rx_cntl`). `data` is a raw `&[u8]` that borrows the driver's buffer and
   is gone when the callback returns, so something has to be copied either way.
 - A decoded `Frame` is the smaller copy: station MAC, direction, retry flag,
-  length and RSSI come to about 12 bytes, against about 32 for the raw header
-  plus metadata. With 64 channel slots that's about 0.8 KB against 2 KB.
+  sequence control, length and RSSI come to 14 bytes, against about 32 for the
+  raw header plus metadata. With 64 channel slots that's about 0.9 KB against
+  2 KB.
 - The callback has to read the header anyway to drop other networks' frames.
   Decoding there means the work happens once.
 - The decode is plain fixed offsets: frame control, three addresses, and the
@@ -323,7 +327,15 @@ don't need the antenna. Each install or setup step also goes into
    window the sensor counted 6,884 rx frames, about 10.1 MB, plus 4,400
    retries, with 0 dropped. At about 1,460 B of TCP payload per frame the
    download needs about 7,180 frames, so about 96% were counted as new
-   frames. A MacBook (MIMO) downloading 100 MB was invisible; see
+   frames: retries whose original was missed lost their bytes.
+   Rerun with sequence-number deduplication: 7,448 rx frames, exactly
+   11,338,668 B at the link layer, 3,408 retries, 0 dropped. With about
+   106 B of headers per frame (802.11, CCMP, LLC, IP, TCP with timestamps,
+   FCS), the download should be about 11,253,600 B on air, so the sensor is
+   **within 1% (+0.8%)**. The small overcount fits A-MPDU block-ack retries:
+   they arrive after later sequence numbers, so remembering only the last
+   one misses a few duplicates.
+   A MacBook (MIMO) downloading 100 MB was invisible; see
    `docs/traffic-visibility.md`.
 9. **Report** to a collector stub on the Mac.
    Check: reports arrive every 60 s, with `seq` going up and `dropped`

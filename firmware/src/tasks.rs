@@ -62,13 +62,15 @@ fn log_period(table: &mut DeviceTable) {
 		devices += 1;
 		let c = d.counters;
 		info!(
-			"dev {=[u8]:02x} net {}: tx {} frames {}, rx {} frames {}, retries {}, rssi {}",
+			"dev {=[u8]:02x} net {}: tx {} frames {} ({} B), rx {} frames {} ({} B), retries {}, rssi {}",
 			d.mac.0,
 			d.net,
 			c.tx_frames,
 			fmt(c.tx_bytes, &mut tx),
+			c.tx_bytes,
 			c.rx_frames,
 			fmt(c.rx_bytes, &mut rx),
+			c.rx_bytes,
 			c.retries,
 			c.rssi_max
 		);
