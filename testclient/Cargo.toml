@@ -1,0 +1,49 @@
+[package]
+name = "chatter-testclient"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+description = "ESP32-C3 test client: downloads a file of known size so the sensor's counts can be checked"
+
+[[bin]]
+name = "chatter-testclient"
+path = "src/main.rs"
+test = false
+
+[dependencies]
+# HAL and runtime
+esp-hal = { version = "=1.2.2", features = ["defmt", "esp32c3", "unstable"] }
+esp-rtos = { version = "=0.4.0", features = ["defmt", "embassy", "esp-alloc", "esp-radio", "esp32c3"] }
+esp-bootloader-esp-idf = { version = "=0.6.0", features = ["defmt", "esp32c3"] }
+esp-alloc = { version = "=0.11.0", features = ["defmt", "esp32c3"] }
+
+# Wi-Fi and network
+esp-radio = { version = "=1.0.0-beta.1", features = ["defmt", "esp-alloc", "esp32c3", "unstable", "wifi"] }
+embassy-net = { version = "=0.9.1", features = ["defmt", "dhcpv4", "medium-ethernet", "tcp"] }
+embedded-io-async = "0.7.0"
+static_cell = "2.1.1"
+
+# Async
+embassy-executor = { version = "=0.10.0", features = ["defmt"] }
+embassy-time = { version = "=0.5.1", features = ["defmt"] }
+
+# Logging over RTT
+defmt = "1.2.0"
+rtt-target = { version = "0.6.2", features = ["defmt"] }
+panic-rtt-target = { version = "0.2.0", features = ["defmt"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+# not part of the main workspace (see ../Cargo.toml), so it has its own profiles
+[workspace]
+
+[profile.dev]
+opt-level = "s"
+
+[profile.release]
+codegen-units = 1
+debug = 2
+lto = "fat"
+opt-level = "s"

@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
 members = ["core", "firmware"]
+# its own workspace: in this one, its esp32c3 features would clash with the
+# firmware's esp32c6 ones whenever rust-analyzer checks everything together
+exclude = ["testclient"]
 # plain `cargo test` / `cargo build` stay on the Mac; firmware needs --target (see makefile)
 default-members = ["core"]
 

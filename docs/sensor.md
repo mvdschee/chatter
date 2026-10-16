@@ -315,10 +315,16 @@ don't need the antenna. Each install or setup step also goes into
    BSSIDs), `Counters`, and the aggregation handler.
    Check: 19 host tests, covering every row of the address table. A mirrored
    upload address makes them fail.
-8. **Per-device counts:** the callback decodes with core and queues `Frame`s;
-   an aggregation task keeps per-MAC counters and logs them every 10 s.
-   Check: a known 2.4 GHz device downloads a large file, and its rx bytes
-   jump by roughly that amount.
+8. **Per-device counts** _(done)_: the callback decodes with core and queues
+   `Frame`s; an aggregation task keeps per-MAC counters and logs them every
+   10 s.
+   Check, 2026-10-16: an ESP32-C3 test client (`testclient/`, single-stream)
+   downloaded exactly 10,485,962 bytes from a LAN HTTP server. Over the same
+   window the sensor counted 6,884 rx frames, about 10.1 MB, plus 4,400
+   retries, with 0 dropped. At about 1,460 B of TCP payload per frame the
+   download needs about 7,180 frames, so about 96% were counted as new
+   frames. A MacBook (MIMO) downloading 100 MB was invisible; see
+   `docs/traffic-visibility.md`.
 9. **Report** to a collector stub on the Mac.
    Check: reports arrive every 60 s, with `seq` going up and `dropped`
    reported.

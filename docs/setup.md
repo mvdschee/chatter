@@ -112,6 +112,28 @@ tests, and `make check` runs clippy (host and riscv32imac) plus a fmt check.
   `--all-targets`: that would also build the binary as a test, which
   needs the `test` crate the C6 doesn't have.
 
+## 4. Test client on an ESP32-C3 _(works)_
+
+`testclient/` is a single-stream client that downloads a known file, so the
+sensor's counts can be checked against an exact number.
+
+- It's its own workspace (`exclude` in the root `Cargo.toml`). Inside the main
+  one, its `esp32c3` features would merge with the firmware's `esp32c6` ones
+  whenever rust-analyzer checks everything for one target.
+- The target is `riscv32imc-unknown-none-elf` (the C3 has no atomics
+  extension), listed in `rust-toolchain.toml`. The mirror serves it.
+- `.env` gets `CHATTER_TEST_ADDR=<ip>:<port>` of a LAN HTTP server that serves
+  `/test.bin`, plus `CHATTER_PROBE_C6` and `CHATTER_PROBE_C3` (the
+  `VID:PID:serial` from `probe-rs list`; the serial is the board's MAC). The
+  makefile passes them as `PROBE_RS_PROBE`.
+- A file server on the Mac, for example:
+  ```sh
+  mkdir -p /tmp/chatter-serve
+  dd if=/dev/urandom of=/tmp/chatter-serve/test.bin bs=1048576 count=10
+  python3 -m http.server 8000 --bind "$(ipconfig getifaddr en0)" --directory /tmp/chatter-serve
+  ```
+- `make run` (sensor) and `make test-client` (C3) in two terminals.
+
 ## Start over
 
 Everything lives in `~/.rustup` and `~/.cargo/bin`:
@@ -162,3 +184,6 @@ Then run steps 1 and 2 again.
   frames.
 - 2026-10-15: core (chunk 7). Decode, counters and aggregation; `make test`
   runs 19 host tests.
+- 2026-10-16: per-device counts (chunk 8) and the C3 test client. embassy-time
+  moved to 0.5.1, because embassy-net 0.9.1 needs it. The C3 got 10,485,962 B;
+  the sensor counted about 96% of the frames as new, plus retries.
