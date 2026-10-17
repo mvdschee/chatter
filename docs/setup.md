@@ -153,6 +153,10 @@ podman run --rm -p 127.0.0.1:18080:8080 --read-only --tmpfs /tmp \
 
 The deployment itself lives in a separate infrastructure repo.
 
+`CHATTER_COLLECTOR_ADDR` in `.env` is where the sensor sends its reports.
+Pointed at the home server, `make collector` and `make collector-test` can't
+run on the Mac: for local work, point it at the Mac and reflash.
+
 ## Start over
 
 Everything lives in `~/.rustup` and `~/.cargo/bin`:
@@ -245,3 +249,6 @@ Then run steps 1 and 2 again.
   periods, all reports arrived afterwards, in order, with no gap.
 - 2026-10-17: collector image and CI workflow; checked with podman (204, data in
   the volume, uid 65532, read-only root).
+- 2026-10-17: collector deployed on the home server; the sensor reports there.
+  The collector now ignores connections that close without a request (the
+  container healthcheck logged a broken pipe every 30 s).

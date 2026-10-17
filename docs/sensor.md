@@ -396,12 +396,12 @@ don't need the antenna. Each install or setup step also goes into
       workflow push `ghcr.io/<owner>/chatter-collector`. Checked locally with
       podman: `POST /report` answers 204 and the report lands in the data
       volume, on a read-only root and as uid 65532.
-    - 10b _(staged)_: an Ansible role in the separate infrastructure repo runs
+    - 10b _(done)_: an Ansible role in the separate infrastructure repo runs
       the image with docker compose on the home server, LAN only. Rerunning
       the playbook deploys a new image.
-    - 10c: the sensor's `.env` gets the home server's address, then the
-      day-long data run.
-    Check: reports arrive on the home server every 60 s.
+    - 10c _(done)_: the sensor's `.env` points at the home server.
+    Check, 2026-10-17: reports arrive on the home server every 60 s (seen in
+    the container's log). Next: the day-long data run.
 11. **Monitoring app:** the collector grows into a monitoring app with a live
     floor-plan view and outlier emails. Planned in `docs/monitoring.md`; the
     first chunk is a static mockup of the look.

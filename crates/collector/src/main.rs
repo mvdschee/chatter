@@ -89,7 +89,11 @@ fn parse_args() -> Result<Config, String> {
 fn handle(stream: TcpStream, config: &Config, last_seq: &LastSeq) -> Result<(), String> {
 	let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
 	let mut request_line = String::new();
-	reader.read_line(&mut request_line).map_err(|e| e.to_string())?;
+	// a connection that closes without a request (the container healthcheck,
+	// a port scan) gets no answer: writing one would only hit a closed socket
+	if reader.read_line(&mut request_line).map_err(|e| e.to_string())? == 0 {
+		return Ok(());
+	}
 	let mut parts = request_line.split_whitespace();
 	let (method, path) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
 
