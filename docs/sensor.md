@@ -391,10 +391,21 @@ don't need the antenna. Each install or setup step also goes into
    Check, 2026-10-16: with the collector stopped for 3 periods, reports 3–6
    waited in the outbox and arrived in order right after it restarted; `seq`
    0–6 with no gap.
-10. **Collector on the home server.** It keeps the long-term device list:
-    a device with no traffic for 14 days counts as gone, and a MAC it has
-    never seen before is flagged as new.
-    Check: per-device minute rows in SQLite.
+10. **Collector on the home server.**
+    - 10a _(done)_: `crates/collector/Dockerfile` and the `collector-image`
+      workflow push `ghcr.io/<owner>/chatter-collector`. Checked locally with
+      podman: `POST /report` answers 204 and the report lands in the data
+      volume, on a read-only root and as uid 65532.
+    - 10b _(staged)_: an Ansible role in the separate infrastructure repo runs
+      the image with docker compose on the home server, LAN only. Rerunning
+      the playbook deploys a new image.
+    - 10c: the sensor's `.env` gets the home server's address, then the
+      day-long data run.
+    Check: reports arrive on the home server every 60 s.
+11. **Interface:** a web interface over the collected data, replacing the
+    weekly email: research and `docs/interface.md` first. It keeps the
+    long-term device list: a device with no traffic for 14 days counts as
+    gone, and a MAC it has never seen before is flagged as new.
 
 ## Validation
 

@@ -84,3 +84,9 @@
 **Decision:** `wifi::init` sets `set_max_tx_power(60)` (15 dBm, in 0.25 dBm steps).
 **Why:** At esp-radio's default of 5 dBm, the router heard the board's small frames but lost full-size ones. Reports over ~1.5 KB failed, handshakes failed at boot, and some stretches the board couldn't join at all, depending on distance and how busy the air was. esp-radio's docs describe exactly this ("connection failures on boards with a weak antenna") and give [8, 84] as the range, with authentication failures reported above about 65. 60 is the highest value below that. At 15 dBm every ~3.1 KB report arrived on the first attempt.
 **Alternatives:** Pausing promiscuous mode during each POST (tested, didn't help, so receive-buffer starvation wasn't the cause); more receive buffers (same reason); the maximum of 84 (above the reported authentication-failure threshold).
+
+## 2026-10-17 - The collector ships as a container image from CI
+
+**Decision:** `crates/collector/Dockerfile` plus a GitHub Actions workflow push `ghcr.io/<owner>/chatter-collector:latest`. The deployment (compose, ports, volume) lives in a separate infrastructure repo and only pulls the image.
+**Why:** It matches how the owner's other services deploy: rerunning one playbook picks up a new version, and nothing about the server lives in this public repo. The image builds from the repo root with a deny-all `.dockerignore`, so only the collector's sources go in.
+**Alternatives:** A cross-compiled binary plus a systemd unit (needs a Linux linker on the Mac); building on the server (a Rust toolchain there).

@@ -135,6 +135,24 @@ the sensor's counts can be checked against an exact number.
 - Three terminals: `make collector-test` (the collector, plus a 10 MiB
   `GET /test.bin`), `make run` (sensor), `make test-client` (C3).
 
+## 5. Collector image _(works)_
+
+`crates/collector/Dockerfile` builds the collector into a Debian slim image
+that runs as uid 65532 and writes `/var/lib/chatter/reports.jsonl`. The build
+context is the repo root; `.dockerignore` only lets `crates/collector` in. CI
+(`.github/workflows/collector-image.yml`) pushes it to ghcr on every change to
+the collector on `main`.
+
+Local check (podman, from the repo root):
+
+```sh
+podman build -f crates/collector/Dockerfile -t chatter-collector:local .
+podman run --rm -p 127.0.0.1:18080:8080 --read-only --tmpfs /tmp \
+  -v chatter-data:/var/lib/chatter chatter-collector:local
+```
+
+The deployment itself lives in a separate infrastructure repo.
+
 ## Start over
 
 Everything lives in `~/.rustup` and `~/.cargo/bin`:
@@ -225,3 +243,5 @@ Then run steps 1 and 2 again.
   explanation was at most part of it, and the "router lockout" was probably the
   same weak signal. Outbox (9b) checked: with the collector stopped for 3
   periods, all reports arrived afterwards, in order, with no gap.
+- 2026-10-17: collector image and CI workflow; checked with podman (204, data in
+  the volume, uid 65532, read-only root).

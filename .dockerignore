@@ -1,0 +1,11 @@
+# Deny everything by default: the only image is the collector's
+*
+
+# Allow only what its build needs
+!crates/collector/Cargo.toml
+!crates/collector/Cargo.lock
+!crates/collector/src/
+
+# Re-deny noise that might live inside src/
+**/.DS_Store
+**/*.swp
