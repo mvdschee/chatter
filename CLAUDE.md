@@ -18,6 +18,8 @@
 ## Where things are
 
 - `docs/sensor.md`: design, layout, pitfalls, and the chunked plan.
+- `docs/monitoring.md`: the plan for the monitoring app (floor-plan view,
+  sources, outliers).
 - `docs/setup.md`: the install log. Add every install or setup step as it is
   run.
 - `DECISIONS.md`: why things are the way they are.

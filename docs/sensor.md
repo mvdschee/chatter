@@ -402,10 +402,9 @@ don't need the antenna. Each install or setup step also goes into
     - 10c: the sensor's `.env` gets the home server's address, then the
       day-long data run.
     Check: reports arrive on the home server every 60 s.
-11. **Interface:** a web interface over the collected data, replacing the
-    weekly email: research and `docs/interface.md` first. It keeps the
-    long-term device list: a device with no traffic for 14 days counts as
-    gone, and a MAC it has never seen before is flagged as new.
+11. **Monitoring app:** the collector grows into a monitoring app with a live
+    floor-plan view and outlier emails. Planned in `docs/monitoring.md`; the
+    first chunk is a static mockup of the look.
 
 ## Validation
 
