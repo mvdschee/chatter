@@ -65,7 +65,7 @@
 **Decision:** Core writes the report as JSON with `core::fmt` into a 24 KiB buffer (no allocation, and the full-table worst case fits, checked by a test). The aggregate task fills one shared pending buffer and signals a report task, which posts it with plain HTTP/1.0 (`POST /report`, `Content-Length`). If the previous report is still sending, the new one is skipped and the gap shows in `seq`.
 **Why:** Posting inside the counting loop would stall the frame queue for as long as the collector takes, and the queue only holds 64 frames. With one pending buffer, a slow or missing collector costs reports, never counts. HTTP/1.0 with a known length needs no chunking or keep-alive code.
 **Alternatives:** Stream the JSON into the socket (no 24 KiB buffer, but the Content-Length is unknown and serialization would hold the table during network I/O); `reqwless` (more dependencies for one POST); MQTT (needs a broker).
-**Update 2026-10-16:** the socket's send buffer is also 24 KiB, the timeout 15 s, and a failed POST is retried once. With a 1.5 KB buffer and a 5 s timeout, reports over the buffer size failed whenever the link slowed down.
+**Update 2026-10-16:** the socket's send buffer is also 24 KiB, the timeout 15 s, and a failed POST is retried once. The failing reports that led to this turned out to be caused mainly by the transmit power (see below); the bigger buffer and the retry stay as headroom. Unsent reports now wait in an outbox (`crates/core/src/models/outbox.rs`) instead of one pending slot.
 
 ## 2026-10-16 - All crates under crates/, all tooling in Rust
 
@@ -78,3 +78,9 @@
 **Decision:** `announcement()` in core takes the SSID→BSSID mapping from probe responses as well as beacons. The report lists which networks are known (`nets_known`).
 **Why:** In two runs, both far from the router and right next to it, the network the sensor doesn't join was only learned at uptime 789–790 s. While connected, the C6's driver passes almost no beacons from other access points, but it does pass their probe responses, which carry the same SSID element. `nets_known` makes this visible at the collector, without USB logs.
 **Alternatives:** BSSIDs in `.env` (breaks when the router changes them); guessing the second BSSID from the first (vendor-specific).
+
+## 2026-10-16 - Transmit power 15 dBm instead of esp-radio's 5 dBm
+
+**Decision:** `wifi::init` sets `set_max_tx_power(60)` (15 dBm, in 0.25 dBm steps).
+**Why:** At esp-radio's default of 5 dBm, the router heard the board's small frames but lost full-size ones. Reports over ~1.5 KB failed, handshakes failed at boot, and some stretches the board couldn't join at all, depending on distance and how busy the air was. esp-radio's docs describe exactly this ("connection failures on boards with a weak antenna") and give [8, 84] as the range, with authentication failures reported above about 65. 60 is the highest value below that. At 15 dBm every ~3.1 KB report arrived on the first attempt.
+**Alternatives:** Pausing promiscuous mode during each POST (tested, didn't help, so receive-buffer starvation wasn't the cause); more receive buffers (same reason); the maximum of 84 (above the reported authentication-failure threshold).

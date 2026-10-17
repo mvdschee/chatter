@@ -205,9 +205,14 @@ Every 60 s, one JSON document:
   as soon as the link got slower, because writing had to wait for ACKs midway.
 - **Before DHCP completes** nothing can be sent. Newer reports replace the
   waiting one, so the first minutes can show as a gap in `seq`.
-- **When a POST fails twice,** that report is lost for now: the collector sees
-  a gap in `seq`. Later, keep a few in a small ring buffer and send them when the
-  collector is back, dropping the oldest first.
+- **The outbox:** reports wait in a 32 KiB FIFO (`crates/core/src/models/outbox.rs`,
+  about 10 typical reports, at most 16), oldest first. A report only leaves it
+  once the collector has answered; after a failure the rest waits for the next
+  period. When it's full the oldest goes, and the collector sees that as a gap
+  in `seq`.
+- **Backlog timing:** a report from the outbox can arrive minutes late, so the
+  collector must date it from `uptime_s`, not from when it arrived: written at
+  about `received(newest) - (uptime(newest) - uptime(this))`.
 
 ## Layout
 
@@ -276,6 +281,13 @@ decode function that lives in core:
 - **Antenna.** The board has a U.FL connector and no antenna of its own.
   Never start Wi-Fi without the antenna connected; transmitting into an open
   connector can damage the power amplifier. Flashing and serial are fine.
+- **Transmit power.** esp-radio's default maximum is 5 dBm (20 in 0.25 dBm
+  steps), too weak for the router to hear the board's full-size frames
+  reliably. Small exchanges still work, which makes this look like a flaky
+  network: failed handshakes at boot, stretches where it can't join, and
+  reports over ~1.5 KB that never arrive, all depending on distance and how
+  busy the air is. The firmware sets 60 (15 dBm). esp-radio's docs give
+  [8, 84] as the range and report authentication failures above about 65.
 - **Power save.** If the station's modem sleep is on, the radio is off between
   beacons and the sniffer misses most frames. Set `PowerSaveMode::None`
   explicitly. The docs list it as the default, but don't rely on that.
@@ -374,9 +386,11 @@ don't need the antenna. Each install or setup step also goes into
    devices), `seq` went up, and `dropped` was reported (0). With the stub
    stopped for one period, that report logged `not sent: Report(connect)`;
    counting went on, and the next report arrived, leaving the gap 0, 1, 2, 4.
-9b. **Retry ring buffer:** keep the last few unsent reports and send them once
-   the collector is back.
-   Check: stop the stub for 3 minutes; after restarting it, the gap is filled.
+9b. **Outbox** _(done)_: keep the last unsent reports and send them once the
+   collector is back. 33 host tests.
+   Check, 2026-10-16: with the collector stopped for 3 periods, reports 3–6
+   waited in the outbox and arrived in order right after it restarted; `seq`
+   0–6 with no gap.
 10. **Collector on the home server.** It keeps the long-term device list:
     a device with no traffic for 14 days counts as gone, and a MAC it has
     never seen before is flagged as new.

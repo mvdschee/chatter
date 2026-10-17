@@ -13,7 +13,7 @@ use esp_radio::wifi::{
 
 use crate::{
 	Result,
-	config::{RECONNECT_DELAY_SECS, WIFI_PASSWORD, WIFI_SSID},
+	config::{MAX_TX_POWER, RECONNECT_DELAY_SECS, WIFI_PASSWORD, WIFI_SSID},
 };
 
 static CHANNEL: AtomicU8 = AtomicU8::new(0);
@@ -35,6 +35,7 @@ pub fn init(wifi: WIFI<'static>) -> Result<WifiController<'static>> {
 	controller.set_config(&Config::Station(station))?;
 	// modem sleep turns the radio off between beacons; the sniffer would miss most frames
 	controller.set_power_saving(PowerSaveMode::None)?;
+	controller.set_max_tx_power(MAX_TX_POWER)?;
 	Ok(controller)
 }
 

@@ -210,3 +210,18 @@ Then run steps 1 and 2 again.
   the link got slower. Fixed with a send buffer that fits a whole report, a
   15 s timeout and one retry; after that every ~3.2 KB report arrived on the
   first attempt. Also fixed: a report could be sent twice after a long DHCP wait.
+- 2026-10-16: outbox (9b) flashed, but the board couldn't join Wi-Fi for over
+  10 minutes: 72 failed attempts, mostly `AuthenticationExpired`, plus
+  `FourWayHandshakeTimeout` and `AssociationFailed`. This also happened once in
+  the afternoon. Hypothesis: the router temporarily refuses the board after many
+  failed handshakes. Every boot starts with 1–3 failed attempts, there were
+  dozens of boots that day, and the reconnect loop retries every 5 s. Open:
+  whether the network is WPA2/WPA3 mixed (that would explain the failing first
+  attempts), and a reconnect backoff so the board doesn't hammer the router.
+- 2026-10-16: root cause of the failing reports and Wi-Fi trouble: esp-radio's
+  default transmit power of 5 dBm. A test that paused sniffing during each POST
+  still failed, which ruled out receive-buffer starvation. At 15 dBm, ~3.1 KB
+  reports went through on the first attempt. The earlier send-buffer
+  explanation was at most part of it, and the "router lockout" was probably the
+  same weak signal. Outbox (9b) checked: with the collector stopped for 3
+  periods, all reports arrived afterwards, in order, with no gap.

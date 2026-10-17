@@ -10,5 +10,9 @@ pub const COLLECTOR_ADDR: &str = env!("CHATTER_COLLECTOR_ADDR");
 pub const SENSOR_NAME: &str = "c6-1";
 
 pub const RECONNECT_DELAY_SECS: u64 = 5;
+/// In 0.25 dBm steps: 60 is 15 dBm. esp-radio defaults to 20 (5 dBm), too weak
+/// for the router to hear the board's full-size frames reliably. Its docs give
+/// [8, 84] as the range and report authentication failures above about 65.
+pub const MAX_TX_POWER: i8 = 60;
 /// How often the device table is reported and emptied.
 pub const PERIOD_SECS: u64 = 60;
