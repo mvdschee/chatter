@@ -16,22 +16,16 @@ run:
 test-client:
 	$(C3_PROBE) cargo run $(TESTCLIENT)
 
-# development collector on this machine, at CHATTER_COLLECTOR_ADDR from .env
-COLLECTOR = $(shell grep '^CHATTER_COLLECTOR_ADDR=' .env 2>/dev/null | cut -d= -f2-)
-
-# the database goes in /tmp: development data only
-COLLECTOR_ENV = CHATTER_BIND=$(COLLECTOR) CHATTER_DB=/tmp/chatter.db
-
+# The collector takes its settings from .env (CHATTER_BIND, CHATTER_DB, ...,
+# see crates/collector/src/config.rs); its container gets the same keys.
 collector:
-	$(COLLECTOR_ENV) cargo run -q $(COLLECTOR_CRATE)
+	cargo run -q $(COLLECTOR_CRATE)
 
-# also serves the 10 MiB GET /test.bin the test client downloads
-collector-test:
-	$(COLLECTOR_ENV) CHATTER_TEST_FILE_MIB=10 cargo run -q $(COLLECTOR_CRATE)
-
-# the monitoring view's static mockup (made-up data), docs/monitoring.md step 1
-mockup:
-	open crates/collector/ui/mockup.html
+# loads a collector's old reports file into CHATTER_DB; reports already there
+# are skipped
+FILE ?= .local/reports.jsonl
+import:
+	cargo run -q $(COLLECTOR_CRATE) -- import $(FILE)
 
 test:
 	cargo test -p chatter-core

@@ -106,13 +106,27 @@ tests, and `make check` runs clippy (host and riscv32imac) plus a fmt check.
   esp-hal's clock setup and doesn't stop the boot. The cause hasn't been
   looked into.
 - collector: `make collector` _(works)_ runs `crates/collector` (axum and
-  SQLite) on `CHATTER_COLLECTOR_ADDR` from `.env`, and stores each report in
-  `/tmp/chatter.db`. The firmware build needs that key too: reports go to
-  `POST /report` there. The collector's settings are environment variables
-  (`CHATTER_BIND`, `CHATTER_DB`, `CHATTER_TEST_FILE_MIB`, see its
-  `src/config.rs`); the makefile sets them. SQLite is compiled from the C
+  SQLite). Its settings are environment variables, which it reads from `.env`
+  when it runs locally; its container sets the same keys (see its
+  `src/config.rs`):
+  - `CHATTER_BIND`: where it listens, e.g. `127.0.0.1:8080`. The page is on
+    `/`.
+  - `CHATTER_DB`: the SQLite file, e.g. `.local/chatter.db` (`.local/` is
+    git-ignored).
+  - `CHATTER_UI_DIR`: `crates/collector/ui` to read the page from disk on
+    every request, so a refresh shows an edit. Unset, the binary's built-in
+    copy is served.
+  - `CHATTER_TEST_FILE_MIB`: set (to 10) to serve the test client's download.
+
+  `CHATTER_COLLECTOR_ADDR` is where the sensor sends its reports, a different
+  key: for the sensor to reach this collector, it's this machine's LAN address,
+  and `CHATTER_BIND` must listen there too. SQLite is compiled from the C
   source that sqlx ships on crates.io, so nothing needs installing; `sqlite3`
   (part of macOS) is handy to look inside.
+- import: `make import` loads `.local/reports.jsonl` (or `FILE=...`), a copy
+  of the first collector's reports file, into `CHATTER_DB`
+  (`chatter-collector import <file>`). Reports already in the database are
+  skipped, so a newer copy can be imported again.
 - on-device tests: `make test-device` _(works)_. `embedded-test` flashes
   each file in `crates/firmware/tests/` and reports pass or fail like `cargo test`.
   Checked both ways: a broken assertion shows `FAILED` and exits 1.
@@ -136,15 +150,16 @@ the sensor's counts can be checked against an exact number.
 - `.env` gets `CHATTER_PROBE_C6` and `CHATTER_PROBE_C3` (the `VID:PID:serial`
   from `probe-rs list`; the serial is the board's MAC). The makefile passes
   them as `PROBE_RS_PROBE`. The client downloads from `CHATTER_COLLECTOR_ADDR`.
-- Three terminals: `make collector-test` (the collector, plus a 10 MiB
-  `GET /test.bin`), `make run` (sensor), `make test-client` (C3).
+- Three terminals: `make collector` with `CHATTER_TEST_FILE_MIB=10` in
+  `.env` (it then also serves a 10 MiB `GET /test.bin`), `make run` (sensor),
+  `make test-client` (C3).
 
 ## 5. Collector image _(works)_
 
 `crates/collector/Dockerfile` builds the collector into a Debian slim image
 that runs as uid 65532 and keeps its database in `/var/lib/chatter/chatter.db`.
 The build context is the repo root; `.dockerignore` only lets the collector's
-sources and migrations in. CI
+sources, migrations and page in. CI
 (`.github/workflows/collector-image.yml`) pushes it to ghcr on every change to
 the collector on `main`.
 
@@ -159,8 +174,8 @@ podman run --rm -p 127.0.0.1:18080:8080 --read-only --tmpfs /tmp \
 The deployment itself lives in a separate infrastructure repo.
 
 `CHATTER_COLLECTOR_ADDR` in `.env` is where the sensor sends its reports.
-Pointed at the home server, `make collector` and `make collector-test` can't
-run on the Mac: for local work, point it at the Mac and reflash.
+Pointed at the home server, the sensor doesn't report to a collector on the
+Mac: for that, point it at the Mac and reflash.
 
 ## Start over
 
@@ -273,3 +288,14 @@ Then run steps 1 and 2 again.
   report sent before the first connect has channel 0, so 0 is accepted: a
   rejected report would block the sensor's outbox. The JSON Lines file of
   earlier reports stays in the volume; it isn't imported.
+- 2026-10-18: `chatter-collector import`: the home server's reports file (about
+  a day and a half) loads into a local database in about 2 s. 17 of its lines
+  were resends the first collector had stored twice; the import skips them.
+- 2026-10-18: the collector serves the monitoring page on `/` and its data on
+  `/v1/overview` (about 120 KB for a day of a few dozen devices). `make collector-local`
+  reads the page from disk on every request (`CHATTER_UI_DIR`); the image has
+  it built in. Opened as a file, the page still shows its made-up data.
+- 2026-10-18: the mockup became the collector's page (`crates/collector/ui/`:
+  `index.html`, `style.css`, `app.js`), without its made-up data. The
+  collector reads `.env` itself (dotenvy), so `make collector` is the same
+  command for every setup and the makefile no longer passes settings.

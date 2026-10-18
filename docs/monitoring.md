@@ -1,9 +1,9 @@
 # The monitoring app (plan)
 
-Status, 2026-10-17: a plan, no code yet. The collector grows into a network
-monitoring app with a live floor-plan view. This doc is the plan; the first
-thing built is a static mockup, so the look can be judged before anything
-else exists.
+Status, 2026-10-18: the collector is growing into a network monitoring app
+with a live floor-plan view. This doc is the plan; the steps below say what's
+built. The page lives in `crates/collector/ui/` (`index.html`, `style.css`,
+`app.js`).
 
 ## Goal
 
@@ -130,7 +130,7 @@ Emails are rate-limited: one per event, plus at most one digest a day.
 
 One reviewable chunk each, with its check:
 
-1. **Mockup** _(built: `crates/collector/ui/mockup.html`, `make mockup`)_:
+1. **Mockup** _(done; it became the page in `crates/collector/ui/`)_:
    one static HTML file with fake data: a sketched floor plan,
    about 10 devices, looping flows (white to red), one outlier.
    Check: the owner looks at it and says what feels right or wrong.
@@ -140,9 +140,12 @@ One reviewable chunk each, with its check:
    Check: a day of reports, queried per device and hour.
 3. **Floor plan editor:** draw walls and rooms, saved in SQLite.
    Check: draw the real floor plan in a few minutes.
-4. **Live view:** the mockup's look on real data over server-sent events,
+4. **Live view:** the page on real data over server-sent events,
    with the loop, and the day timeline from storage. Devices are placed by
-   hand.
+   hand. _(First part built: the collector serves the page on `/` and its
+   data on `/v1/overview`; the page polls it every loop instead of SSE, names
+   devices by MAC, puts them on a grid, and gives the heatmap a row per busy
+   device until there are rooms. The floor plan is still the drawn example.)_
    Check: the owner's judgement, plus "a busy device turns red" with the C3
    test client.
 5. **Scan results:** the port scan's output in the device panel.

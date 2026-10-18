@@ -24,6 +24,9 @@ serde_json = "1"
 thiserror = "2.0.21"
 chrono = "0.4.45"
 
+# Config: .env for local runs; a container gets the same keys from its environment
+dotenvy = "0.15.7"
+
 [lints.rust]
 unsafe_code = "forbid"
 

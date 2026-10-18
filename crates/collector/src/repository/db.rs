@@ -96,4 +96,16 @@ impl DatabaseRepository {
 			.await
 			.map_err(|e| Error::Database(format!("get record: {e}")))
 	}
+
+	/// Fetch multiple records dynamically.
+	pub async fn get_records(
+		&self,
+		sql: &'static str,
+		params: Vec<DbValue>,
+	) -> Result<Vec<SqliteRow>> {
+		bind(sqlx::query(sql), params)
+			.fetch_all(&self.pool)
+			.await
+			.map_err(|e| Error::Database(format!("get records: {e}")))
+	}
 }

@@ -1,300 +1,8 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>chatter · mockup</title>
-<!--
-  Static mockup of the monitoring view (docs/monitoring.md, plan step 1), v2.
-  Everything here is made up: the floor plan, the devices, their MACs and their
-  traffic, and the hex frame headers in the HUD. No backend, no external
-  assets: open this file in a browser.
--->
-<style>
-	:root {
-		--void: #04070a;
-		--grid: #10202a;
-		--signal: #7fe7f2;
-		--phosphor: #e8f4f6;
-		--heat: #ff3b3b;
-		--muted: #5c7a86;
-		--panel: rgba(6, 14, 19, 0.9);
-		--line: rgba(127, 231, 242, 0.16);
-
-		--display: "Avenir Next Condensed", "DIN Alternate", "Roboto Condensed", "Arial Narrow", sans-serif;
-		--mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-		--body: system-ui, -apple-system, "Segoe UI", sans-serif;
-	}
-
-	* { box-sizing: border-box; }
-
-	html, body {
-		margin: 0;
-		height: 100%;
-		background: var(--void);
-		color: var(--phosphor);
-		font: 14px/1.45 var(--body);
-	}
-
-	.app {
-		display: grid;
-		grid-template-columns: 1fr;
-		grid-template-rows: 1fr auto;
-		grid-template-areas: "map" "loop";
-		height: 100vh;
-	}
-
-	/* --- buttons and clock, in the plan's top right ---------------------- */
-	.top {
-		position: absolute;
-		top: 26px;
-		right: 30px;
-		z-index: 2;
-		display: flex;
-		align-items: center;
-		gap: 14px;
-	}
-	.top-btn {
-		all: unset;
-		cursor: pointer;
-		font: 11px/1 var(--display);
-		letter-spacing: 0.22em;
-		text-transform: uppercase;
-		color: var(--signal);
-		padding: 6px 10px;
-		border: 1px solid var(--line);
-	}
-	.top-btn:hover, .top-btn[aria-expanded="true"] { border-color: var(--signal); }
-	.top-btn:focus-visible { outline: 1px solid var(--signal); outline-offset: 2px; }
-	.badge { margin-left: 6px; padding: 1px 5px; background: var(--heat); color: var(--void); letter-spacing: 0; }
-	.clock { font: 13px/1 var(--mono); color: var(--phosphor); font-variant-numeric: tabular-nums; }
-
-	/* --- the plan ------------------------------------------------------ */
-	.map { grid-area: map; position: relative; min-height: 0; overflow: hidden; }
-	canvas#plan { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
-	canvas#plan.dragging { cursor: grabbing; }
-	/* zoom and rotate, in the plan's bottom right */
-	.view-ctl {
-		position: absolute;
-		right: 30px;
-		bottom: 26px;
-		z-index: 2;
-		display: flex;
-		align-items: center;
-		gap: 6px;
-	}
-	.view-ctl .top-btn { min-width: 12px; text-align: center; padding: 6px 8px; }
-	.view-ctl .hint { font: 11px/1 var(--mono); color: var(--muted); margin-right: 8px; }
-	canvas#plan:focus-visible { outline: 1px solid var(--signal); outline-offset: -1px; }
-	/* scanlines and a vignette over the plan */
-	.map::after {
-		content: "";
-		position: absolute;
-		inset: 0;
-		pointer-events: none;
-		background:
-			repeating-linear-gradient(to bottom, rgba(127, 231, 242, 0.035) 0 1px, transparent 1px 3px),
-			radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.7) 100%);
-	}
-
-	/* --- timeline: the last 24 hours as a heatmap, played like a video --- */
-	.timeline {
-		grid-area: loop;
-		padding: 8px 22px 10px;
-		border-top: 1px solid var(--line);
-	}
-	.tl-head {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		margin-bottom: 6px;
-		font: 12px/1 var(--mono);
-		color: var(--muted);
-		font-variant-numeric: tabular-nums;
-	}
-	.tl-head b { color: var(--phosphor); font-weight: 500; }
-	.tl-btn {
-		all: unset;
-		cursor: pointer;
-		min-width: 38px;
-		text-align: center;
-		font: 11px/1 var(--display);
-		letter-spacing: 0.22em;
-		text-transform: uppercase;
-		color: var(--signal);
-		padding: 5px 9px;
-		border: 1px solid var(--line);
-	}
-	.tl-btn:hover, .tl-btn[aria-pressed="true"] { border-color: var(--signal); }
-	.tl-btn:focus-visible { outline: 1px solid var(--signal); outline-offset: 2px; }
-	.tl-btn.peak { margin-left: auto; font: 12px/1 var(--mono); letter-spacing: 0; text-transform: none; color: var(--phosphor); }
-	canvas#heat { display: block; width: 100%; height: 104px; cursor: ew-resize; touch-action: none; }
-	canvas#heat:focus-visible { outline: 1px solid var(--signal); }
-
-	/* --- profiler panel ------------------------------------------------ */
-	.side {
-		position: fixed;
-		top: 64px; /* below the buttons */
-		right: 18px;
-		width: 340px;
-		max-height: calc(100vh - 230px); /* ends above the heatmap */
-		overflow-y: auto;
-		padding: 18px 20px;
-		border: 1px solid var(--line);
-		background: var(--panel);
-		backdrop-filter: blur(6px);
-		z-index: 5;
-		visibility: hidden;
-		opacity: 0;
-		transform: translateX(24px);
-		transition: opacity 0.18s, transform 0.18s, visibility 0s 0.18s;
-	}
-	.side.open {
-		visibility: visible;
-		opacity: 1;
-		transform: none;
-		transition: opacity 0.18s, transform 0.18s;
-	}
-	.close {
-		all: unset;
-		cursor: pointer;
-		position: absolute;
-		top: 12px;
-		right: 14px;
-		font: 18px/1 var(--mono);
-		color: var(--muted);
-	}
-	.close:hover { color: var(--phosphor); }
-	.close:focus-visible { outline: 1px solid var(--signal); outline-offset: 2px; }
-	@media (prefers-reduced-motion: reduce) {
-		.side, .side.open { transition: none; }
-	}
-	.eyebrow {
-		font: 11px/1 var(--display);
-		letter-spacing: 0.22em;
-		text-transform: uppercase;
-		color: var(--muted);
-		margin: 22px 0 8px;
-		display: flex;
-		align-items: center;
-		gap: 8px;
-	}
-	.eyebrow::after { content: ""; flex: 1; height: 1px; background: var(--line); }
-	.eyebrow:first-child { margin-top: 0; }
-	.name { font: 600 24px/1.1 var(--display); letter-spacing: 0.04em; margin: 0 0 4px; }
-	.where { color: var(--muted); font-size: 13px; }
-	.kv { display: grid; grid-template-columns: 92px 1fr; gap: 4px 10px; font: 12px/1.5 var(--mono); margin: 0; }
-	.kv dt { color: var(--muted); }
-	.kv dd { margin: 0; font-variant-numeric: tabular-nums; }
-	.chips { display: flex; flex-wrap: wrap; gap: 6px; }
-	.chip { font: 12px/1 var(--mono); padding: 5px 7px; border: 1px solid var(--line); color: var(--phosphor); }
-	.chip.new { border-color: var(--heat); color: var(--heat); }
-	.note { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
-	.alert {
-		border-left: 2px solid var(--heat);
-		padding: 8px 10px;
-		background: rgba(255, 59, 59, 0.08);
-		font-size: 13px;
-		margin-bottom: 14px;
-	}
-	.spark { width: 100%; height: 54px; display: block; }
-
-	.list { list-style: none; margin: 0; padding: 0; }
-	.list button {
-		all: unset;
-		box-sizing: border-box;
-		width: 100%;
-		display: grid;
-		grid-template-columns: 10px 1fr auto;
-		align-items: center;
-		gap: 10px;
-		padding: 7px 4px;
-		border-bottom: 1px solid rgba(127, 231, 242, 0.07);
-		cursor: pointer;
-		font-size: 13px;
-	}
-	.list button:hover { background: rgba(127, 231, 242, 0.05); }
-	.list button:focus-visible { outline: 1px solid var(--signal); }
-	.list .swatch { width: 8px; height: 8px; border-radius: 50%; }
-	.list .rate { font: 12px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
-	.back {
-		all: unset;
-		cursor: pointer;
-		font: 11px/1 var(--display);
-		letter-spacing: 0.22em;
-		text-transform: uppercase;
-		color: var(--signal);
-		margin-bottom: 16px;
-		display: inline-block;
-	}
-	.back:focus-visible { outline: 1px solid var(--signal); outline-offset: 3px; }
-
-	/* --- timeline of events, in the panel ------------------------------ */
-	.events button {
-		all: unset;
-		box-sizing: border-box;
-		width: 100%;
-		display: grid;
-		grid-template-columns: 46px 1fr;
-		gap: 10px;
-		padding: 9px 4px;
-		border-bottom: 1px solid rgba(127, 231, 242, 0.07);
-		cursor: pointer;
-		font-size: 13px;
-	}
-	.events button:hover { background: rgba(127, 231, 242, 0.05); }
-	.events button:focus-visible { outline: 1px solid var(--signal); }
-	.events time { font: 12px/1.45 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
-	.events .hot { color: var(--heat); }
-
-	@media (max-width: 900px) {
-		.app {
-			grid-template-columns: 1fr;
-			grid-template-rows: 60vh auto;
-			height: auto;
-		}
-		.side { left: 12px; right: 12px; width: auto; top: auto; bottom: 12px; max-height: 70vh; }
-	}
-</style>
-</head>
-<body>
-<div class="app">
-	<main class="map">
-		<header class="top">
-			<button class="top-btn" id="devices-btn" aria-expanded="false" aria-controls="side">Devices</button>
-			<button class="top-btn" id="events-btn" aria-expanded="false" aria-controls="side">Timeline</button>
-			<div class="clock" id="clock">--:--:--</div>
-		</header>
-		<canvas id="plan" tabindex="0" aria-label="Floor plan with devices and their traffic. Drag to move, shift-drag to rotate, scroll to zoom; or the arrow keys, + and -. Use the device list to pick one."></canvas>
-		<div class="view-ctl">
-			<span class="hint">drag: move · shift-drag: rotate · scroll: zoom</span>
-			<button class="top-btn" id="rot-left" aria-label="Rotate left">⟲</button>
-			<button class="top-btn" id="rot-right" aria-label="Rotate right">⟳</button>
-			<button class="top-btn" id="zoom-out" aria-label="Zoom out">−</button>
-			<button class="top-btn" id="zoom-in" aria-label="Zoom in">+</button>
-			<button class="top-btn" id="view-reset">Reset</button>
-		</div>
-	</main>
-
-	<section class="timeline" aria-label="Traffic over the last 24 hours">
-		<div class="tl-head">
-			<button class="tl-btn" id="play">Play</button>
-			<button class="tl-btn" id="live" aria-pressed="true">Live</button>
-			<span id="tl-at"></span>
-			<button class="tl-btn peak" id="peak"></button>
-		</div>
-		<canvas id="heat" tabindex="0" aria-label="Traffic per room over the last 24 hours. Drag, or use the arrow keys, to replay a moment on the plan."></canvas>
-	</section>
-
-	<aside class="side" id="side" aria-label="Device details"></aside>
-
-</div>
-
-<script>
 "use strict";
 
 // ---------------------------------------------------------------------------
-// Made-up data. In the app this comes from the collector.
+// The floor plan. Drawn by hand here until the plan editor exists
+// (docs/monitoring.md, plan step 3); it's an example, not anyone's house.
 // ---------------------------------------------------------------------------
 
 // Plan units; the view projects them into 3D.
@@ -326,129 +34,110 @@ const ROOMS = [
 const ROUTER = { x: 410, y: 470, name: "Router" };
 const SENSOR = { x: 455, y: 520, name: "Sensor" };
 
+// ---------------------------------------------------------------------------
+// The data, from the collector's /v1/overview
+// ---------------------------------------------------------------------------
+
 const MiB = 1024 * 1024;
-
-// One entry per device. `base` is [tx, rx] bytes a minute. `locationOnly`: a
-// multi-stream device the sensors can place but not count.
-const DEVICES = [
-	{ id: "lamp", name: "Smart plug · desk lamp", room: "Office", x: 860, y: 110,
-		mac: "72:66:a8:1e:de:38", vendor: "Smart plug", ports: [80], dns: ["time.example.net", "cloud.plug.example"],
-		base: [24e3, 30e3] },
-	{ id: "tv-plug", name: "Smart plug · TV", room: "Living room", x: 120, y: 230,
-		mac: "26:7c:d5:d9:52:18", vendor: "Smart plug", ports: [80], dns: ["time.example.net", "cloud.plug.example"],
-		base: [26e3, 31e3] },
-	{ id: "meter", name: "Energy meter", room: "Utility", x: 900, y: 420,
-		mac: "2a:f4:c4:45:b6:57", vendor: "Energy meter", ports: [80, 443], dns: ["api.meter.example"],
-		base: [80e3, 400e3] },
-	{ id: "water", name: "Water meter", room: "Utility", x: 870, y: 515,
-		mac: "5a:e0:df:0b:63:cb", vendor: "Water meter", ports: [80], dns: ["api.meter.example"],
-		base: [12e3, 140e3] },
-	{ id: "camera", name: "Camera · entrance", room: "Hall", x: 350, y: 525,
-		mac: "f6:f4:41:83:47:96", vendor: "IP camera", ports: [80, 554, 8000], dns: ["p2p.camera.example", "time.example.net"],
-		base: [150e3, 20e3], outlier: { bytes: 38 * MiB, times: 40 } },
-	{ id: "speaker", name: "Speaker · kitchen", room: "Kitchen", x: 640, y: 120,
-		mac: "8e:50:4e:3b:f3:f1", vendor: "Speaker", ports: [8009, 8443], dns: ["stream.music.example"],
-		base: [40e3, 1.4 * MiB] },
-	{ id: "display", name: "Wall display · hall", room: "Hall", x: 470, y: 380,
-		mac: "9e:f1:30:01:a7:85", vendor: "Wall display", ports: [80, 8021], dns: ["api.display.example"],
-		base: [200e3, 900e3] },
-	{ id: "thermo", name: "Thermostat", room: "Living room", x: 330, y: 160,
-		mac: "8e:94:50:2e:0e:50", vendor: "Thermostat", ports: [], dns: ["api.heat.example"],
-		base: [6e3, 9e3] },
-	{ id: "vacuum", name: "Robot vacuum", room: "Bedroom", x: 190, y: 470,
-		mac: "3a:27:42:9d:93:d2", vendor: "Robot vacuum", ports: [], dns: ["iot.vacuum.example"],
-		base: [18e3, 12e3] },
-	{ id: "laptop", name: "Laptop", room: "Office", x: 780, y: 250, locationOnly: true,
-		mac: "da:b4:55:50:4c:7d", vendor: "Private address", ports: [], dns: [] },
-	{ id: "phone", name: "Phone", room: "Living room", x: 230, y: 120, locationOnly: true,
-		mac: "1e:73:3e:d0:28:8b", vendor: "Private address", ports: [62078], dns: [] },
-];
-
 const MINUTE_MS = 6000; // how long each replayed minute lasts on screen
-const LOOP = 5;
+const LOOP = 5; // minutes in the replay loop
 
-// ---------------------------------------------------------------------------
-// Fake minutes: a random walk around each device's base, plus one outlier.
-// ---------------------------------------------------------------------------
+// The day: 5-minute buckets of [tx, rx] bytes a minute, the last one holding
+// the newest report.
+const BUCKET_MIN = 5;
+const BUCKETS = (24 * 60) / BUCKET_MIN;
+const BUCKET_MS = BUCKET_MIN * 60_000;
+let dayStart = Math.floor(Date.now() / BUCKET_MS) * BUCKET_MS - (BUCKETS - 1) * BUCKET_MS;
+const bucketTime = (i) => new Date(dayStart + i * BUCKET_MS);
 
+// The loop's first minute.
+let firstMinute = new Date();
+
+// Every device seen in the day. `minutes` are the loop's [tx, rx] bytes,
+// `day` its buckets. `locationOnly` and `outlier` aren't filled in yet:
+// devices the sensors can place but not count, and the outlier rules
+// (docs/monitoring.md, plan step 7).
+const DEVICES = [];
+
+// Rows of the heatmap: the day's busiest devices until there are rooms.
+// `at(i)` is the row's bytes a minute in bucket i.
+let HEAT_ROWS = [];
+
+// What the HUD shows about the sensors.
+const STATUS = { sensors: 0, channel: 0, dropped: 0 };
+
+// The Timeline panel's events: `{ hot, at, device, text }`. Nothing produces
+// them yet (plan step 7).
+const EVENTS = [];
+
+// A small seeded random generator: the same scatter on every load.
 let rngState = 7;
 function rand() {
 	rngState = (rngState * 1103515245 + 12345) & 0x7fffffff;
 	return rngState / 0x7fffffff;
 }
 
-function fakeMinute(d, outlier) {
-	if (d.locationOnly) return [0, 0];
-	if (outlier && d.outlier) return [d.outlier.bytes, d.base[1] * (0.8 + rand() * 0.4)];
-	return d.base.map((b) => b * (0.5 + rand()));
-}
-
-let firstMinute = new Date();
-firstMinute.setSeconds(0, 0);
-firstMinute = new Date(firstMinute.getTime() - (LOOP - 1) * 60_000);
-
-// The last 24 hours in 5-minute buckets, as [tx, rx] bytes a minute. In the
-// app this comes from storage. The last bucket is the live one.
-const BUCKET_MIN = 5;
-const BUCKETS = (24 * 60) / BUCKET_MIN;
-const BUCKET_MS = BUCKET_MIN * 60_000;
-const dayStart = Math.floor(Date.now() / BUCKET_MS) * BUCKET_MS - (BUCKETS - 1) * BUCKET_MS;
-const bucketTime = (i) => new Date(dayStart + i * BUCKET_MS);
-
-// A scheduled port scan, in hours: every device answers it at once.
-const SCAN = { from: 3.5, to: 3.92 };
-const inScan = (h) => h >= SCAN.from && h < SCAN.to;
-const hourOf = (i) => bucketTime(i).getHours() + bucketTime(i).getMinutes() / 60;
-
-// How busy a device is at an hour of the day, relative to its base.
-function profile(d, h) {
-	if (inScan(h)) return 8;
-	const night = h < 6.5 || h >= 23.5;
-	switch (d.id) {
-		case "vacuum": return h >= 10 && h < 11.2 ? 9 : 0.3;
-		case "speaker": return h >= 18 && h < 22 ? 2.5 : night ? 0.05 : 0.5;
-		case "display": return night ? 0.2 : 1;
-		case "camera": return rand() < (night ? 0.01 : 0.06) ? 6 : 1;
-		case "water": return (h >= 7 && h < 8) || (h >= 21 && h < 21.5) ? 5 : 0.6;
-		case "meter": return 1;
-		default: return night ? 0.4 : h >= 17 && h < 23 ? 1.4 : 1;
+// Until devices can be placed by hand, each gets a spot on a grid over the
+// plan, the same one on every load: spots shuffled once, handed out in MAC order.
+const SPOTS = (() => {
+	const spots = [];
+	for (let x = 100; x <= 900; x += 114) {
+		for (let y = 95; y <= 510; y += 83) {
+			if (Math.hypot(x - ROUTER.x, y - ROUTER.y) > 70 && Math.hypot(x - SENSOR.x, y - SENSOR.y) > 50) spots.push([x, y]);
+		}
 	}
+	let seed = 11;
+	for (let i = spots.length - 1; i > 0; i--) {
+		seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+		const j = seed % (i + 1);
+		[spots[i], spots[j]] = [spots[j], spots[i]];
+	}
+	return spots;
+})();
+
+function newDevice(mac) {
+	return { id: mac, name: mac, short: mac.slice(9), room: "not placed yet", mac, vendor: "unknown", ports: [], dns: [],
+		particles: [], spawn: [0, 0], shownAt: -1e9, screen: [0, 0] };
 }
 
-for (const d of DEVICES) {
-	d.minutes = [];
-	for (let i = 0; i < LOOP; i++) d.minutes.push(fakeMinute(d, false));
-	d.day = Array.from({ length: BUCKETS }, (_, i) => {
-		if (d.locationOnly) return [0, 0];
-		const p = profile(d, hourOf(i));
-		return d.base.map((b) => b * p * (0.6 + rand() * 0.8));
+// Merges an overview into DEVICES, keeping each device's particles.
+function applyOverview(o) {
+	dayStart = o.day_start * 1000;
+	if (o.minutes.length) firstMinute = new Date(o.minutes[0] * 1000);
+	const pad = (m) => [...Array(Math.max(0, LOOP - m.length)).fill([0, 0]), ...m.slice(-LOOP)];
+	const seen = o.devices.filter((x) => x.last_seen * 1000 >= dayStart).sort((a, b) => a.mac.localeCompare(b.mac));
+	const old = new Map(DEVICES.map((d) => [d.id, d]));
+	DEVICES.length = 0;
+	seen.forEach((x, i) => {
+		const d = old.get(x.mac) ?? newDevice(x.mac);
+		const [sx, sy] = SPOTS[i % SPOTS.length];
+		Object.assign(d, { x: sx, y: sy, minutes: pad(x.minutes), day: x.day, rssi: x.rssi_max, firstSeen: x.first_seen });
+		DEVICES.push(d);
 	});
-	d.rssi = -38 - Math.round(rand() * 40);
-	d.particles = [];
-	d.spawn = [0, 0];
-	d.shownAt = -1e9;
-	d.screen = [0, 0];
+	HEAT_ROWS = [...DEVICES]
+		.map((d) => ({ d, total: d.day.reduce((s, [a, b]) => s + a + b, 0) }))
+		.sort((a, b) => b.total - a.total)
+		.slice(0, 8)
+		.map(({ d }) => ({ name: d.mac, at: (i) => d.day[i][0] + d.day[i][1] }));
+	const newest = o.sensors.reduce((a, b) => (b.last_seen > a.last_seen ? b : a), o.sensors[0]);
+	Object.assign(STATUS, {
+		sensors: o.sensors.length,
+		channel: newest?.channel ?? 0,
+		dropped: o.sensors.reduce((s, x) => s + x.dropped, 0),
+	});
+	if (selected && !DEVICES.includes(selected)) closePanel();
+	onData();
 }
 
-const camera = DEVICES.find((d) => d.id === "camera");
-camera.minutes[LOOP - 1] = fakeMinute(camera, true);
-
-// The live bucket is the average of the minutes in the loop.
-function syncLiveBucket() {
-	for (const d of DEVICES) {
-		d.day[BUCKETS - 1] = [0, 1].map((k) => d.minutes.reduce((s, m) => s + m[k], 0) / LOOP);
+async function loadOverview() {
+	try {
+		const res = await fetch("/v1/overview");
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		applyOverview(await res.json());
+	} catch (e) {
+		console.error("overview:", e);
 	}
 }
-
-// Rows of the heatmap: the rooms that have countable devices.
-const HEAT_ROOMS = ROOMS.filter((r) => DEVICES.some((d) => d.room === r.name && !d.locationOnly));
-const roomAt = (r, i) => DEVICES.reduce((s, d) => (d.room === r.name ? s + d.day[i][0] + d.day[i][1] : s), 0);
-
-const EVENTS = [
-	{ hot: true, at: LOOP - 1, device: "camera", text: "Camera · entrance sent 38 MiB in one minute, about 40× its usual for this hour. Email sent." },
-	{ hot: false, at: 1, device: "vacuum", text: "New device in the bedroom: 3a:27:42:9d:93:d2 (robot vacuum)." },
-	{ hot: false, at: 0, device: "display", text: "Wall display · hall: port 8021 open since today's scan." },
-];
 
 // ---------------------------------------------------------------------------
 // Traffic to colour: white is low, red is high, on a log scale.
@@ -604,14 +293,11 @@ function outlierNow(d, now) {
 	return heat(d.minutes[Math.min(LOOP - 1, Math.floor((now - loopStart) / MINUTE_MS))][0]) > 0.9;
 }
 
+// The loop came round: fetch the data again, so a new minute joins if the
+// sensor sent one.
 function newMinute(now) {
-	firstMinute = new Date(firstMinute.getTime() + 60_000);
-	for (const d of DEVICES) {
-		d.minutes.shift();
-		d.minutes.push(fakeMinute(d, false));
-	}
 	ringStart = now;
-	onData();
+	loadOverview();
 }
 
 function step(now) {
@@ -931,7 +617,7 @@ function drawNode(d, now) {
 	if (selected === d) brackets(x, y, 17 * k, "#7fe7f2");
 
 	const sub = d.locationOnly ? "location only" : `${fmtBytes(tx + rx)}/min`;
-	label(d.name, x + 12, y - 3, glitching ? "#ff3b3b" : "rgba(232,244,246,0.8)");
+	label(d.short ?? d.name, x + 12, y - 3, glitching ? "#ff3b3b" : "rgba(232,244,246,0.8)");
 	label(sub, x + 12, y + 10, "#5c7a86", "mono");
 }
 
@@ -967,7 +653,7 @@ function drawCallouts(now) {
 			d.name.toUpperCase(),
 			`MAC   ${d.mac}`,
 			`TX    ${fmtBytes(tx).padStart(10)}  RX ${fmtBytes(rx).padStart(10)}`,
-			`RSSI  ${d.rssi} dBm   PORTS ${d.ports.length || "-"}`,
+			`RSSI  ${d.rssi ?? "-"} dBm   PORTS ${d.ports.length || "-"}`,
 		];
 		const typed = reduced ? Infinity : Math.floor((now - d.shownAt) / 14);
 		const [nx, ny] = d.screen;
@@ -1027,13 +713,12 @@ function drawHud(now) {
 	const total = DEVICES.reduce((s, d) => { const [a, b] = current(d, now); return s + a + b; }, 0);
 	const fps = Math.round(total / 60 / 900) + 140;
 	const rows = [
-		["SNIFFER", "CH 11 · 2.4 GHZ · 20 MHZ"],
+		["SNIFFER", `CH ${STATUS.channel} · 2.4 GHZ · 20 MHZ`],
 		["FRAMES/S", String(fps)],
 		["THROUGHPUT", `${fmtBytes(total / 60)}/s`],
-		["WATCHED", "2 NETWORKS"],
-		["SENSORS", "2"],
+		["SENSORS", String(STATUS.sensors)],
 		["DEVICES", String(DEVICES.length)],
-		["DROPPED", "0"],
+		["DROPPED", String(STATUS.dropped)],
 	];
 	ctx.font = "10px ui-monospace, Menlo, monospace";
 	rows.forEach(([k, v], i) => {
@@ -1048,10 +733,10 @@ function drawHud(now) {
 	ctx.fillStyle = "rgba(92,122,134,0.9)";
 	ctx.fillText("2.4 GHZ OCCUPANCY", bx, by - 6);
 	for (let ch = 1; ch <= 13; ch++) {
-		const base = ch === 11 ? 0.55 : ch === 6 || ch === 1 ? 0.3 : 0.08;
+		const base = ch === STATUS.channel ? 0.55 : ch === 6 || ch === 1 ? 0.3 : 0.08;
 		const v = Math.min(1, base + (reduced ? 0 : 0.08 * Math.sin(now / 300 + ch * 1.7)));
 		const h = 4 + v * 26;
-		ctx.fillStyle = ch === 11 ? "rgba(127,231,242,0.9)" : "rgba(127,231,242,0.25)";
+		ctx.fillStyle = ch === STATUS.channel ? "rgba(127,231,242,0.9)" : "rgba(127,231,242,0.25)";
 		ctx.fillRect(bx + (ch - 1) * 9, by + 30 - h, 6, h);
 	}
 
@@ -1093,7 +778,6 @@ function label(text, x, y, color, face = "body") {
 // ---------------------------------------------------------------------------
 
 function onData() {
-	syncLiveBucket();
 	heatDirty = true;
 	renderEventsBtn();
 	if (panel === "list") renderList();
@@ -1114,7 +798,7 @@ let heatDirty = true, hover = null, dragging = false, peak = 0;
 
 function heatGeom() {
 	const r = heatEl.getBoundingClientRect();
-	return { w: r.width, h: r.height, cw: (r.width - GUTTER) / BUCKETS, rh: (r.height - TOP - AXIS) / HEAT_ROOMS.length };
+	return { w: r.width, h: r.height, cw: (r.width - GUTTER) / BUCKETS, rh: (r.height - TOP - AXIS) / Math.max(1, HEAT_ROWS.length) };
 }
 
 const colX = (g, i) => GUTTER + i * g.cw;
@@ -1133,15 +817,14 @@ function renderHeat() {
 	c.clearRect(0, 0, g.w, g.h);
 
 	let best = -1;
-	HEAT_ROOMS.forEach((r, row) => {
+	HEAT_ROWS.forEach((r, row) => {
 		const y = TOP + row * g.rh;
 		c.font = `600 10px "Avenir Next Condensed", "Arial Narrow", sans-serif`;
 		c.fillStyle = "rgba(92,122,134,0.9)";
 		c.fillText(r.name.toUpperCase(), 0, y + g.rh / 2 + 3.5);
 		for (let i = 0; i < BUCKETS; i++) {
-			const v = roomAt(r, i);
-			// the scheduled scan is expected, so it isn't the peak
-			if (v > best && !inScan(hourOf(i))) [best, peak] = [v, i];
+			const v = r.at(i);
+			if (v > best) [best, peak] = [v, i];
 			const t = heat(v);
 			c.fillStyle = t < 0.02 ? "rgba(127,231,242,0.04)" : heatColor(t, 0.08 + 0.92 * t * t);
 			c.fillRect(colX(g, i), y + 1, Math.max(1, g.cw - 0.4), g.rh - 2);
@@ -1162,7 +845,7 @@ function renderHeat() {
 		}
 	}
 
-	// marks above the rows: the scheduled scan, the outlier
+	// a mark above the rows: the outlier
 	const mark = (from, to, text, color) => {
 		const x1 = colX(g, from), x2 = colX(g, to + 1);
 		c.fillStyle = color;
@@ -1171,13 +854,10 @@ function renderHeat() {
 		const w = c.measureText(text).width;
 		c.fillText(text, Math.min(x1, g.w - w), TOP - 8);
 	};
-	const scan = [];
-	for (let i = 0; i < BUCKETS; i++) if (inScan(hourOf(i))) scan.push(i);
-	if (scan.length) mark(scan[0], scan[scan.length - 1], "scheduled scan · expected", "rgba(127,231,242,0.55)");
 	if (DEVICES.some((d) => d.outlier && d.minutes.some((m) => heat(m[0]) > 0.9))) mark(BUCKETS - 1, BUCKETS - 1, "outlier", "rgba(255,59,59,0.9)");
 
-	const r = HEAT_ROOMS.reduce((a, b) => (roomAt(b, peak) > roomAt(a, peak) ? b : a));
-	peakBtn.textContent = `peak ${dayLabel(bucketTime(peak))} · ${r.name} · ${fmtBytes(best)}/min`;
+	const r = HEAT_ROWS.reduce((a, b) => (b.at(peak) > a.at(peak) ? b : a), HEAT_ROWS[0]);
+	peakBtn.textContent = r ? `peak ${dayLabel(bucketTime(peak))} · ${r.name} · ${fmtBytes(best)}/min` : "";
 	heatDirty = false;
 }
 
@@ -1213,11 +893,11 @@ function drawTimeline(now) {
 
 	if (live) {
 		const left = Math.ceil((MINUTE_MS * LOOP - (now - loopStart)) / 1000);
-		atEl.innerHTML = `<b>live</b> · replaying the last ${LOOP} minutes · next minute in ${left} s (mockup: 1 min = ${MINUTE_MS / 1000} s)`;
+		atEl.innerHTML = `<b>live</b> · replaying the last ${LOOP} minutes · next minute in ${left} s (played ${60_000 / MINUTE_MS}× faster)`;
 	} else {
 		const i = Math.floor(cursor);
-		const r = HEAT_ROOMS.reduce((a, b) => (roomAt(b, i) > roomAt(a, i) ? b : a));
-		atEl.innerHTML = `<b>${dayLabel(bucketTime(i))}</b> · busiest: ${r.name}, ${fmtBytes(roomAt(r, i))}/min`;
+		const r = HEAT_ROWS.reduce((a, b) => (b.at(i) > a.at(i) ? b : a), HEAT_ROWS[0]);
+		atEl.innerHTML = `<b>${dayLabel(bucketTime(i))}</b>` + (r ? ` · busiest: ${r.name}, ${fmtBytes(r.at(i))}/min` : "");
 	}
 }
 
@@ -1333,7 +1013,7 @@ function select(d) {
 	if (!d) return closePanel();
 	selected = d;
 	const [tx, rx] = d.minutes[LOOP - 1];
-	const ports = d.ports.length ? d.ports.map((p) => `<span class="chip${d.id === "display" && p === 8021 ? " new" : ""}">${p}/tcp</span>`).join("") : `<span class="note">none found in the last scan</span>`;
+	const ports = d.ports.length ? d.ports.map((p) => `<span class="chip">${p}/tcp</span>`).join("") : `<span class="note">no scan results yet</span>`;
 	const dns = d.dns.length ? d.dns.map((n) => `<span class="chip">${n}</span>`).join("") : `<span class="note">no lookups seen</span>`;
 	const alert = d.outlier ? `<div class="alert">Sent ${fmtBytes(d.outlier.bytes)} in one minute, about ${d.outlier.times}× its usual for this hour. Email sent.</div>` : "";
 	side.innerHTML = `
@@ -1347,7 +1027,7 @@ function select(d) {
 		<dl class="kv">
 			<dt>sent</dt><dd>${fmtBytes(tx)}</dd>
 			<dt>received</dt><dd>${fmtBytes(rx)}</dd>
-			<dt>signal</dt><dd>${d.rssi} dBm</dd>
+			<dt>signal</dt><dd>${d.rssi ?? "-"} dBm</dd>
 		</dl>
 
 		<div class="eyebrow">Traffic, last 24 hours</div>
@@ -1363,7 +1043,7 @@ function select(d) {
 		<dl class="kv">
 			<dt>MAC</dt><dd>${d.mac}</dd>
 			<dt>vendor</dt><dd>${d.vendor}</dd>
-			<dt>first seen</dt><dd>${d.id === "vacuum" ? "today" : "12 days ago"}</dd>
+			<dt>first seen</dt><dd>${new Date(d.firstSeen * 1000).toLocaleString()}</dd>
 		</dl>`;
 	document.getElementById("back").addEventListener("click", openList);
 	wireClose();
@@ -1402,7 +1082,8 @@ function renderEvents() {
 		const time = hhmm(new Date(firstMinute.getTime() + e.at * 60_000));
 		return `<li><button data-id="${e.device}"><time>${time}</time><span class="${e.hot ? "hot" : ""}">${e.text}</span></button></li>`;
 	});
-	side.innerHTML = `${CLOSE}<div class="eyebrow">Timeline</div><ul class="list events">${rows.join("")}</ul>`;
+	const empty = rows.length ? "" : `<p class="note">No events yet.</p>`;
+	side.innerHTML = `${CLOSE}<div class="eyebrow">Timeline</div><ul class="list events">${rows.join("")}</ul>${empty}`;
 	wireClose();
 	side.querySelectorAll("button[data-id]").forEach((b) => b.addEventListener("click", () => select(DEVICES.find((d) => d.id === b.dataset.id))));
 }
@@ -1491,10 +1172,8 @@ setInterval(() => {
 
 resize();
 onData();
+loadOverview();
 requestAnimationFrame((now) => {
 	lastFrame = loopStart = ringStart = now;
 	requestAnimationFrame(step);
 });
-</script>
-</body>
-</html>

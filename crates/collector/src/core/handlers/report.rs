@@ -16,14 +16,47 @@ use crate::{
 
 #[derive(Debug, PartialEq)]
 pub enum Ingested {
-	Stored(i64),
+	/// With what the sequence number says about the reports in between.
+	Stored {
+		id: i64,
+		gap: String,
+	},
 	/// Stored before: the sensor resent it because our answer got lost.
 	Duplicate,
 }
 
-/// Stores a report with its device and broadcast counters, and logs one line
-/// for it. A resend is answered as if stored, so the sensor drops it.
+/// Stores a report and logs one line for it. A resend is answered as if
+/// stored, so the sensor drops it.
 pub async fn ingest_report(db: &DatabaseRepository, report: Report) -> Result<Ingested> {
+	let ingested = store_report(db, &report).await?;
+	match &ingested {
+		Ingested::Stored {
+			gap,
+			..
+		} => {
+			let rx: i64 = report.devices.iter().map(|d| d.rx_bytes).sum();
+			let tx: i64 = report.devices.iter().map(|d| d.tx_bytes).sum();
+			info!(
+				"{} seq {} uptime {}s ch {}: {} devices, rx {rx} B, tx {tx} B, dropped {}, overflow {}{gap}",
+				*report.sensor,
+				report.seq,
+				report.uptime_s,
+				report.channel,
+				report.devices.len(),
+				report.dropped,
+				report.overflow,
+			);
+		},
+		Ingested::Duplicate => {
+			warn!("{} seq {}: resent, already stored", *report.sensor, report.seq)
+		},
+	}
+	Ok(ingested)
+}
+
+/// Stores a report with its device and broadcast counters, unless it's
+/// stored already.
+pub async fn store_report(db: &DatabaseRepository, report: &Report) -> Result<Ingested> {
 	let sensor = DbValue::Text(report.sensor.to_string());
 	let found = db
 		.get_record(
@@ -36,13 +69,12 @@ pub async fn ingest_report(db: &DatabaseRepository, report: Report) -> Result<In
 		)
 		.await?;
 	if found.is_some() {
-		warn!("{} seq {}: resent, already stored", *report.sensor, report.seq);
 		return Ok(Ingested::Duplicate);
 	}
 
 	let last = db.get_record(REPORTS_LAST_SEQ, vec![sensor]).await?;
 	let last_seq = last.map(|row| row.try_get::<i64, _>("seq")).transpose()?;
-	let note = gap_note(last_seq, report.seq);
+	let gap = gap_note(last_seq, report.seq);
 
 	let mut children = Vec::with_capacity(report.devices.len() + report.broadcast.len());
 	for d in &report.devices {
@@ -85,20 +117,10 @@ pub async fn ingest_report(db: &DatabaseRepository, report: Report) -> Result<In
 			children,
 		)
 		.await?;
-
-	let rx: i64 = report.devices.iter().map(|d| d.rx_bytes).sum();
-	let tx: i64 = report.devices.iter().map(|d| d.tx_bytes).sum();
-	info!(
-		"{} seq {} uptime {}s ch {}: {} devices, rx {rx} B, tx {tx} B, dropped {}, overflow {}{note}",
-		*report.sensor,
-		report.seq,
-		report.uptime_s,
-		report.channel,
-		report.devices.len(),
-		report.dropped,
-		report.overflow,
-	);
-	Ok(Ingested::Stored(id))
+	Ok(Ingested::Stored {
+		id,
+		gap,
+	})
 }
 
 /// What the sequence number says about the reports in between.

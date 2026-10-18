@@ -16,6 +16,9 @@ pub enum Error {
 	#[error("config error: {0}")]
 	Config(String),
 
+	#[error("file system error: {0}")]
+	FileSystem(String),
+
 	#[error("database error: {0}")]
 	Database(String),
 

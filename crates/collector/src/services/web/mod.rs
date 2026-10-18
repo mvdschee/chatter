@@ -15,6 +15,8 @@ pub struct HttpServerState {
 	pub db: DatabaseRepository,
 	/// The test client's download; `None` serves no `GET /test.bin`.
 	pub test_file: Option<Bytes>,
+	/// Development: serve the page from this directory instead of the binary.
+	pub ui_dir: Option<String>,
 }
 
 pub struct HttpServer {
@@ -30,6 +32,8 @@ impl HttpServer {
 			.merge(handlers::root_routes())
 			.merge(handlers::report::routes())
 			.merge(handlers::test_file::routes())
+			.merge(handlers::ui::routes())
+			.nest("/v1", handlers::overview::routes())
 			.with_state(state);
 
 		let listener = TcpListener::bind(config.bind)

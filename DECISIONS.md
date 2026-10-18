@@ -102,3 +102,9 @@
 **Decision:** For now nothing is authenticated: anyone on the LAN can post a report. The port is bound to the server's LAN address only.
 **Why:** The sensors have no way to get a secret yet besides a reflash. A per-sensor token belongs with setting sensors up without reflashing, which a product needs anyway.
 **Alternatives:** A shared token in `.env`, built into the firmware (a reflash to rotate, and the same secret in every board).
+
+## 2026-10-18 - Collector settings only from the environment, `.env` locally
+
+**Decision:** The collector reads every setting from environment variables (`CHATTER_BIND`, `CHATTER_DB`, `CHATTER_UI_DIR`, `CHATTER_TEST_FILE_MIB`). Locally it loads the repo's `.env` itself (dotenvy); its container sets the same keys. The makefile only runs it.
+**Why:** One way to configure it, the same for a local run and the image, and a makefile without per-setup targets. Reading `.env` in the collector rather than including it in the makefile keeps make from parsing values like the Wi-Fi password, where `#` and `$` mean something to make.
+**Alternatives:** Per-setup make targets with the values inline (what it was; grew a target per case); `include .env` in the makefile (breaks on some passwords).

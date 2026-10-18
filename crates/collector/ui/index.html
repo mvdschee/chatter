@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chatter</title>
+<!--
+  The monitoring page (docs/monitoring.md). The collector serves it with
+  style.css and app.js; app.js loads the data from /v1/overview.
+-->
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+	<main class="map">
+		<header class="top">
+			<button class="top-btn" id="devices-btn" aria-expanded="false" aria-controls="side">Devices</button>
+			<button class="top-btn" id="events-btn" aria-expanded="false" aria-controls="side">Timeline</button>
+			<div class="clock" id="clock">--:--:--</div>
+		</header>
+		<canvas id="plan" tabindex="0" aria-label="Floor plan with devices and their traffic. Drag to move, shift-drag to rotate, scroll to zoom; or the arrow keys, + and -. Use the device list to pick one."></canvas>
+		<div class="view-ctl">
+			<span class="hint">drag: move · shift-drag: rotate · scroll: zoom</span>
+			<button class="top-btn" id="rot-left" aria-label="Rotate left">⟲</button>
+			<button class="top-btn" id="rot-right" aria-label="Rotate right">⟳</button>
+			<button class="top-btn" id="zoom-out" aria-label="Zoom out">−</button>
+			<button class="top-btn" id="zoom-in" aria-label="Zoom in">+</button>
+			<button class="top-btn" id="view-reset">Reset</button>
+		</div>
+	</main>
+
+	<section class="timeline" aria-label="Traffic over the last 24 hours">
+		<div class="tl-head">
+			<button class="tl-btn" id="play">Play</button>
+			<button class="tl-btn" id="live" aria-pressed="true">Live</button>
+			<span id="tl-at"></span>
+			<button class="tl-btn peak" id="peak"></button>
+		</div>
+		<canvas id="heat" tabindex="0" aria-label="Traffic per room over the last 24 hours. Drag, or use the arrow keys, to replay a moment on the plan."></canvas>
+	</section>
+
+	<aside class="side" id="side" aria-label="Device details"></aside>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

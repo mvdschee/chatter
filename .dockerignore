@@ -6,6 +6,7 @@
 !crates/collector/Cargo.lock
 !crates/collector/src/
 !crates/collector/migrations/
+!crates/collector/ui/
 
 # Re-deny noise that might live inside src/
 **/.DS_Store

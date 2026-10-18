@@ -404,7 +404,7 @@ don't need the antenna. Each install or setup step also goes into
     the container's log). Next: the day-long data run.
 11. **Monitoring app:** the collector grows into a monitoring app with a live
     floor-plan view and outlier emails. Planned in `docs/monitoring.md`; the
-    first chunk is a static mockup of the look.
+    first chunk was a static mockup of the look; it's now the collector's page.
 
 ## Validation
 
