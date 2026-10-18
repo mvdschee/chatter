@@ -329,3 +329,7 @@ Then run steps 1 and 2 again.
   `lan_scan` until the collector sends the emails too. On the Mac (Wi-Fi) a
   full scan timed out on every host: about 2 million probes in 30 minutes is
   more than Wi-Fi carries with `-T4`; the wired server is the check.
+- 2026-10-18: deployed on the home server. The first full port scan from the
+  container (host network, root with `NET_RAW` and `NET_ADMIN`) finished with
+  no host timed out, so the Mac's timeouts were its Wi-Fi. The next one was
+  scheduled for the next day's 18:00 plus its spread.
