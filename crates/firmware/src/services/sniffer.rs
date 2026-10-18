@@ -9,7 +9,7 @@ use core::{
 };
 
 use chatter_core::models::{
-	frame::{self, Frame},
+	frame::{self, Frame, Mac},
 	watched::{Watched, net_for_ssid},
 };
 use critical_section::Mutex;
@@ -21,16 +21,23 @@ use esp_radio::wifi::{
 
 use crate::{Result, config::WATCH_SSIDS};
 
-const QUEUE_LEN: usize = 64;
+// 14 B a frame; 64 overflowed during a LAN-wide port scan, when every device
+// talks at once
+const QUEUE_LEN: usize = 256;
 
 static WATCHED: Mutex<Cell<Watched>> = Mutex::new(Cell::new(Watched::new()));
+/// The sensor's own MAC: its reports aren't a device on the network.
+static OWN: Mutex<Cell<Mac>> = Mutex::new(Cell::new(Mac([0; 6])));
 static QUEUE: Channel<CriticalSectionRawMutex, Frame, QUEUE_LEN> = Channel::new();
 static DROPPED: AtomicU32 = AtomicU32::new(0);
 
 /// Turns promiscuous mode on. Keep the returned `Sniffer` alive: dropping it
 /// turns sniffing off again.
-pub fn start(controller: &WifiController<'static>, watched: Watched) -> Result<Sniffer> {
-	critical_section::with(|cs| WATCHED.borrow(cs).set(watched));
+pub fn start(controller: &WifiController<'static>, watched: Watched, own: Mac) -> Result<Sniffer> {
+	critical_section::with(|cs| {
+		WATCHED.borrow(cs).set(watched);
+		OWN.borrow(cs).set(own);
+	});
 	let mut sniffer = controller.sniffer();
 	sniffer.set_receive_cb(on_frame);
 	sniffer.set_promiscuous_mode(true)?;
@@ -66,7 +73,10 @@ fn on_frame(pkt: PromiscuousPkt<'_>) {
 
 	let len = pkt.len.min(u16::MAX as usize) as u16;
 	let rssi = pkt.rx_cntl.rssi.clamp(i8::MIN as i32, i8::MAX as i32) as i8;
-	if let Some(frame) = frame::decode(pkt.data, len, rssi, &watched())
+	let (watched, own) =
+		critical_section::with(|cs| (WATCHED.borrow(cs).get(), OWN.borrow(cs).get()));
+	if let Some(frame) = frame::decode(pkt.data, len, rssi, &watched)
+		&& frame.station != own
 		&& QUEUE.try_send(frame).is_err()
 	{
 		DROPPED.fetch_add(1, Relaxed);

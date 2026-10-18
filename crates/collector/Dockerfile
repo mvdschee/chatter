@@ -1,5 +1,5 @@
 # The collector's image. Build context: the repo root, so `.dockerignore` there
-# decides what goes in (only crates/collector). Built and pushed by
+# decides what goes in (only the collector's crate and migrations). Built and pushed by
 # .github/workflows/collector-image.yml.
 
 # Same Rust as rust-toolchain.toml. That file isn't copied in: it also lists the
@@ -20,4 +20,6 @@ COPY --from=builder /app/target/release/chatter-collector /usr/local/bin/chatter
 
 EXPOSE 8080
 USER chatter
-CMD ["chatter-collector", "0.0.0.0:8080", "--out", "/var/lib/chatter/reports.jsonl"]
+ENV CHATTER_BIND=0.0.0.0:8080 \
+    CHATTER_DB=/var/lib/chatter/chatter.db
+CMD ["chatter-collector"]

@@ -1,0 +1,30 @@
+use thiserror::Error as DisplayError;
+
+pub type Result<T> = core::result::Result<T, Error>;
+
+#[derive(DisplayError, Debug)]
+pub enum Error {
+	#[error("environment: `{0}` is not set")]
+	Env(String),
+
+	#[error("main loop closed")]
+	MainLoopClosed,
+
+	#[error("IO error: {0}")]
+	Io(#[from] std::io::Error),
+
+	#[error("config error: {0}")]
+	Config(String),
+
+	#[error("database error: {0}")]
+	Database(String),
+
+	#[error("report error: {0}")]
+	Report(String),
+}
+
+impl From<sqlx::Error> for Error {
+	fn from(err: sqlx::Error) -> Self {
+		Error::Database(err.to_string())
+	}
+}

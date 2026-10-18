@@ -90,3 +90,15 @@
 **Decision:** `crates/collector/Dockerfile` plus a GitHub Actions workflow push `ghcr.io/<owner>/chatter-collector:latest`. The deployment (compose, ports, volume) lives in a separate infrastructure repo and only pulls the image.
 **Why:** It matches how the owner's other services deploy: rerunning one playbook picks up a new version, and nothing about the server lives in this public repo. The image builds from the repo root with a deny-all `.dockerignore`, so only the collector's sources go in.
 **Alternatives:** A cross-compiled binary plus a systemd unit (needs a Linux linker on the Mac); building on the server (a Rust toolchain there).
+
+## 2026-10-18 - Collector: axum and SQLite through sqlx
+
+**Decision:** The collector becomes an axum service in the standard layout (`core`, `repository`, `services/web`), storing reports in one SQLite file through sqlx with its bundled SQLite. A row per report, per device minute and per broadcast minute; the device rows carry the report's time, so per-device queries over time need no join. A resent report (same sensor, `seq` and uptime) is answered `204` and not stored again.
+**Why:** It may become a product: one file next to the binary is something a buyer can run and back up, with no database server. sqlx matches the other services' generic repository, and its bundled SQLite comes from crates.io, so no system library or hand-built C. Plain axum (hyper) still speaks the firmware's HTTP/1.0.
+**Alternatives:** Postgres (a second container to run and update, for one writer at a row a minute); rusqlite (synchronous, a different repository style); keeping the hand-rolled std server (no routing, middleware or SSE for the live view).
+
+## 2026-10-18 - Collector on the LAN without authentication
+
+**Decision:** For now nothing is authenticated: anyone on the LAN can post a report. The port is bound to the server's LAN address only.
+**Why:** The sensors have no way to get a secret yet besides a reflash. A per-sensor token belongs with setting sensors up without reflashing, which a product needs anyway.
+**Alternatives:** A shared token in `.env`, built into the firmware (a reflash to rotate, and the same secret in every board).

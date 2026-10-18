@@ -50,9 +50,11 @@ async fn main(spawner: Spawner) -> ! {
 	if let Some(net) = net_for_ssid(config::WIFI_SSID.as_bytes(), config::WATCH_SSIDS) {
 		watched.learn(net, Mac(bssid));
 	}
-	let sniffer = sniffer::start(&controller, watched).expect("sniffer start failed");
+	let interface = Interface::station();
+	let own = Mac(interface.mac_address());
+	let sniffer = sniffer::start(&controller, watched, own).expect("sniffer start failed");
 
-	let (stack, runner) = net::init(Interface::station());
+	let (stack, runner) = net::init(interface);
 
 	spawner.spawn(wifi::connection(controller).expect("wifi task already running"));
 	spawner.spawn(net::run(runner).expect("net task already running"));

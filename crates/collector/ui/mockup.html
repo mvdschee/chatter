@@ -1,0 +1,1500 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chatter · mockup</title>
+<!--
+  Static mockup of the monitoring view (docs/monitoring.md, plan step 1), v2.
+  Everything here is made up: the floor plan, the devices, their MACs and their
+  traffic, and the hex frame headers in the HUD. No backend, no external
+  assets: open this file in a browser.
+-->
+<style>
+	:root {
+		--void: #04070a;
+		--grid: #10202a;
+		--signal: #7fe7f2;
+		--phosphor: #e8f4f6;
+		--heat: #ff3b3b;
+		--muted: #5c7a86;
+		--panel: rgba(6, 14, 19, 0.9);
+		--line: rgba(127, 231, 242, 0.16);
+
+		--display: "Avenir Next Condensed", "DIN Alternate", "Roboto Condensed", "Arial Narrow", sans-serif;
+		--mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+		--body: system-ui, -apple-system, "Segoe UI", sans-serif;
+	}
+
+	* { box-sizing: border-box; }
+
+	html, body {
+		margin: 0;
+		height: 100%;
+		background: var(--void);
+		color: var(--phosphor);
+		font: 14px/1.45 var(--body);
+	}
+
+	.app {
+		display: grid;
+		grid-template-columns: 1fr;
+		grid-template-rows: 1fr auto;
+		grid-template-areas: "map" "loop";
+		height: 100vh;
+	}
+
+	/* --- buttons and clock, in the plan's top right ---------------------- */
+	.top {
+		position: absolute;
+		top: 26px;
+		right: 30px;
+		z-index: 2;
+		display: flex;
+		align-items: center;
+		gap: 14px;
+	}
+	.top-btn {
+		all: unset;
+		cursor: pointer;
+		font: 11px/1 var(--display);
+		letter-spacing: 0.22em;
+		text-transform: uppercase;
+		color: var(--signal);
+		padding: 6px 10px;
+		border: 1px solid var(--line);
+	}
+	.top-btn:hover, .top-btn[aria-expanded="true"] { border-color: var(--signal); }
+	.top-btn:focus-visible { outline: 1px solid var(--signal); outline-offset: 2px; }
+	.badge { margin-left: 6px; padding: 1px 5px; background: var(--heat); color: var(--void); letter-spacing: 0; }
+	.clock { font: 13px/1 var(--mono); color: var(--phosphor); font-variant-numeric: tabular-nums; }
+
+	/* --- the plan ------------------------------------------------------ */
+	.map { grid-area: map; position: relative; min-height: 0; overflow: hidden; }
+	canvas#plan { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+	canvas#plan.dragging { cursor: grabbing; }
+	/* zoom and rotate, in the plan's bottom right */
+	.view-ctl {
+		position: absolute;
+		right: 30px;
+		bottom: 26px;
+		z-index: 2;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.view-ctl .top-btn { min-width: 12px; text-align: center; padding: 6px 8px; }
+	.view-ctl .hint { font: 11px/1 var(--mono); color: var(--muted); margin-right: 8px; }
+	canvas#plan:focus-visible { outline: 1px solid var(--signal); outline-offset: -1px; }
+	/* scanlines and a vignette over the plan */
+	.map::after {
+		content: "";
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
+		background:
+			repeating-linear-gradient(to bottom, rgba(127, 231, 242, 0.035) 0 1px, transparent 1px 3px),
+			radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.7) 100%);
+	}
+
+	/* --- timeline: the last 24 hours as a heatmap, played like a video --- */
+	.timeline {
+		grid-area: loop;
+		padding: 8px 22px 10px;
+		border-top: 1px solid var(--line);
+	}
+	.tl-head {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		margin-bottom: 6px;
+		font: 12px/1 var(--mono);
+		color: var(--muted);
+		font-variant-numeric: tabular-nums;
+	}
+	.tl-head b { color: var(--phosphor); font-weight: 500; }
+	.tl-btn {
+		all: unset;
+		cursor: pointer;
+		min-width: 38px;
+		text-align: center;
+		font: 11px/1 var(--display);
+		letter-spacing: 0.22em;
+		text-transform: uppercase;
+		color: var(--signal);
+		padding: 5px 9px;
+		border: 1px solid var(--line);
+	}
+	.tl-btn:hover, .tl-btn[aria-pressed="true"] { border-color: var(--signal); }
+	.tl-btn:focus-visible { outline: 1px solid var(--signal); outline-offset: 2px; }
+	.tl-btn.peak { margin-left: auto; font: 12px/1 var(--mono); letter-spacing: 0; text-transform: none; color: var(--phosphor); }
+	canvas#heat { display: block; width: 100%; height: 104px; cursor: ew-resize; touch-action: none; }
+	canvas#heat:focus-visible { outline: 1px solid var(--signal); }
+
+	/* --- profiler panel ------------------------------------------------ */
+	.side {
+		position: fixed;
+		top: 64px; /* below the buttons */
+		right: 18px;
+		width: 340px;
+		max-height: calc(100vh - 230px); /* ends above the heatmap */
+		overflow-y: auto;
+		padding: 18px 20px;
+		border: 1px solid var(--line);
+		background: var(--panel);
+		backdrop-filter: blur(6px);
+		z-index: 5;
+		visibility: hidden;
+		opacity: 0;
+		transform: translateX(24px);
+		transition: opacity 0.18s, transform 0.18s, visibility 0s 0.18s;
+	}
+	.side.open {
+		visibility: visible;
+		opacity: 1;
+		transform: none;
+		transition: opacity 0.18s, transform 0.18s;
+	}
+	.close {
+		all: unset;
+		cursor: pointer;
+		position: absolute;
+		top: 12px;
+		right: 14px;
+		font: 18px/1 var(--mono);
+		color: var(--muted);
+	}
+	.close:hover { color: var(--phosphor); }
+	.close:focus-visible { outline: 1px solid var(--signal); outline-offset: 2px; }
+	@media (prefers-reduced-motion: reduce) {
+		.side, .side.open { transition: none; }
+	}
+	.eyebrow {
+		font: 11px/1 var(--display);
+		letter-spacing: 0.22em;
+		text-transform: uppercase;
+		color: var(--muted);
+		margin: 22px 0 8px;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.eyebrow::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+	.eyebrow:first-child { margin-top: 0; }
+	.name { font: 600 24px/1.1 var(--display); letter-spacing: 0.04em; margin: 0 0 4px; }
+	.where { color: var(--muted); font-size: 13px; }
+	.kv { display: grid; grid-template-columns: 92px 1fr; gap: 4px 10px; font: 12px/1.5 var(--mono); margin: 0; }
+	.kv dt { color: var(--muted); }
+	.kv dd { margin: 0; font-variant-numeric: tabular-nums; }
+	.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+	.chip { font: 12px/1 var(--mono); padding: 5px 7px; border: 1px solid var(--line); color: var(--phosphor); }
+	.chip.new { border-color: var(--heat); color: var(--heat); }
+	.note { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+	.alert {
+		border-left: 2px solid var(--heat);
+		padding: 8px 10px;
+		background: rgba(255, 59, 59, 0.08);
+		font-size: 13px;
+		margin-bottom: 14px;
+	}
+	.spark { width: 100%; height: 54px; display: block; }
+
+	.list { list-style: none; margin: 0; padding: 0; }
+	.list button {
+		all: unset;
+		box-sizing: border-box;
+		width: 100%;
+		display: grid;
+		grid-template-columns: 10px 1fr auto;
+		align-items: center;
+		gap: 10px;
+		padding: 7px 4px;
+		border-bottom: 1px solid rgba(127, 231, 242, 0.07);
+		cursor: pointer;
+		font-size: 13px;
+	}
+	.list button:hover { background: rgba(127, 231, 242, 0.05); }
+	.list button:focus-visible { outline: 1px solid var(--signal); }
+	.list .swatch { width: 8px; height: 8px; border-radius: 50%; }
+	.list .rate { font: 12px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+	.back {
+		all: unset;
+		cursor: pointer;
+		font: 11px/1 var(--display);
+		letter-spacing: 0.22em;
+		text-transform: uppercase;
+		color: var(--signal);
+		margin-bottom: 16px;
+		display: inline-block;
+	}
+	.back:focus-visible { outline: 1px solid var(--signal); outline-offset: 3px; }
+
+	/* --- timeline of events, in the panel ------------------------------ */
+	.events button {
+		all: unset;
+		box-sizing: border-box;
+		width: 100%;
+		display: grid;
+		grid-template-columns: 46px 1fr;
+		gap: 10px;
+		padding: 9px 4px;
+		border-bottom: 1px solid rgba(127, 231, 242, 0.07);
+		cursor: pointer;
+		font-size: 13px;
+	}
+	.events button:hover { background: rgba(127, 231, 242, 0.05); }
+	.events button:focus-visible { outline: 1px solid var(--signal); }
+	.events time { font: 12px/1.45 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+	.events .hot { color: var(--heat); }
+
+	@media (max-width: 900px) {
+		.app {
+			grid-template-columns: 1fr;
+			grid-template-rows: 60vh auto;
+			height: auto;
+		}
+		.side { left: 12px; right: 12px; width: auto; top: auto; bottom: 12px; max-height: 70vh; }
+	}
+</style>
+</head>
+<body>
+<div class="app">
+	<main class="map">
+		<header class="top">
+			<button class="top-btn" id="devices-btn" aria-expanded="false" aria-controls="side">Devices</button>
+			<button class="top-btn" id="events-btn" aria-expanded="false" aria-controls="side">Timeline</button>
+			<div class="clock" id="clock">--:--:--</div>
+		</header>
+		<canvas id="plan" tabindex="0" aria-label="Floor plan with devices and their traffic. Drag to move, shift-drag to rotate, scroll to zoom; or the arrow keys, + and -. Use the device list to pick one."></canvas>
+		<div class="view-ctl">
+			<span class="hint">drag: move · shift-drag: rotate · scroll: zoom</span>
+			<button class="top-btn" id="rot-left" aria-label="Rotate left">⟲</button>
+			<button class="top-btn" id="rot-right" aria-label="Rotate right">⟳</button>
+			<button class="top-btn" id="zoom-out" aria-label="Zoom out">−</button>
+			<button class="top-btn" id="zoom-in" aria-label="Zoom in">+</button>
+			<button class="top-btn" id="view-reset">Reset</button>
+		</div>
+	</main>
+
+	<section class="timeline" aria-label="Traffic over the last 24 hours">
+		<div class="tl-head">
+			<button class="tl-btn" id="play">Play</button>
+			<button class="tl-btn" id="live" aria-pressed="true">Live</button>
+			<span id="tl-at"></span>
+			<button class="tl-btn peak" id="peak"></button>
+		</div>
+		<canvas id="heat" tabindex="0" aria-label="Traffic per room over the last 24 hours. Drag, or use the arrow keys, to replay a moment on the plan."></canvas>
+	</section>
+
+	<aside class="side" id="side" aria-label="Device details"></aside>
+
+</div>
+
+<script>
+"use strict";
+
+// ---------------------------------------------------------------------------
+// Made-up data. In the app this comes from the collector.
+// ---------------------------------------------------------------------------
+
+// Plan units; the view projects them into 3D.
+const PLAN = { w: 1000, h: 600 };
+const WALL_H = 56;
+
+// Walls as polylines; gaps between them are doorways.
+const WALLS = [
+	[[40, 40], [960, 40], [960, 560], [40, 560], [40, 40]],
+	[[400, 40], [400, 190]], [[400, 250], [400, 330]],
+	[[40, 330], [140, 330]], [[200, 330], [520, 330]], [[580, 330], [700, 330]],
+	[[700, 40], [700, 150]], [[700, 210], [700, 330]],
+	[[700, 330], [960, 330]],
+	[[520, 330], [520, 400]], [[520, 460], [520, 560]],
+	[[300, 330], [300, 420]], [[300, 480], [300, 560]],
+	[[800, 330], [800, 430]], [[800, 490], [800, 560]],
+];
+
+const ROOMS = [
+	{ name: "Living room", at: [60, 70] },
+	{ name: "Kitchen", at: [420, 70] },
+	{ name: "Office", at: [720, 70] },
+	{ name: "Bedroom", at: [60, 360] },
+	{ name: "Hall", at: [320, 360] },
+	{ name: "Bathroom", at: [540, 360] },
+	{ name: "Utility", at: [820, 360] },
+];
+
+const ROUTER = { x: 410, y: 470, name: "Router" };
+const SENSOR = { x: 455, y: 520, name: "Sensor" };
+
+const MiB = 1024 * 1024;
+
+// One entry per device. `base` is [tx, rx] bytes a minute. `locationOnly`: a
+// multi-stream device the sensors can place but not count.
+const DEVICES = [
+	{ id: "lamp", name: "Smart plug · desk lamp", room: "Office", x: 860, y: 110,
+		mac: "72:66:a8:1e:de:38", vendor: "Smart plug", ports: [80], dns: ["time.example.net", "cloud.plug.example"],
+		base: [24e3, 30e3] },
+	{ id: "tv-plug", name: "Smart plug · TV", room: "Living room", x: 120, y: 230,
+		mac: "26:7c:d5:d9:52:18", vendor: "Smart plug", ports: [80], dns: ["time.example.net", "cloud.plug.example"],
+		base: [26e3, 31e3] },
+	{ id: "meter", name: "Energy meter", room: "Utility", x: 900, y: 420,
+		mac: "2a:f4:c4:45:b6:57", vendor: "Energy meter", ports: [80, 443], dns: ["api.meter.example"],
+		base: [80e3, 400e3] },
+	{ id: "water", name: "Water meter", room: "Utility", x: 870, y: 515,
+		mac: "5a:e0:df:0b:63:cb", vendor: "Water meter", ports: [80], dns: ["api.meter.example"],
+		base: [12e3, 140e3] },
+	{ id: "camera", name: "Camera · entrance", room: "Hall", x: 350, y: 525,
+		mac: "f6:f4:41:83:47:96", vendor: "IP camera", ports: [80, 554, 8000], dns: ["p2p.camera.example", "time.example.net"],
+		base: [150e3, 20e3], outlier: { bytes: 38 * MiB, times: 40 } },
+	{ id: "speaker", name: "Speaker · kitchen", room: "Kitchen", x: 640, y: 120,
+		mac: "8e:50:4e:3b:f3:f1", vendor: "Speaker", ports: [8009, 8443], dns: ["stream.music.example"],
+		base: [40e3, 1.4 * MiB] },
+	{ id: "display", name: "Wall display · hall", room: "Hall", x: 470, y: 380,
+		mac: "9e:f1:30:01:a7:85", vendor: "Wall display", ports: [80, 8021], dns: ["api.display.example"],
+		base: [200e3, 900e3] },
+	{ id: "thermo", name: "Thermostat", room: "Living room", x: 330, y: 160,
+		mac: "8e:94:50:2e:0e:50", vendor: "Thermostat", ports: [], dns: ["api.heat.example"],
+		base: [6e3, 9e3] },
+	{ id: "vacuum", name: "Robot vacuum", room: "Bedroom", x: 190, y: 470,
+		mac: "3a:27:42:9d:93:d2", vendor: "Robot vacuum", ports: [], dns: ["iot.vacuum.example"],
+		base: [18e3, 12e3] },
+	{ id: "laptop", name: "Laptop", room: "Office", x: 780, y: 250, locationOnly: true,
+		mac: "da:b4:55:50:4c:7d", vendor: "Private address", ports: [], dns: [] },
+	{ id: "phone", name: "Phone", room: "Living room", x: 230, y: 120, locationOnly: true,
+		mac: "1e:73:3e:d0:28:8b", vendor: "Private address", ports: [62078], dns: [] },
+];
+
+const MINUTE_MS = 6000; // how long each replayed minute lasts on screen
+const LOOP = 5;
+
+// ---------------------------------------------------------------------------
+// Fake minutes: a random walk around each device's base, plus one outlier.
+// ---------------------------------------------------------------------------
+
+let rngState = 7;
+function rand() {
+	rngState = (rngState * 1103515245 + 12345) & 0x7fffffff;
+	return rngState / 0x7fffffff;
+}
+
+function fakeMinute(d, outlier) {
+	if (d.locationOnly) return [0, 0];
+	if (outlier && d.outlier) return [d.outlier.bytes, d.base[1] * (0.8 + rand() * 0.4)];
+	return d.base.map((b) => b * (0.5 + rand()));
+}
+
+let firstMinute = new Date();
+firstMinute.setSeconds(0, 0);
+firstMinute = new Date(firstMinute.getTime() - (LOOP - 1) * 60_000);
+
+// The last 24 hours in 5-minute buckets, as [tx, rx] bytes a minute. In the
+// app this comes from storage. The last bucket is the live one.
+const BUCKET_MIN = 5;
+const BUCKETS = (24 * 60) / BUCKET_MIN;
+const BUCKET_MS = BUCKET_MIN * 60_000;
+const dayStart = Math.floor(Date.now() / BUCKET_MS) * BUCKET_MS - (BUCKETS - 1) * BUCKET_MS;
+const bucketTime = (i) => new Date(dayStart + i * BUCKET_MS);
+
+// A scheduled port scan, in hours: every device answers it at once.
+const SCAN = { from: 3.5, to: 3.92 };
+const inScan = (h) => h >= SCAN.from && h < SCAN.to;
+const hourOf = (i) => bucketTime(i).getHours() + bucketTime(i).getMinutes() / 60;
+
+// How busy a device is at an hour of the day, relative to its base.
+function profile(d, h) {
+	if (inScan(h)) return 8;
+	const night = h < 6.5 || h >= 23.5;
+	switch (d.id) {
+		case "vacuum": return h >= 10 && h < 11.2 ? 9 : 0.3;
+		case "speaker": return h >= 18 && h < 22 ? 2.5 : night ? 0.05 : 0.5;
+		case "display": return night ? 0.2 : 1;
+		case "camera": return rand() < (night ? 0.01 : 0.06) ? 6 : 1;
+		case "water": return (h >= 7 && h < 8) || (h >= 21 && h < 21.5) ? 5 : 0.6;
+		case "meter": return 1;
+		default: return night ? 0.4 : h >= 17 && h < 23 ? 1.4 : 1;
+	}
+}
+
+for (const d of DEVICES) {
+	d.minutes = [];
+	for (let i = 0; i < LOOP; i++) d.minutes.push(fakeMinute(d, false));
+	d.day = Array.from({ length: BUCKETS }, (_, i) => {
+		if (d.locationOnly) return [0, 0];
+		const p = profile(d, hourOf(i));
+		return d.base.map((b) => b * p * (0.6 + rand() * 0.8));
+	});
+	d.rssi = -38 - Math.round(rand() * 40);
+	d.particles = [];
+	d.spawn = [0, 0];
+	d.shownAt = -1e9;
+	d.screen = [0, 0];
+}
+
+const camera = DEVICES.find((d) => d.id === "camera");
+camera.minutes[LOOP - 1] = fakeMinute(camera, true);
+
+// The live bucket is the average of the minutes in the loop.
+function syncLiveBucket() {
+	for (const d of DEVICES) {
+		d.day[BUCKETS - 1] = [0, 1].map((k) => d.minutes.reduce((s, m) => s + m[k], 0) / LOOP);
+	}
+}
+
+// Rows of the heatmap: the rooms that have countable devices.
+const HEAT_ROOMS = ROOMS.filter((r) => DEVICES.some((d) => d.room === r.name && !d.locationOnly));
+const roomAt = (r, i) => DEVICES.reduce((s, d) => (d.room === r.name ? s + d.day[i][0] + d.day[i][1] : s), 0);
+
+const EVENTS = [
+	{ hot: true, at: LOOP - 1, device: "camera", text: "Camera · entrance sent 38 MiB in one minute, about 40× its usual for this hour. Email sent." },
+	{ hot: false, at: 1, device: "vacuum", text: "New device in the bedroom: 3a:27:42:9d:93:d2 (robot vacuum)." },
+	{ hot: false, at: 0, device: "display", text: "Wall display · hall: port 8021 open since today's scan." },
+];
+
+// ---------------------------------------------------------------------------
+// Traffic to colour: white is low, red is high, on a log scale.
+// ---------------------------------------------------------------------------
+
+const LOW = 1024;
+const HIGH = 5 * MiB;
+
+function heat(bytes) {
+	if (bytes <= LOW) return 0;
+	return Math.min(1, Math.log(bytes / LOW) / Math.log(HIGH / LOW));
+}
+
+const WHITE = [232, 244, 246];
+const PALE = [255, 180, 160];
+const RED = [255, 59, 59];
+
+function heatColor(t, alpha = 1) {
+	const [a, b, u] = t < 0.5 ? [WHITE, PALE, t / 0.5] : [PALE, RED, (t - 0.5) / 0.5];
+	const c = a.map((v, i) => Math.round(v + (b[i] - v) * u));
+	return `rgba(${c[0]},${c[1]},${c[2]},${alpha})`;
+}
+
+function fmtBytes(b) {
+	if (b < 1024) return `${Math.round(b)} B`;
+	if (b < MiB) return `${(b / 1024).toFixed(1)} KiB`;
+	return `${(b / MiB).toFixed(1)} MiB`;
+}
+
+const hhmm = (date) => date.toTimeString().slice(0, 5);
+
+// ---------------------------------------------------------------------------
+// The 3D view: plan units in, screen pixels out
+// ---------------------------------------------------------------------------
+
+const canvas = document.getElementById("plan");
+const ctx = canvas.getContext("2d");
+const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const TILT = 0.88; // radians from looking straight down (about 50°)
+const DIST = 1700; // camera distance: smaller is more perspective
+let yaw = 0;
+// The user's camera on top of the fit: zoom and pan (screen pixels) and a
+// yaw target. Each eases towards its target; a drag sets both at once.
+// Until the user touches the view, the yaw drifts slowly by itself.
+const cam = { zoom: 1, panX: 0, panY: 0 };
+const camT = { zoom: 1, panX: 0, panY: 0, yaw: 0 };
+let touched = false;
+let dpr = 1, W = 0, H = 0, fit = 1, cx = 0, cy = 0;
+
+function view(x, y, z) {
+	const X = x - PLAN.w / 2, Y = y - PLAN.h / 2;
+	const c = Math.cos(yaw), s = Math.sin(yaw);
+	const x1 = X * c - Y * s, y1 = X * s + Y * c;
+	const depth = DIST - (y1 * Math.sin(TILT) + z * Math.cos(TILT));
+	const k = DIST / depth;
+	return [x1 * k, (y1 * Math.cos(TILT) - z * Math.sin(TILT)) * k, k];
+}
+
+function project(x, y, z = 0) {
+	const [vx, vy, k] = view(x, y, z);
+	const f = fit * cam.zoom;
+	return [cx + cam.panX + vx * f, cy + cam.panY + vy * f, k];
+}
+
+function resize() {
+	dpr = window.devicePixelRatio || 1;
+	const r = canvas.getBoundingClientRect();
+	W = r.width;
+	H = r.height;
+	canvas.width = Math.round(W * dpr);
+	canvas.height = Math.round(H * dpr);
+	// fit the plan, walls included, with room for the camera drift
+	const saved = yaw;
+	let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+	for (const a of [-0.14, 0, 0.14]) {
+		yaw = a;
+		for (const [x, y] of [[0, 0], [PLAN.w, 0], [PLAN.w, PLAN.h], [0, PLAN.h]]) {
+			for (const z of [0, WALL_H]) {
+				const [vx, vy] = view(x, y, z);
+				minX = Math.min(minX, vx); maxX = Math.max(maxX, vx);
+				minY = Math.min(minY, vy); maxY = Math.max(maxY, vy);
+			}
+		}
+	}
+	yaw = saved;
+	// room at the sides for the HUD's readouts
+	const mx = W > 900 ? 175 : W * 0.05;
+	fit = Math.min((W - 2 * mx) / (maxX - minX), (H * 0.86) / (maxY - minY));
+	cx = W / 2 - ((minX + maxX) / 2) * fit;
+	cy = H / 2 - ((minY + maxY) / 2) * fit + H * 0.02;
+	heatDirty = true;
+}
+window.addEventListener("resize", resize);
+
+// Walls as point-cloud curtains: dots along each wall, stacked to wall height.
+const wallDots = [];
+for (const line of WALLS) {
+	for (let i = 0; i < line.length - 1; i++) {
+		const [x1, y1] = line[i], [x2, y2] = line[i + 1];
+		const n = Math.max(1, Math.round(Math.hypot(x2 - x1, y2 - y1) / 6));
+		for (let k = 0; k <= n; k++) {
+			const x = x1 + ((x2 - x1) * k) / n, y = y1 + ((y2 - y1) * k) / n;
+			for (let z = 0; z <= WALL_H; z += 7) {
+				wallDots.push({ x, y, z, top: z + 7 > WALL_H, phase: rand() * Math.PI * 2 });
+			}
+		}
+	}
+}
+
+// The floor: a dot grid with a little jitter, so it reads as scanned, not drawn.
+const floorDots = [];
+for (let x = 50; x < PLAN.w - 40; x += 16) {
+	for (let y = 50; y < PLAN.h - 40; y += 16) {
+		floorDots.push({ x: x + (rand() - 0.5) * 4, y: y + (rand() - 0.5) * 4, a: 0.25 + rand() * 0.5 });
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The loop
+// ---------------------------------------------------------------------------
+
+let loopStart = 0, ringStart = 0, lastFrame = 0, glitchUntil = 0;
+let selected = null;
+let lastPlayed = -1;
+
+// "live" plays the loop of the last minutes; "history" shows the day's bucket
+// at `cursor`, which is fractional while playing.
+let mode = "live";
+let cursor = BUCKETS - 1;
+let playing = false;
+const PLAY_RATE = 4; // buckets a second: the day in 72 s
+
+// Traffic at this moment. Live: eases from the previous minute into the
+// current one over the first second. History: between two buckets while
+// playing. Only real minutes and buckets are used.
+function current(d, now) {
+	if (mode === "history") {
+		const i = Math.floor(cursor), j = Math.min(BUCKETS - 1, i + 1), u = cursor - i;
+		return [0, 1].map((k) => d.day[i][k] + (d.day[j][k] - d.day[i][k]) * u);
+	}
+	const pos = (now - loopStart) / MINUTE_MS;
+	const i = Math.min(LOOP - 1, Math.floor(pos));
+	const prev = d.minutes[(i + LOOP - 1) % LOOP];
+	const cur = d.minutes[i];
+	const u = Math.min(1, (pos - i) * (MINUTE_MS / 1000));
+	return [0, 1].map((k) => prev[k] + (cur[k] - prev[k]) * u);
+}
+
+// The device's outlier minute is playing in the live loop.
+function outlierNow(d, now) {
+	if (mode !== "live" || !d.outlier) return false;
+	return heat(d.minutes[Math.min(LOOP - 1, Math.floor((now - loopStart) / MINUTE_MS))][0]) > 0.9;
+}
+
+function newMinute(now) {
+	firstMinute = new Date(firstMinute.getTime() + 60_000);
+	for (const d of DEVICES) {
+		d.minutes.shift();
+		d.minutes.push(fakeMinute(d, false));
+	}
+	ringStart = now;
+	onData();
+}
+
+function step(now) {
+	if (now - loopStart >= MINUTE_MS * LOOP) {
+		loopStart += MINUTE_MS * LOOP;
+		newMinute(now);
+	}
+	const played = Math.floor((now - loopStart) / MINUTE_MS);
+	if (played !== lastPlayed) {
+		lastPlayed = played;
+		// the outlier's minute starts: the whole view tears for a moment
+		if (DEVICES.some((d) => outlierNow(d, now))) glitchUntil = now + 700;
+	}
+	if (playing) {
+		cursor += ((now - lastFrame) / 1000) * PLAY_RATE;
+		if (cursor >= BUCKETS - 1) goLive();
+	}
+	moveCamera(now);
+	draw(now);
+	drawTimeline(now);
+	lastFrame = now;
+	requestAnimationFrame(step);
+}
+
+function moveCamera(now) {
+	if (!touched) camT.yaw = reduced ? 0 : Math.sin(now / 21000) * 0.12;
+	const a = reduced ? 1 : 1 - Math.exp(-((now - lastFrame) / 1000) * 12);
+	yaw += (camT.yaw - yaw) * a;
+	for (const k of ["zoom", "panX", "panY"]) cam[k] += (camT[k] - cam[k]) * a;
+}
+
+function takeControl() {
+	if (!touched) camT.yaw = yaw;
+	touched = true;
+}
+
+// Zoom by `f` around a screen point, so what's under it stays put.
+function zoomAt(mx, my, f) {
+	takeControl();
+	const z = Math.max(0.6, Math.min(5, camT.zoom * f));
+	const u = z / camT.zoom;
+	camT.panX = mx - cx - (mx - cx - camT.panX) * u;
+	camT.panY = my - cy - (my - cy - camT.panY) * u;
+	camT.zoom = z;
+}
+
+function rotate(by) {
+	takeControl();
+	camT.yaw += by;
+}
+
+function resetView() {
+	touched = false;
+	Object.assign(camT, { zoom: 1, panX: 0, panY: 0 });
+}
+
+// ---------------------------------------------------------------------------
+// Drawing
+// ---------------------------------------------------------------------------
+
+function draw(now) {
+	const dt = Math.min(0.05, (now - lastFrame) / 1000);
+	ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+	ctx.clearRect(0, 0, W, H);
+
+	drawFloor();
+	drawFloorHeat(now);
+	drawRing(now);
+	drawRooms();
+	drawWalls(now);
+
+	ctx.globalCompositeOperation = "lighter";
+	for (const d of DEVICES) drawFlow(d, now, dt);
+	ctx.globalCompositeOperation = "source-over";
+
+	drawStation(ROUTER, "#7fe7f2", 9);
+	drawStation(SENSOR, "#5c7a86", 6);
+	for (const d of DEVICES) drawNode(d, now);
+	drawCallouts(now);
+	drawHud(now);
+	if (!reduced && now < glitchUntil) glitch(now);
+}
+
+function drawFloor() {
+	for (const p of floorDots) {
+		const [x, y, k] = project(p.x, p.y);
+		ctx.fillStyle = `rgba(60,110,124,${(p.a * 0.5 * k).toFixed(3)})`;
+		const s = 1.2 * k * Math.sqrt(cam.zoom);
+		ctx.fillRect(x, y, s, s);
+	}
+}
+
+function drawRooms() {
+	ctx.font = `600 ${11 * fit * Math.min(cam.zoom, 1.6)}px "Avenir Next Condensed", "Arial Narrow", sans-serif`;
+	ctx.fillStyle = "rgba(92,122,134,0.85)";
+	for (const r of ROOMS) {
+		const [x, y] = project(r.at[0], r.at[1]);
+		ctx.fillText(r.name.toUpperCase().split("").join(" "), x, y);
+	}
+}
+
+function drawWalls(now) {
+	for (const d of wallDots) {
+		const [x, y, k] = project(d.x, d.y, d.z);
+		const tw = reduced ? 0.8 : 0.55 + 0.45 * Math.sin(now / 800 + d.phase);
+		const a = d.top ? 0.95 : (0.18 + 0.5 * (1 - d.z / WALL_H)) * tw;
+		ctx.fillStyle = d.top ? `rgba(200,250,255,${a.toFixed(3)})` : `rgba(127,231,242,${a.toFixed(3)})`;
+		const s = (d.top ? 1.9 : 1.4) * k * Math.sqrt(cam.zoom);
+		ctx.fillRect(x - s / 2, y - s / 2, s, s);
+	}
+}
+
+// Clip to the house's outline, so glows and the ring stay on the floor.
+function clipToFloor() {
+	ctx.beginPath();
+	WALLS[0].forEach(([x, y], i) => {
+		const [px, py] = project(x, y);
+		i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+	});
+	ctx.clip();
+}
+
+// A glow on the floor under each device: where the traffic is, at a glance.
+function drawFloorHeat(now) {
+	ctx.save();
+	clipToFloor();
+	ctx.globalCompositeOperation = "lighter";
+	for (const d of DEVICES) {
+		if (d.locationOnly) continue;
+		const [tx, rx] = current(d, now);
+		const t = heat(tx + rx);
+		if (t < 0.05) continue;
+		const [x, y, k] = project(d.x, d.y);
+		const r = (30 + 80 * t) * fit * cam.zoom * k;
+		const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+		g.addColorStop(0, heatColor(t, 0.22 * t));
+		g.addColorStop(1, heatColor(t, 0));
+		ctx.save();
+		ctx.translate(x, y);
+		ctx.scale(1, Math.cos(TILT));
+		ctx.fillStyle = g;
+		ctx.beginPath();
+		ctx.arc(0, 0, r, 0, Math.PI * 2);
+		ctx.fill();
+		ctx.restore();
+	}
+	ctx.restore();
+}
+
+// A ring from the router when a new minute arrives.
+function drawRing(now) {
+	if (reduced || mode !== "live") return;
+	const t = (now - ringStart) / 1800;
+	ctx.save();
+	clipToFloor();
+	if (t < 1) {
+		ctx.strokeStyle = `rgba(127,231,242,${(0.4 * (1 - t)).toFixed(3)})`;
+		ctx.lineWidth = 1;
+		ctx.beginPath();
+		for (let i = 0; i <= 64; i++) {
+			const ang = (i / 64) * Math.PI * 2;
+			const [x, y] = project(ROUTER.x + Math.cos(ang) * t * 900, ROUTER.y + Math.sin(ang) * t * 900);
+			i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+		}
+		ctx.stroke();
+	}
+	ctx.restore();
+}
+
+// A point on the arc from a to b, raised in the middle.
+function arcPoint(a, b, lift, u) {
+	const x = a[0] + (b[0] - a[0]) * u;
+	const y = a[1] + (b[1] - a[1]) * u;
+	const z = 4 * lift * u * (1 - u);
+	return project(x, y, z);
+}
+
+function path(pts) {
+	ctx.beginPath();
+	pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+}
+
+// Packets ride the arcs as short streaks, all at one steady pace, in bursts:
+// a train of a few, then a pause. Busier directions send trains more often,
+// with more and longer packets, and glow hotter. One arc per device: sent
+// packets run up it to the router, received packets run down it.
+const FLOW_PACE = 38; // plan units a second: a long arc takes about 15 s
+
+function drawFlow(d, now, dt) {
+	if (d.locationOnly) return;
+	const [tx, rx] = current(d, now);
+	const len = Math.hypot(ROUTER.x - d.x, ROUTER.y - d.y);
+	const at = (u) => arcPoint([d.x, d.y], [ROUTER.x, ROUTER.y], 25 + len * 0.19, u);
+	const arc = Array.from({ length: 33 }, (_, i) => at(i / 32));
+	const all = heat(tx + rx);
+
+	// the channel, faint, with a slow drift each way
+	ctx.lineCap = "butt";
+	ctx.strokeStyle = heatColor(all, reduced ? 0.3 + 0.5 * all : 0.05 + 0.1 * all);
+	ctx.lineWidth = reduced ? 1 + 3 * all : 1;
+	path(arc);
+	ctx.stroke();
+	if (reduced) return;
+	[tx, rx].forEach((bytes, k) => {
+		const t = heat(bytes);
+		ctx.setLineDash(k ? [1, 13] : [1, 9]);
+		ctx.lineDashOffset = (k ? 1 : -1) * (now / 1000) * 8;
+		ctx.strokeStyle = heatColor(t, 0.08 + 0.2 * t);
+		path(arc);
+		ctx.stroke();
+	});
+	ctx.setLineDash([]);
+
+	[tx, rx].forEach((bytes, k) => {
+		const t = heat(bytes);
+		d.spawn[k] += dt * (0.06 + 0.6 * t * t);
+		while (d.spawn[k] >= 1) {
+			d.spawn[k] -= 1;
+			const n = 1 + Math.floor(rand() * (1 + 5 * t));
+			let s = 0;
+			for (let j = 0; j < n; j++) {
+				const size = 5 + rand() * (6 + 16 * t);
+				d.particles.push({ lane: k, s: -s, size, t });
+				s += size + 5;
+			}
+		}
+	});
+	ctx.lineCap = "round";
+	for (const p of d.particles) {
+		p.s += FLOW_PACE * dt;
+		const head = Math.min(1, p.s / len), tail = Math.max(0, (p.s - p.size) / len);
+		if (head <= tail) continue;
+		// distance runs from the device for sent packets, from the router for received
+		const u = (v) => (p.lane ? 1 - v : v);
+		const seg = Array.from({ length: 5 }, (_, i) => at(u(tail + ((head - tail) * i) / 4)));
+		const [hx, hy, kk] = seg[4];
+		const g = ctx.createLinearGradient(seg[0][0], seg[0][1], hx, hy);
+		g.addColorStop(0, heatColor(p.t, 0));
+		g.addColorStop(1, heatColor(p.t, 0.95));
+		ctx.strokeStyle = g;
+		// a soft glow, then the core
+		ctx.globalAlpha = 0.25;
+		ctx.lineWidth = 3.4 * kk;
+		path(seg);
+		ctx.stroke();
+		ctx.globalAlpha = 1;
+		ctx.lineWidth = 1.3 * kk;
+		path(seg);
+		ctx.stroke();
+	}
+	ctx.lineCap = "butt";
+	d.particles = d.particles.filter((p) => (p.s - p.size) / len < 1);
+}
+
+function drawStation(s, color, size) {
+	const [x, y] = project(s.x, s.y);
+	const [, yTop] = project(s.x, s.y, 26);
+	ctx.strokeStyle = color;
+	ctx.lineWidth = 1;
+	ctx.beginPath();
+	ctx.moveTo(x, y);
+	ctx.lineTo(x, yTop);
+	ctx.stroke();
+	ctx.fillStyle = "rgba(127,231,242,0.15)";
+	ctx.fillRect(x - size, yTop - size, size * 2, size * 2);
+	ctx.strokeRect(x - size, yTop - size, size * 2, size * 2);
+	label(s.name.toUpperCase(), x + size + 6, yTop + 4, color, "display");
+}
+
+function drawNode(d, now) {
+	const lift = 14;
+	let [x, y, k] = project(d.x, d.y, lift);
+	const [fx, fy] = project(d.x, d.y, 0);
+	d.screen = [x, y];
+	const [tx, rx] = current(d, now);
+	const t = heat(tx + rx);
+	const glitching = outlierNow(d, now);
+
+	// a stem down to the floor, and its footprint
+	ctx.strokeStyle = "rgba(127,231,242,0.25)";
+	ctx.lineWidth = 1;
+	ctx.beginPath();
+	ctx.moveTo(fx, fy);
+	ctx.lineTo(x, y);
+	ctx.stroke();
+	ctx.strokeStyle = "rgba(127,231,242,0.18)";
+	ctx.beginPath();
+	ctx.ellipse(fx, fy, 9 * k, 9 * k * Math.cos(TILT), 0, 0, Math.PI * 2);
+	ctx.stroke();
+
+	if (glitching && !reduced && Math.random() < 0.4) {
+		x += (Math.random() - 0.5) * 8;
+		ctx.fillStyle = "rgba(127,231,242,0.6)";
+		ctx.fillRect(x - 16 + Math.random() * 6, y - 2, 30, 2);
+		ctx.fillStyle = "rgba(255,59,59,0.7)";
+		ctx.fillRect(x - 10 + Math.random() * 6, y + 3, 22, 1);
+	}
+
+	const color = glitching ? "#ff3b3b" : d.locationOnly ? "#5c7a86" : heatColor(t);
+	const pulse = reduced || d.locationOnly ? 0 : (Math.sin(now / (500 - 300 * t)) + 1) * (2 + 6 * t);
+
+	if (!d.locationOnly) {
+		ctx.fillStyle = glitching ? "rgba(255,59,59,0.2)" : heatColor(t, 0.12);
+		ctx.beginPath();
+		ctx.arc(x, y, (10 + pulse) * k, 0, Math.PI * 2);
+		ctx.fill();
+	}
+
+	ctx.lineWidth = 1.4;
+	ctx.strokeStyle = color;
+	ctx.fillStyle = color;
+	ctx.beginPath();
+	ctx.arc(x, y, 5.5 * k, 0, Math.PI * 2);
+	if (!d.locationOnly) ctx.fill();
+	ctx.stroke();
+
+	if (selected === d) brackets(x, y, 17 * k, "#7fe7f2");
+
+	const sub = d.locationOnly ? "location only" : `${fmtBytes(tx + rx)}/min`;
+	label(d.name, x + 12, y - 3, glitching ? "#ff3b3b" : "rgba(232,244,246,0.8)");
+	label(sub, x + 12, y + 10, "#5c7a86", "mono");
+}
+
+function brackets(x, y, s, color) {
+	ctx.strokeStyle = color;
+	ctx.lineWidth = 1;
+	const a = s * 0.4;
+	for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+		ctx.beginPath();
+		ctx.moveTo(x + sx * s, y + sy * (s - a));
+		ctx.lineTo(x + sx * s, y + sy * s);
+		ctx.lineTo(x + sx * (s - a), y + sy * s);
+		ctx.stroke();
+	}
+}
+
+// A floating "profiler" box next to the selected device, typed in.
+function drawCallouts(now) {
+	const show = selected ? [selected] : [];
+	for (const d of DEVICES) if (!show.includes(d)) d.shownAt = -1e9;
+
+	const bw = 248, bh = 72, gap = 8;
+	// the HUD's readouts, the buttons, the view controls and the open panel are taken
+	const taken = [{ x: 0, y: 0, w: 290, h: 235 }];
+	taken.push(panel ? { x: W - 370, y: 0, w: 370, h: H } : { x: W - 320, y: 0, w: 320, h: 64 });
+	taken.push({ x: W - 520, y: H - 64, w: 520, h: 64 });
+	const overlaps = (a) => taken.some((b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h);
+
+	show.forEach((d) => {
+		if (d.shownAt < 0) d.shownAt = now;
+		const [tx, rx] = current(d, now);
+		const lines = [
+			d.name.toUpperCase(),
+			`MAC   ${d.mac}`,
+			`TX    ${fmtBytes(tx).padStart(10)}  RX ${fmtBytes(rx).padStart(10)}`,
+			`RSSI  ${d.rssi} dBm   PORTS ${d.ports.length || "-"}`,
+		];
+		const typed = reduced ? Infinity : Math.floor((now - d.shownAt) / 14);
+		const [nx, ny] = d.screen;
+		// try right of the node, then left; slide down until the box is free
+		let box = null, right = true;
+		for (const side of [true, false]) {
+			const cand = { x: side ? nx + 46 : nx - 46 - bw, y: Math.max(14, ny - 92), w: bw, h: bh };
+			for (let tries = 0; tries < 12 && overlaps(cand); tries++) cand.y += bh / 3 + gap;
+			if (!overlaps(cand) && cand.x > 8 && cand.x + bw < W - 8 && cand.y + bh < H - 8) {
+				[box, right] = [cand, side];
+				break;
+			}
+		}
+		if (!box) return;
+		taken.push({ x: box.x - gap, y: box.y - gap, w: bw + 2 * gap, h: bh + 2 * gap });
+		const bx = box.x, by = box.y;
+		const hot = outlierNow(d, now);
+		const color = hot ? "255,59,59" : "127,231,242";
+
+		ctx.strokeStyle = `rgba(${color},0.5)`;
+		ctx.lineWidth = 1;
+		ctx.beginPath();
+		ctx.moveTo(nx, ny);
+		ctx.lineTo(right ? bx : bx + bw, by + bh / 2);
+		ctx.stroke();
+		ctx.fillStyle = "rgba(4,10,14,0.82)";
+		ctx.fillRect(bx, by, bw, bh);
+		ctx.strokeStyle = `rgba(${color},0.35)`;
+		ctx.strokeRect(bx + 0.5, by + 0.5, bw, bh);
+		ctx.fillStyle = `rgba(${color},0.9)`;
+		ctx.fillRect(bx, by, 3, bh);
+
+		let left = typed;
+		lines.forEach((text, j) => {
+			const shown = text.slice(0, Math.max(0, left));
+			left -= text.length;
+			ctx.font = j === 0 ? `600 12px "Avenir Next Condensed", "Arial Narrow", sans-serif` : "10.5px ui-monospace, Menlo, monospace";
+			ctx.fillStyle = j === 0 ? `rgb(${color})` : "rgba(232,244,246,0.85)";
+			ctx.fillText(shown, bx + 12, by + 18 + j * 15);
+		});
+	});
+}
+
+// The HUD around the plan: corner brackets, readouts, channel occupancy.
+function drawHud(now) {
+	const m = 16;
+	ctx.strokeStyle = "rgba(127,231,242,0.5)";
+	ctx.lineWidth = 1;
+	for (const [x, y, sx, sy] of [[m, m, 1, 1], [W - m, m, -1, 1], [W - m, H - m, -1, -1], [m, H - m, 1, -1]]) {
+		ctx.beginPath();
+		ctx.moveTo(x, y + sy * 22);
+		ctx.lineTo(x, y);
+		ctx.lineTo(x + sx * 22, y);
+		ctx.stroke();
+	}
+
+	const total = DEVICES.reduce((s, d) => { const [a, b] = current(d, now); return s + a + b; }, 0);
+	const fps = Math.round(total / 60 / 900) + 140;
+	const rows = [
+		["SNIFFER", "CH 11 · 2.4 GHZ · 20 MHZ"],
+		["FRAMES/S", String(fps)],
+		["THROUGHPUT", `${fmtBytes(total / 60)}/s`],
+		["WATCHED", "2 NETWORKS"],
+		["SENSORS", "2"],
+		["DEVICES", String(DEVICES.length)],
+		["DROPPED", "0"],
+	];
+	ctx.font = "10px ui-monospace, Menlo, monospace";
+	rows.forEach(([k, v], i) => {
+		ctx.fillStyle = "rgba(92,122,134,0.9)";
+		ctx.fillText(k, m + 12, m + 26 + i * 15);
+		ctx.fillStyle = "rgba(232,244,246,0.9)";
+		ctx.fillText(v, m + 92, m + 26 + i * 15);
+	});
+
+	// channel occupancy, 1 to 13: ours lit
+	const bx = m + 12, by = m + 26 + rows.length * 15 + 14;
+	ctx.fillStyle = "rgba(92,122,134,0.9)";
+	ctx.fillText("2.4 GHZ OCCUPANCY", bx, by - 6);
+	for (let ch = 1; ch <= 13; ch++) {
+		const base = ch === 11 ? 0.55 : ch === 6 || ch === 1 ? 0.3 : 0.08;
+		const v = Math.min(1, base + (reduced ? 0 : 0.08 * Math.sin(now / 300 + ch * 1.7)));
+		const h = 4 + v * 26;
+		ctx.fillStyle = ch === 11 ? "rgba(127,231,242,0.9)" : "rgba(127,231,242,0.25)";
+		ctx.fillRect(bx + (ch - 1) * 9, by + 30 - h, 6, h);
+	}
+
+	ctx.fillStyle = "rgba(92,122,134,0.8)";
+	ctx.font = "10px ui-monospace, Menlo, monospace";
+	ctx.fillText(`VIEW  YAW ${(yaw * 57.3).toFixed(1).padStart(6)}°  TILT ${(TILT * 57.3).toFixed(0)}°  ZOOM ${cam.zoom.toFixed(1)}×`, m + 12, H - m - 8);
+}
+
+// The view tears: horizontal strips shift, with a red/cyan split.
+function glitch(now) {
+	const strips = 7;
+	for (let i = 0; i < strips; i++) {
+		const y = Math.random() * H, h = 4 + Math.random() * 26;
+		const dx = (Math.random() - 0.5) * 40;
+		ctx.drawImage(canvas, 0, y * dpr, W * dpr, h * dpr, dx, y, W, h);
+	}
+	ctx.globalCompositeOperation = "lighter";
+	ctx.fillStyle = "rgba(255,59,59,0.08)";
+	ctx.fillRect(0, 0, W, H);
+	ctx.globalCompositeOperation = "source-over";
+	for (let i = 0; i < 3; i++) {
+		ctx.fillStyle = i % 2 ? "rgba(127,231,242,0.25)" : "rgba(255,59,59,0.3)";
+		ctx.fillRect(0, Math.random() * H, W, 1 + Math.random() * 2);
+	}
+}
+
+function label(text, x, y, color, face = "body") {
+	ctx.font = face === "mono"
+		? "10px ui-monospace, Menlo, monospace"
+		: face === "display"
+			? `600 11px "Avenir Next Condensed", "Arial Narrow", sans-serif`
+			: "500 12px system-ui, sans-serif";
+	ctx.fillStyle = color;
+	ctx.fillText(text, x, y);
+}
+
+// ---------------------------------------------------------------------------
+// Heatmap, side panel
+// ---------------------------------------------------------------------------
+
+function onData() {
+	syncLiveBucket();
+	heatDirty = true;
+	renderEventsBtn();
+	if (panel === "list") renderList();
+	if (panel === "events") renderEvents();
+}
+
+// The heatmap: a row per room, a column per 5 minutes, drawn once per change
+// into `heatCache`; each frame adds the playhead and the hover line.
+const heatEl = document.getElementById("heat");
+const hctx = heatEl.getContext("2d");
+const heatCache = document.createElement("canvas");
+const playBtn = document.getElementById("play");
+const liveBtn = document.getElementById("live");
+const peakBtn = document.getElementById("peak");
+const atEl = document.getElementById("tl-at");
+const GUTTER = 92, TOP = 16, AXIS = 16;
+let heatDirty = true, hover = null, dragging = false, peak = 0;
+
+function heatGeom() {
+	const r = heatEl.getBoundingClientRect();
+	return { w: r.width, h: r.height, cw: (r.width - GUTTER) / BUCKETS, rh: (r.height - TOP - AXIS) / HEAT_ROOMS.length };
+}
+
+const colX = (g, i) => GUTTER + i * g.cw;
+
+function dayLabel(date) {
+	const today = new Date().toDateString() === date.toDateString();
+	return `${today ? "today" : "yesterday"} ${hhmm(date)}`;
+}
+
+function renderHeat() {
+	const g = heatGeom();
+	heatCache.width = Math.round(g.w * dpr);
+	heatCache.height = Math.round(g.h * dpr);
+	const c = heatCache.getContext("2d");
+	c.setTransform(dpr, 0, 0, dpr, 0, 0);
+	c.clearRect(0, 0, g.w, g.h);
+
+	let best = -1;
+	HEAT_ROOMS.forEach((r, row) => {
+		const y = TOP + row * g.rh;
+		c.font = `600 10px "Avenir Next Condensed", "Arial Narrow", sans-serif`;
+		c.fillStyle = "rgba(92,122,134,0.9)";
+		c.fillText(r.name.toUpperCase(), 0, y + g.rh / 2 + 3.5);
+		for (let i = 0; i < BUCKETS; i++) {
+			const v = roomAt(r, i);
+			// the scheduled scan is expected, so it isn't the peak
+			if (v > best && !inScan(hourOf(i))) [best, peak] = [v, i];
+			const t = heat(v);
+			c.fillStyle = t < 0.02 ? "rgba(127,231,242,0.04)" : heatColor(t, 0.08 + 0.92 * t * t);
+			c.fillRect(colX(g, i), y + 1, Math.max(1, g.cw - 0.4), g.rh - 2);
+		}
+	});
+
+	// hours along the bottom
+	c.font = "10px ui-monospace, Menlo, monospace";
+	for (let i = 0; i < BUCKETS; i++) {
+		const t = bucketTime(i);
+		if (t.getMinutes() !== 0) continue;
+		const x = colX(g, i);
+		c.fillStyle = "rgba(127,231,242,0.18)";
+		c.fillRect(x, g.h - AXIS, 1, t.getHours() % 3 ? 3 : 6);
+		if (t.getHours() % 3 === 0 && x > GUTTER + 12 && x < g.w - 30) {
+			c.fillStyle = "rgba(92,122,134,0.9)";
+			c.fillText(hhmm(t), x - 15, g.h - 2);
+		}
+	}
+
+	// marks above the rows: the scheduled scan, the outlier
+	const mark = (from, to, text, color) => {
+		const x1 = colX(g, from), x2 = colX(g, to + 1);
+		c.fillStyle = color;
+		c.fillRect(x1, TOP - 5, Math.max(2, x2 - x1), 1);
+		c.font = "10px ui-monospace, Menlo, monospace";
+		const w = c.measureText(text).width;
+		c.fillText(text, Math.min(x1, g.w - w), TOP - 8);
+	};
+	const scan = [];
+	for (let i = 0; i < BUCKETS; i++) if (inScan(hourOf(i))) scan.push(i);
+	if (scan.length) mark(scan[0], scan[scan.length - 1], "scheduled scan · expected", "rgba(127,231,242,0.55)");
+	if (DEVICES.some((d) => d.outlier && d.minutes.some((m) => heat(m[0]) > 0.9))) mark(BUCKETS - 1, BUCKETS - 1, "outlier", "rgba(255,59,59,0.9)");
+
+	const r = HEAT_ROOMS.reduce((a, b) => (roomAt(b, peak) > roomAt(a, peak) ? b : a));
+	peakBtn.textContent = `peak ${dayLabel(bucketTime(peak))} · ${r.name} · ${fmtBytes(best)}/min`;
+	heatDirty = false;
+}
+
+function drawTimeline(now) {
+	if (heatDirty) renderHeat();
+	const g = heatGeom();
+	if (heatEl.width !== Math.round(g.w * dpr)) {
+		heatEl.width = Math.round(g.w * dpr);
+		heatEl.height = Math.round(g.h * dpr);
+	}
+	hctx.setTransform(1, 0, 0, 1, 0, 0);
+	hctx.clearRect(0, 0, heatEl.width, heatEl.height);
+	hctx.drawImage(heatCache, 0, 0);
+	hctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+	if (hover !== null && !dragging) {
+		const x = colX(g, hover + 0.5);
+		hctx.fillStyle = "rgba(232,244,246,0.25)";
+		hctx.fillRect(x, TOP - 2, 1, g.h - TOP - AXIS + 2);
+	}
+
+	// the playhead: a line with the time on it
+	const x = colX(g, cursor + 0.5);
+	const live = mode === "live";
+	const glow = live && !reduced ? 0.6 + 0.4 * Math.sin(now / 300) : 1;
+	hctx.fillStyle = live ? `rgba(127,231,242,${glow.toFixed(2)})` : "#e8f4f6";
+	hctx.fillRect(x - 0.5, TOP - 4, 1.5, g.h - TOP - AXIS + 6);
+	hctx.beginPath();
+	hctx.moveTo(x - 4, TOP - 6);
+	hctx.lineTo(x + 4.5, TOP - 6);
+	hctx.lineTo(x, TOP - 1);
+	hctx.fill();
+
+	if (live) {
+		const left = Math.ceil((MINUTE_MS * LOOP - (now - loopStart)) / 1000);
+		atEl.innerHTML = `<b>live</b> · replaying the last ${LOOP} minutes · next minute in ${left} s (mockup: 1 min = ${MINUTE_MS / 1000} s)`;
+	} else {
+		const i = Math.floor(cursor);
+		const r = HEAT_ROOMS.reduce((a, b) => (roomAt(b, i) > roomAt(a, i) ? b : a));
+		atEl.innerHTML = `<b>${dayLabel(bucketTime(i))}</b> · busiest: ${r.name}, ${fmtBytes(roomAt(r, i))}/min`;
+	}
+}
+
+function renderControls() {
+	playBtn.textContent = playing ? "Pause" : "Play";
+	liveBtn.setAttribute("aria-pressed", String(mode === "live"));
+}
+
+function seek(i) {
+	mode = "history";
+	cursor = Math.max(0, Math.min(BUCKETS - 1, i));
+	renderControls();
+}
+
+function goLive() {
+	mode = "live";
+	playing = false;
+	cursor = BUCKETS - 1;
+	renderControls();
+}
+
+function togglePlay() {
+	if (!playing && (mode === "live" || cursor >= BUCKETS - 2)) seek(0);
+	playing = !playing;
+	renderControls();
+}
+
+function bucketAt(ev) {
+	const r = heatEl.getBoundingClientRect();
+	return Math.max(0, Math.min(BUCKETS - 1, Math.floor((ev.clientX - r.left - GUTTER) / ((r.width - GUTTER) / BUCKETS))));
+}
+
+heatEl.addEventListener("pointerdown", (ev) => {
+	dragging = true;
+	playing = false;
+	heatEl.setPointerCapture(ev.pointerId);
+	seek(bucketAt(ev));
+});
+heatEl.addEventListener("pointermove", (ev) => {
+	hover = bucketAt(ev);
+	if (dragging) seek(hover);
+});
+heatEl.addEventListener("pointerup", () => (dragging = false));
+heatEl.addEventListener("pointerleave", () => (hover = null));
+heatEl.addEventListener("keydown", (ev) => {
+	const by = ev.shiftKey ? 12 : 1;
+	if (ev.key === "ArrowLeft") seek(Math.round(cursor) - by);
+	else if (ev.key === "ArrowRight") seek(Math.round(cursor) + by);
+	else if (ev.key === "End") goLive();
+	else if (ev.key === " ") togglePlay();
+	else return;
+	ev.preventDefault();
+});
+playBtn.addEventListener("click", togglePlay);
+liveBtn.addEventListener("click", goLive);
+peakBtn.addEventListener("click", () => {
+	playing = false;
+	seek(peak);
+});
+
+const side = document.getElementById("side");
+const devicesBtn = document.getElementById("devices-btn");
+const eventsBtn = document.getElementById("events-btn");
+let panel = null; // null, "list", "device" or "events"
+
+function showPanel(mode) {
+	panel = mode;
+	side.classList.toggle("open", mode !== null);
+	devicesBtn.setAttribute("aria-expanded", String(mode === "list"));
+	eventsBtn.setAttribute("aria-expanded", String(mode === "events"));
+}
+
+function closePanel() {
+	selected = null;
+	showPanel(null);
+}
+
+function openList() {
+	selected = null;
+	renderList();
+	showPanel("list");
+}
+
+function openEvents() {
+	selected = null;
+	renderEvents();
+	showPanel("events");
+}
+
+const CLOSE = `<button class="close" id="close" aria-label="Close">×</button>`;
+
+function wireClose() {
+	document.getElementById("close").addEventListener("click", closePanel);
+}
+
+function renderList() {
+	const rows = DEVICES.map((d) => {
+		const [tx, rx] = d.minutes[LOOP - 1];
+		return { d, total: tx + rx };
+	}).sort((a, b) => b.total - a.total);
+	side.innerHTML = `${CLOSE}<div class="eyebrow">Devices, by the last minute</div><ul class="list">${rows
+		.map(({ d, total }) => {
+			const color = d.outlier ? "#ff3b3b" : d.locationOnly ? "#5c7a86" : heatColor(heat(total));
+			const rate = d.locationOnly ? "location only" : fmtBytes(total);
+			return `<li><button data-id="${d.id}"><span class="swatch" style="background:${color}"></span><span>${d.name}</span><span class="rate">${rate}</span></button></li>`;
+		})
+		.join("")}</ul><p class="note">Or click a device on the plan.</p>`;
+	wireClose();
+	side.querySelectorAll("button[data-id]").forEach((b) => b.addEventListener("click", () => select(DEVICES.find((d) => d.id === b.dataset.id))));
+}
+
+function select(d) {
+	if (!d) return closePanel();
+	selected = d;
+	const [tx, rx] = d.minutes[LOOP - 1];
+	const ports = d.ports.length ? d.ports.map((p) => `<span class="chip${d.id === "display" && p === 8021 ? " new" : ""}">${p}/tcp</span>`).join("") : `<span class="note">none found in the last scan</span>`;
+	const dns = d.dns.length ? d.dns.map((n) => `<span class="chip">${n}</span>`).join("") : `<span class="note">no lookups seen</span>`;
+	const alert = d.outlier ? `<div class="alert">Sent ${fmtBytes(d.outlier.bytes)} in one minute, about ${d.outlier.times}× its usual for this hour. Email sent.</div>` : "";
+	side.innerHTML = `
+		${CLOSE}
+		<button class="back" id="back">← All devices</button>
+		${alert}
+		<h2 class="name">${d.name}</h2>
+		<div class="where">${d.room}${d.locationOnly ? " · location only: its data is multi-stream, the sensors can't count it" : ""}</div>
+
+		<div class="eyebrow">Last minute</div>
+		<dl class="kv">
+			<dt>sent</dt><dd>${fmtBytes(tx)}</dd>
+			<dt>received</dt><dd>${fmtBytes(rx)}</dd>
+			<dt>signal</dt><dd>${d.rssi} dBm</dd>
+		</dl>
+
+		<div class="eyebrow">Traffic, last 24 hours</div>
+		<canvas class="spark" id="spark"></canvas>
+
+		<div class="eyebrow">Open ports</div>
+		<div class="chips">${ports}</div>
+
+		<div class="eyebrow">Looked up</div>
+		<div class="chips">${dns}</div>
+
+		<div class="eyebrow">Device</div>
+		<dl class="kv">
+			<dt>MAC</dt><dd>${d.mac}</dd>
+			<dt>vendor</dt><dd>${d.vendor}</dd>
+			<dt>first seen</dt><dd>${d.id === "vacuum" ? "today" : "12 days ago"}</dd>
+		</dl>`;
+	document.getElementById("back").addEventListener("click", openList);
+	wireClose();
+	showPanel("device");
+	drawSpark(d);
+}
+
+function drawSpark(d) {
+	const el = document.getElementById("spark");
+	const r = el.getBoundingClientRect();
+	el.width = r.width * dpr;
+	el.height = r.height * dpr;
+	const c = el.getContext("2d");
+	c.scale(dpr, dpr);
+	// half hours: the average of six buckets
+	const halves = Array.from({ length: BUCKETS / 6 }, (_, i) => d.day.slice(i * 6, i * 6 + 6).reduce((s, [a, b]) => s + a + b, 0) / 6);
+	const max = Math.max(1, ...halves);
+	const bw = r.width / halves.length;
+	halves.forEach((v, i) => {
+		const hgt = (v / max) * (r.height - 4);
+		c.fillStyle = heatColor(heat(v));
+		c.globalAlpha = 0.85;
+		c.fillRect(i * bw + 1, r.height - hgt, Math.max(1, bw - 2), hgt);
+	});
+	if (d.locationOnly) {
+		c.globalAlpha = 1;
+		c.fillStyle = "#5c7a86";
+		c.font = "12px ui-monospace, Menlo, monospace";
+		c.fillText("no counts: multi-stream device", 0, r.height / 2);
+	}
+}
+
+// The events, newest first; a click opens the device.
+function renderEvents() {
+	const rows = [...EVENTS].sort((a, b) => b.at - a.at).map((e) => {
+		const time = hhmm(new Date(firstMinute.getTime() + e.at * 60_000));
+		return `<li><button data-id="${e.device}"><time>${time}</time><span class="${e.hot ? "hot" : ""}">${e.text}</span></button></li>`;
+	});
+	side.innerHTML = `${CLOSE}<div class="eyebrow">Timeline</div><ul class="list events">${rows.join("")}</ul>`;
+	wireClose();
+	side.querySelectorAll("button[data-id]").forEach((b) => b.addEventListener("click", () => select(DEVICES.find((d) => d.id === b.dataset.id))));
+}
+
+// The button counts the events that sent an email.
+function renderEventsBtn() {
+	const hot = EVENTS.filter((e) => e.hot).length;
+	eventsBtn.innerHTML = `Timeline${hot ? `<span class="badge">${hot}</span>` : ""}`;
+}
+
+// Drag to pan; shift-drag or right-drag to rotate. A drag isn't a click.
+let drag = null, dragged = false;
+canvas.addEventListener("pointerdown", (ev) => {
+	drag = { x: ev.clientX, y: ev.clientY, rotate: ev.shiftKey || ev.button === 2, moved: false };
+	canvas.setPointerCapture(ev.pointerId);
+});
+canvas.addEventListener("pointermove", (ev) => {
+	if (!drag) return;
+	const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+	if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+	if (!drag.moved) canvas.classList.add("dragging");
+	drag.moved = true;
+	takeControl();
+	if (drag.rotate) {
+		yaw = camT.yaw = yaw + dx * 0.006;
+	} else {
+		cam.panX = camT.panX = cam.panX + dx;
+		cam.panY = camT.panY = cam.panY + dy;
+	}
+	[drag.x, drag.y] = [ev.clientX, ev.clientY];
+});
+canvas.addEventListener("pointerup", () => {
+	dragged = drag?.moved ?? false;
+	drag = null;
+	canvas.classList.remove("dragging");
+});
+canvas.addEventListener("contextmenu", (ev) => ev.preventDefault());
+canvas.addEventListener("wheel", (ev) => {
+	ev.preventDefault();
+	const r = canvas.getBoundingClientRect();
+	zoomAt(ev.clientX - r.left, ev.clientY - r.top, Math.exp(-ev.deltaY * 0.0015));
+}, { passive: false });
+canvas.addEventListener("keydown", (ev) => {
+	const step = Math.PI / 12; // 15°
+	if (ev.key === "ArrowLeft") rotate(-step);
+	else if (ev.key === "ArrowRight") rotate(step);
+	else if (ev.key === "+" || ev.key === "=") zoomAt(W / 2, H / 2, 1.25);
+	else if (ev.key === "-") zoomAt(W / 2, H / 2, 0.8);
+	else if (ev.key === "0") resetView();
+	else return;
+	ev.preventDefault();
+});
+document.getElementById("rot-left").addEventListener("click", () => rotate(-Math.PI / 12));
+document.getElementById("rot-right").addEventListener("click", () => rotate(Math.PI / 12));
+document.getElementById("zoom-in").addEventListener("click", () => zoomAt(W / 2, H / 2, 1.25));
+document.getElementById("zoom-out").addEventListener("click", () => zoomAt(W / 2, H / 2, 0.8));
+document.getElementById("view-reset").addEventListener("click", resetView);
+
+// pick a device by clicking near its node
+canvas.addEventListener("click", (ev) => {
+	if (dragged) {
+		dragged = false;
+		return;
+	}
+	const r = canvas.getBoundingClientRect();
+	const x = ev.clientX - r.left, y = ev.clientY - r.top;
+	let best = null, bestDist = 24;
+	for (const d of DEVICES) {
+		const dist = Math.hypot(d.screen[0] - x, d.screen[1] - y);
+		if (dist < bestDist) [best, bestDist] = [d, dist];
+	}
+	// a click on an empty spot closes the panel
+	select(best);
+});
+
+devicesBtn.addEventListener("click", () => (panel === "list" ? closePanel() : openList()));
+eventsBtn.addEventListener("click", () => (panel === "events" ? closePanel() : openEvents()));
+
+document.addEventListener("keydown", (ev) => {
+	if (ev.key === "Escape" && panel) closePanel();
+});
+
+setInterval(() => {
+	document.getElementById("clock").textContent = new Date().toTimeString().slice(0, 8);
+}, 250);
+
+resize();
+onData();
+requestAnimationFrame((now) => {
+	lastFrame = loopStart = ringStart = now;
+	requestAnimationFrame(step);
+});
+</script>
+</body>
+</html>

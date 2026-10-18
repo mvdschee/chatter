@@ -19,15 +19,23 @@ test-client:
 # development collector on this machine, at CHATTER_COLLECTOR_ADDR from .env
 COLLECTOR = $(shell grep '^CHATTER_COLLECTOR_ADDR=' .env 2>/dev/null | cut -d= -f2-)
 
+# the database goes in /tmp: development data only
+COLLECTOR_ENV = CHATTER_BIND=$(COLLECTOR) CHATTER_DB=/tmp/chatter.db
+
 collector:
-	cargo run -q $(COLLECTOR_CRATE) -- $(COLLECTOR)
+	$(COLLECTOR_ENV) cargo run -q $(COLLECTOR_CRATE)
 
 # also serves the 10 MiB GET /test.bin the test client downloads
 collector-test:
-	cargo run -q $(COLLECTOR_CRATE) -- $(COLLECTOR) --test-file-mib 10
+	$(COLLECTOR_ENV) CHATTER_TEST_FILE_MIB=10 cargo run -q $(COLLECTOR_CRATE)
+
+# the monitoring view's static mockup (made-up data), docs/monitoring.md step 1
+mockup:
+	open crates/collector/ui/mockup.html
 
 test:
 	cargo test -p chatter-core
+	cargo test -q $(COLLECTOR_CRATE)
 
 test-device:
 	$(C6_PROBE) cargo test $(FIRMWARE)
@@ -37,7 +45,7 @@ check:
 	cargo clippy -p chatter-core --target riscv32imac-unknown-none-elf -- -D warnings
 	cargo clippy $(FIRMWARE) --bins --tests -- -D warnings
 	cargo clippy $(TESTCLIENT) -- -D warnings
-	cargo clippy $(COLLECTOR_CRATE) -- -D warnings
+	cargo clippy $(COLLECTOR_CRATE) --all-targets -- -D warnings
 	cargo fmt --check
 	cargo fmt --check --manifest-path crates/testclient/Cargo.toml
 	cargo fmt --check --manifest-path crates/collector/Cargo.toml

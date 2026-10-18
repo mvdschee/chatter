@@ -105,10 +105,14 @@ tests, and `make check` runs clippy (host and riscv32imac) plus a fmt check.
 - Expected at boot: `WARN RcFastDivClk calibration failed`. It comes from
   esp-hal's clock setup and doesn't stop the boot. The cause hasn't been
   looked into.
-- collector: `make collector` _(works)_ runs `crates/collector` (Rust, std plus
-  `serde_json`) on `CHATTER_COLLECTOR_ADDR` from `.env`, and appends each
-  report to `/tmp/chatter-reports.jsonl`. The firmware build needs that key
-  too: reports go to `POST /report` there.
+- collector: `make collector` _(works)_ runs `crates/collector` (axum and
+  SQLite) on `CHATTER_COLLECTOR_ADDR` from `.env`, and stores each report in
+  `/tmp/chatter.db`. The firmware build needs that key too: reports go to
+  `POST /report` there. The collector's settings are environment variables
+  (`CHATTER_BIND`, `CHATTER_DB`, `CHATTER_TEST_FILE_MIB`, see its
+  `src/config.rs`); the makefile sets them. SQLite is compiled from the C
+  source that sqlx ships on crates.io, so nothing needs installing; `sqlite3`
+  (part of macOS) is handy to look inside.
 - on-device tests: `make test-device` _(works)_. `embedded-test` flashes
   each file in `crates/firmware/tests/` and reports pass or fail like `cargo test`.
   Checked both ways: a broken assertion shows `FAILED` and exits 1.
@@ -138,8 +142,9 @@ the sensor's counts can be checked against an exact number.
 ## 5. Collector image _(works)_
 
 `crates/collector/Dockerfile` builds the collector into a Debian slim image
-that runs as uid 65532 and writes `/var/lib/chatter/reports.jsonl`. The build
-context is the repo root; `.dockerignore` only lets `crates/collector` in. CI
+that runs as uid 65532 and keeps its database in `/var/lib/chatter/chatter.db`.
+The build context is the repo root; `.dockerignore` only lets the collector's
+sources and migrations in. CI
 (`.github/workflows/collector-image.yml`) pushes it to ghcr on every change to
 the collector on `main`.
 
@@ -252,3 +257,19 @@ Then run steps 1 and 2 again.
 - 2026-10-17: collector deployed on the home server; the sensor reports there.
   The collector now ignores connections that close without a request (the
   container healthcheck logged a broken pipe every 30 s).
+- 2026-10-18: the first day-long run (about 20 h, sensor next to the router):
+  no gaps, no backlog, both networks known throughout. Frames were only
+  dropped during the scheduled LAN port scan, when every device talks at once.
+  So the frame queue grew from 64 to 256 (3.5 KB), and the sensor no longer
+  counts its own MAC as a device.
+- 2026-10-18: flashed: the server's reports no longer list the sensor's own MAC.
+- 2026-10-18: the collector moves to axum and SQLite (monitoring plan step 2).
+  Checked locally and in the podman image: a firmware-style HTTP/1.0 report
+  gets `204`, a resend is recognised and not stored twice, gaps are logged,
+  bad reports get `400`, and the image runs read-only with its database in the
+  volume. Replaying the first day-long run (about 1200 real reports) gave 204
+  for all of them; with their original receive times, a per-device, per-hour
+  query over the day takes about 15 ms and uses the (mac, time) index. A
+  report sent before the first connect has channel 0, so 0 is accepted: a
+  rejected report would block the sensor's outbox. The JSON Lines file of
+  earlier reports stays in the volume; it isn't imported.

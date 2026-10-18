@@ -3,8 +3,9 @@
 ## Override of the global rules
 
 - **Claude writes `crates/core/` in this project**, both `crates/core/src/models/` and
-  `crates/core/src/handlers/`. This replaces "The Core Rule" in the global
-  CLAUDE.md. Everything else there still applies.
+  `crates/core/src/handlers/`, and the collector's `crates/collector/src/core/`
+  too. This replaces "The Core Rule" in the global CLAUDE.md. Everything else
+  there still applies.
 - Work in small, reviewable chunks, one commit each, following the plan in
   `docs/sensor.md`.
 - **This repo is public.** Nothing in it may describe the owner's own network
@@ -12,6 +13,8 @@
   inventory or counts, channel numbers, test hardware, or the software they
   run. Write findings generically ("a multi-stream laptop", "the router's
   channel"). Real values only live in the git-ignored `.env` or in `/tmp`.
+  Made-up example data (MACs, names, addresses) is generated at random, never
+  adapted from real values.
   Before staging, scan the changed docs for this. Ask before any web search or
   external request that would contain household equipment details.
 

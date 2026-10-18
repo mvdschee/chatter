@@ -6,7 +6,7 @@ household details stay out of this repo on purpose.
 ## What the download test showed
 
 A multi-stream laptop on a watched 2.4 GHz network downloaded 100 MB. The sensor saw
-none of it: only the Mac's small keep-alive frames (28 B each), which are sent
+none of it: only the laptop's small keep-alive frames (28 B each), which are sent
 single-stream at basic rates. No device moved more than 13 KiB in any 10 s
 period.
 

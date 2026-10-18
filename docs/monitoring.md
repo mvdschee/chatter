@@ -80,17 +80,20 @@ only: no logos, fonts or assets from the game, since this repo is public.
 | Walls | rows of glowing cyan/white dots | the drawn floor plan |
 | Rooms | dim filled areas with a small label | the floor plan |
 | Devices | glowing nodes with a type icon and a short label; they pulse with traffic | inventory + sensors |
-| Data flows | particle streams from each device to the router | sensor minutes |
-| Device panel | "profiler": MAC, vendor, open ports, DNS names, 24 h sparkline, first seen | all sources |
-| Outlier | node turns red and glitches, an event ticker line appears | outlier rules |
+| Data flows | packet streaks riding an arc from each device to the router, at one slow, steady pace, in bursts | sensor minutes |
+| Floor glow | a soft glow on the floor under each device, bigger and redder with traffic | the minute on screen |
+| Device panel | "profiler", opens on a click: MAC, vendor, open ports, DNS names, 24 h sparkline, first seen | all sources |
+| Timeline | a heatmap of the last 24 hours at the bottom: a row per room, a column per 5 minutes. Drag it or press play and the plan shows that moment; it marks the peak, the scheduled scan and outliers | stored minutes |
+| Outlier | node turns red and glitches; the event goes into the Timeline panel, with a count on its button | outlier rules |
 
 ### Data flow animation
 
 - The last few minutes of sensor data (for example 5) play **on a loop**.
   Each minute's numbers set the flow for its slice of the loop, so the view
   shows the recent rhythm instead of one frozen number.
-- **Colour: white is low traffic, red is high.** Flow speed and particle
-  density follow the same number.
+- **Colour: white is low traffic, red is high.** The same number sets how
+  often packet bursts leave, how many packets a burst has and how long they
+  are. The pace stays the same for every flow, so it reads as a stream.
 - When a new minute arrives, it joins the loop and the oldest drops out. The
   change blends in over a second or two, so nothing jumps.
 - The loop shows real minutes only and never invents activity between them.
@@ -112,6 +115,12 @@ can be tuned):
 - **New device:** a MAC never seen before.
 - **Gone:** no traffic for 14 days.
 - **Ports:** a new open port on a known device (from the scan results).
+- **Scan:** most devices spike at the same time. That's the signature of a
+  port scan. The first day-long run showed it exactly: the owner's own
+  scheduled scan made every device run about 10× its usual for its 25
+  minutes. The app knows when the scheduled scan runs (from its results), so it
+  marks that window as expected, and emails only when a scan happens outside
+  it.
 - **Sensor health:** a sensor stops reporting, or `dropped`/`overflow` stay
   above zero.
 
@@ -121,15 +130,19 @@ Emails are rate-limited: one per event, plus at most one digest a day.
 
 One reviewable chunk each, with its check:
 
-1. **Mockup:** one static HTML file with fake data: a sketched floor plan,
+1. **Mockup** _(built: `crates/collector/ui/mockup.html`, `make mockup`)_:
+   one static HTML file with fake data: a sketched floor plan,
    about 10 devices, looping flows (white to red), one outlier.
    Check: the owner looks at it and says what feels right or wrong.
-2. **Storage:** reports go into SQLite instead of JSONL.
+2. **Storage** _(built)_: reports go into SQLite instead of JSONL; the
+   collector is axum with the usual layout (`core`, `repository`,
+   `services/web`).
    Check: a day of reports, queried per device and hour.
 3. **Floor plan editor:** draw walls and rooms, saved in SQLite.
    Check: draw the real floor plan in a few minutes.
 4. **Live view:** the mockup's look on real data over server-sent events,
-   with the loop. Devices are placed by hand.
+   with the loop, and the day timeline from storage. Devices are placed by
+   hand.
    Check: the owner's judgement, plus "a busy device turns red" with the C3
    test client.
 5. **Scan results:** the port scan's output in the device panel.
@@ -171,3 +184,8 @@ Only the owner can judge:
    could save work, but they won't give this look.
 6. Whether 60 s reports are lively enough for the view, or the sensor should
    report more often.
+7. Local or internet? The sensor can't tell whether a device's traffic stays
+   on the LAN (a home automation server polling it) or goes to the internet:
+   the addresses are encrypted. "Is this a lot?" needs that split. The DNS log
+   gives a hint (who it looks up); the gateway route in
+   `docs/traffic-visibility.md` would give the bytes.
