@@ -24,6 +24,9 @@ pub enum Error {
 
 	#[error("report error: {0}")]
 	Report(String),
+
+	#[error("scan error: {0}")]
+	Scan(String),
 }
 
 impl From<sqlx::Error> for Error {

@@ -18,8 +18,11 @@ test-client:
 
 # The collector takes its settings from .env (CHATTER_BIND, CHATTER_DB, ...,
 # see crates/collector/src/config.rs); its container gets the same keys.
+# Built first, so it's always the current code. SUDO=1 runs it as root, which
+# the network sweep needs on a Mac.
 collector:
-	cargo run -q $(COLLECTOR_CRATE)
+	cargo build -q $(COLLECTOR_CRATE)
+	$(if $(SUDO),sudo) target/debug/chatter-collector
 
 # loads a collector's old reports file into CHATTER_DB; reports already there
 # are skipped

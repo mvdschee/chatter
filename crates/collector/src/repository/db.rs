@@ -17,6 +17,7 @@ pub struct DatabaseRepository {
 
 pub enum DbValue {
 	Text(String),
+	TextOpt(Option<String>),
 	Int(i64),
 	IntOpt(Option<i64>),
 }
@@ -27,6 +28,7 @@ fn bind(mut query: SqliteQuery<'_>, params: Vec<DbValue>) -> SqliteQuery<'_> {
 	for param in params {
 		query = match param {
 			DbValue::Text(value) => query.bind(value),
+			DbValue::TextOpt(value) => query.bind(value),
 			DbValue::Int(value) => query.bind(value),
 			DbValue::IntOpt(value) => query.bind(value),
 		};

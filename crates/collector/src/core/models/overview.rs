@@ -39,6 +39,10 @@ pub struct DeviceOverview {
 	pub last_seen: i64,
 	/// The strongest signal in the day, `None` if it sent nothing the sensor heard.
 	pub rssi_max: Option<i64>,
+	/// From the newest host sweep that found it; `None` if none has.
+	pub ip: Option<String>,
+	pub hostname: Option<String>,
+	pub vendor: Option<String>,
 	/// `[tx, rx]` bytes per loop minute, like `Overview::minutes`.
 	pub minutes: Vec<[i64; 2]>,
 	/// `[tx, rx]` bytes a minute per bucket, averaged over the reports in it.

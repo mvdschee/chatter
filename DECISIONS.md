@@ -108,3 +108,9 @@
 **Decision:** The collector reads every setting from environment variables (`CHATTER_BIND`, `CHATTER_DB`, `CHATTER_UI_DIR`, `CHATTER_TEST_FILE_MIB`). Locally it loads the repo's `.env` itself (dotenvy); its container sets the same keys. The makefile only runs it.
 **Why:** One way to configure it, the same for a local run and the image, and a makefile without per-setup targets. Reading `.env` in the collector rather than including it in the makefile keeps make from parsing values like the Wi-Fi password, where `#` and `$` mean something to make.
 **Alternatives:** Per-setup make targets with the values inline (what it was; grew a target per case); `include .env` in the makefile (breaks on some passwords).
+
+## 2026-10-18 - The collector runs the network scans itself
+
+**Decision:** The collector runs nmap: a host sweep (`-sn`) every few minutes and, later, the scheduled port scan. Its container runs on the host network as root, with every capability dropped except `NET_RAW` and `NET_ADMIN`, and a read-only root filesystem. It sweeps the /24 of the network its machine is on, looked up before each sweep from the default route's local address (a UDP connect that sends nothing), unless `CHATTER_SCAN_TARGETS` names targets; those are checked to be IP addresses or CIDR ranges before nmap gets them.
+**Why:** One app that does it all, which a buyer installs once. nmap only reports MACs on its own network segment (Docker's bridge network is a routed hop), and its ARP sweep needs raw sockets. Root with two capabilities was chosen over a non-root user with `setcap` on nmap, which would mean dropping `no-new-privileges`.
+**Alternatives:** A scanner outside the app that posts its results (the earlier plan: two things to install); a separate privileged scanner container next to an unprivileged collector (more to deploy); non-root with file capabilities (needs `no-new-privileges` off).

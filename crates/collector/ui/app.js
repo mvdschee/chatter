@@ -111,14 +111,20 @@ function applyOverview(o) {
 	seen.forEach((x, i) => {
 		const d = old.get(x.mac) ?? newDevice(x.mac);
 		const [sx, sy] = SPOTS[i % SPOTS.length];
-		Object.assign(d, { x: sx, y: sy, minutes: pad(x.minutes), day: x.day, rssi: x.rssi_max, firstSeen: x.first_seen });
+		// the name the host sweep found (without the local domain), else the MAC
+		const host = x.hostname?.split(".")[0];
+		Object.assign(d, {
+			x: sx, y: sy, minutes: pad(x.minutes), day: x.day, rssi: x.rssi_max, firstSeen: x.first_seen,
+			name: host ?? x.mac, short: host ?? x.mac.slice(9), vendor: x.vendor ?? "unknown",
+			ip: x.ip, hostname: x.hostname,
+		});
 		DEVICES.push(d);
 	});
 	HEAT_ROWS = [...DEVICES]
 		.map((d) => ({ d, total: d.day.reduce((s, [a, b]) => s + a + b, 0) }))
 		.sort((a, b) => b.total - a.total)
 		.slice(0, 8)
-		.map(({ d }) => ({ name: d.mac, at: (i) => d.day[i][0] + d.day[i][1] }));
+		.map(({ d }) => ({ name: d.short, at: (i) => d.day[i][0] + d.day[i][1] }));
 	const newest = o.sensors.reduce((a, b) => (b.last_seen > a.last_seen ? b : a), o.sensors[0]);
 	Object.assign(STATUS, {
 		sensors: o.sensors.length,
@@ -1042,6 +1048,8 @@ function select(d) {
 		<div class="eyebrow">Device</div>
 		<dl class="kv">
 			<dt>MAC</dt><dd>${d.mac}</dd>
+			<dt>IP</dt><dd>${d.ip ?? "not in a sweep yet"}</dd>
+			<dt>hostname</dt><dd>${d.hostname ?? "-"}</dd>
 			<dt>vendor</dt><dd>${d.vendor}</dd>
 			<dt>first seen</dt><dd>${new Date(d.firstSeen * 1000).toLocaleString()}</dd>
 		</dl>`;

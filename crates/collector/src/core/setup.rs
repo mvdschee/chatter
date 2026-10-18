@@ -1,6 +1,9 @@
 use crate::{
 	Result,
-	core::{handlers::import::import_reports, models::config::Config},
+	core::{
+		handlers::{import::import_reports, scan::sweep_loop},
+		models::config::Config,
+	},
 	info,
 	repository::db::DatabaseRepository,
 	services::{
@@ -75,5 +78,31 @@ impl HandleImport {
 			self.path, summary.stored, summary.duplicates, summary.bad
 		);
 		Ok(())
+	}
+}
+
+/// The network scans in the background.
+pub struct HandleScans {
+	db: DatabaseRepository,
+	config: Config,
+}
+
+impl HandleScans {
+	pub fn new(db: DatabaseRepository, config: &Config) -> Self {
+		Self {
+			db,
+			config: config.clone(),
+		}
+	}
+
+	pub fn run(self) {
+		let every = std::time::Duration::from_secs(self.config.sweep_every_min * 60);
+		match &self.config.scan_targets {
+			Some(targets) => info!("sweeping {targets} every {} min", self.config.sweep_every_min),
+			None => {
+				info!("sweeping this machine's network every {} min", self.config.sweep_every_min)
+			},
+		}
+		tokio::spawn(sweep_loop(self.db, self.config.scan_targets, every));
 	}
 }

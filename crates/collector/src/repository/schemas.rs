@@ -59,3 +59,19 @@ pub const DEVICE_MINUTES_INSERT: &str = "INSERT INTO device_minutes \
 /// A child of `REPORTS_INSERT`: `?1` is the report's id.
 pub const BROADCAST_MINUTES_INSERT: &str = "INSERT INTO broadcast_minutes \
 	(report_id, net, rx_frames, rx_bytes) VALUES (?1, ?2, ?3, ?4)";
+
+// --- scans -----------------------------------------------------------------
+
+pub const SCANS_INSERT: &str = "INSERT INTO scans (kind, targets, started_at, finished_at) \
+	VALUES (?1, ?2, ?3, ?4) RETURNING id";
+
+// --- scan_hosts ------------------------------------------------------------
+
+/// A child of `SCANS_INSERT`: `?1` is the scan's id.
+pub const SCAN_HOSTS_INSERT: &str =
+	"INSERT INTO scan_hosts (scan_id, mac, ip, hostname, vendor) VALUES (?1, ?2, ?3, ?4, ?5)";
+
+/// Each MAC's newest sighting: `mac`, `ip`, `hostname`, `vendor` (SQLite takes
+/// the bare columns from the row with the max).
+pub const SCAN_HOSTS_LATEST: &str =
+	"SELECT mac, ip, hostname, vendor, max(scan_id) AS scan_id FROM scan_hosts GROUP BY mac";

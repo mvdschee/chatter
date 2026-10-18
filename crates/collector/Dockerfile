@@ -10,16 +10,17 @@ COPY crates/collector/ ./
 RUN cargo build --release --locked
 
 FROM debian:bookworm-slim AS runtime
-# a nonroot user that owns only the data dir
-RUN groupadd --gid 65532 chatter && \
-    useradd --uid 65532 --gid 65532 --no-create-home --shell /usr/sbin/nologin chatter && \
-    mkdir -p /var/lib/chatter && \
-    chown 65532:65532 /var/lib/chatter
+# nmap for the network scans. The container runs as root, on the host's
+# network, with every capability dropped except NET_RAW and NET_ADMIN (set by
+# the deployment, see DECISIONS.md): nmap's ARP sweep needs raw sockets.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends nmap && \
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir -p /var/lib/chatter
 
 COPY --from=builder /app/target/release/chatter-collector /usr/local/bin/chatter-collector
 
 EXPOSE 8080
-USER chatter
 ENV CHATTER_BIND=0.0.0.0:8080 \
     CHATTER_DB=/var/lib/chatter/chatter.db
 CMD ["chatter-collector"]

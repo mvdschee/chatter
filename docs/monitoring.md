@@ -12,21 +12,45 @@ a floor plan of the house, and that sends an email only when something is out
 of the ordinary. It should be worth opening for its own sake: a dark,
 "inside the system" view in which traffic visibly flows.
 
-Not the goal: scanning (nmap stays outside, see Sources), exact positions, or
+Not the goal: exact positions, or
 seeing payloads.
 
 ## Sources
 
-The app reads; it doesn't probe the network itself.
+The sensors and the DNS log are read; the network scans the app runs
+itself, with nmap (see "Scans" below).
 
 | Source | What it gives | How it arrives |
 |---|---|---|
 | Sensors (this repo's firmware) | per device per minute: frames, bytes, retries, RSSI; broadcast totals | `POST /report`, as now |
-| Port scan (nmap, run outside the app) | per device: open ports, services, vendor | the scanner posts its result, or the app reads its output file. **To decide** |
+| Host sweep (nmap `-sn`, run by the app) | per device: MAC, IP, hostname, vendor | every few minutes |
+| Port scan (nmap, run by the app) | per device: open ports, services | on a schedule; not built yet |
 | DNS server's query log | per device: names looked up | the DNS server's API or log. **To decide**; last in the plan |
 
 More sensors (one per room, for example on ESP32-C3s) report to the same app,
 each with its own `sensor` name.
+
+### Scans
+
+- nmap only reports MAC addresses for hosts on its own network segment, and
+  the MAC is what joins a scan to the sensors' data. So the app's container
+  runs on the host's network (`network_mode: host`); on Docker's bridge
+  network nmap would get IPs without MACs.
+- The sweep's ARP requests need raw sockets: the container runs as root with
+  every capability dropped except `NET_RAW` and `NET_ADMIN`.
+- Names come from reverse DNS, asked of the default gateway: on a home
+  network that's the router, which hands out the addresses and knows the
+  names the devices gave it. The machine's own DNS server often doesn't (a
+  Pi-hole without conditional forwarding answered none). Names are weak even
+  so: IoT devices often show up as `ESP_3A1F2B`, or as many with the same name. Identify mode (plan
+  step 6) is where the user tells them apart and renames them.
+- The app knows when it scans, so the "Scan" outlier rule gets its expected
+  window from its own schedule.
+- What to sweep: the /24 of the network the app's machine is on, looked up
+  before every sweep (from the default route's local address), so it follows
+  a laptop to another network. `CHATTER_SCAN_TARGETS` (IP addresses or CIDR
+  ranges, checked before nmap sees them) overrides it. A /24 is what home
+  networks use; a bigger network is only swept in its /24 around the app.
 
 ## What's possible, and what isn't
 
@@ -148,7 +172,9 @@ One reviewable chunk each, with its check:
    device until there are rooms. The floor plan is still the drawn example.)_
    Check: the owner's judgement, plus "a busy device turns red" with the C3
    test client.
-5. **Scan results:** the port scan's output in the device panel.
+5. **Scans:** the app sweeps the network with nmap (hostnames, vendors and IPs
+   on the page, _built_), then port-scans it on a schedule (ports in the
+   device panel).
    Check: a known open port shows up on the right device.
 6. **More sensors:** C3 support in the firmware, and a room suggestion from
    the strongest sensor.
@@ -178,8 +204,8 @@ Only the owner can judge:
 1. **Colour scale:** absolute traffic, or relative to each device's normal?
    Absolute shows the big talkers; relative shows the unusual. Possibly both:
    colour absolute, outlier glitch relative.
-2. How the port-scan results reach the app (push or read a file), and in what
-   format.
+2. The port scan's schedule and options (how deep, how often), now that the
+   app runs it.
 3. How the DNS log is read.
 4. Whether a phone/tablet LiDAR scan is worth supporting, or drawing is
    enough.

@@ -15,6 +15,7 @@ use crate::{
 		schemas::{
 			DEVICE_MINUTES_DEVICES, DEVICE_MINUTES_LAST_N_REPORTS, DEVICE_MINUTES_PER_BUCKET,
 			REPORTS_LAST_N, REPORTS_LATEST_TIME, REPORTS_PER_BUCKET, REPORTS_SENSORS,
+			SCAN_HOSTS_LATEST,
 		},
 	},
 };
@@ -60,6 +61,9 @@ pub async fn overview(db: &DatabaseRepository) -> Result<Overview> {
 				first_seen: row.try_get("first_seen")?,
 				last_seen: row.try_get("last_seen")?,
 				rssi_max: row.try_get("rssi_max")?,
+				ip: None,
+				hostname: None,
+				vendor: None,
 				minutes: vec![[0, 0]; loop_reports.len()],
 				day: vec![[0, 0]; BUCKETS],
 			})
@@ -84,6 +88,15 @@ pub async fn overview(db: &DatabaseRepository) -> Result<Overview> {
 		let report: i64 = row.try_get("report_id")?;
 		if let (Some(&d), Some(&m)) = (index.get(&mac), slot.get(&report)) {
 			devices[d].minutes[m] = [row.try_get("tx_bytes")?, row.try_get("rx_bytes")?];
+		}
+	}
+
+	for row in db.get_records(SCAN_HOSTS_LATEST, vec![]).await? {
+		let mac: String = row.try_get("mac")?;
+		if let Some(&d) = index.get(&mac) {
+			devices[d].ip = row.try_get("ip")?;
+			devices[d].hostname = row.try_get("hostname")?;
+			devices[d].vendor = row.try_get("vendor")?;
 		}
 	}
 

@@ -19,7 +19,7 @@ mod utils;
 use crate::{
 	core::{
 		models::config::Config,
-		setup::{HandleDatabase, HandleImport, HandleServerApi},
+		setup::{HandleDatabase, HandleImport, HandleScans, HandleServerApi},
 	},
 	services::web::{HttpServerState, handlers::test_file},
 };
@@ -33,6 +33,8 @@ async fn main() -> Result<()> {
 	if let Some(path) = &config.import {
 		return HandleImport::new(db, path).run().await;
 	}
+
+	HandleScans::new(db.clone(), &config).run();
 
 	let state = HttpServerState {
 		db,

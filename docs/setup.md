@@ -117,6 +117,12 @@ tests, and `make check` runs clippy (host and riscv32imac) plus a fmt check.
     every request, so a refresh shows an edit. Unset, the binary's built-in
     copy is served.
   - `CHATTER_TEST_FILE_MIB`: set (to 10) to serve the test client's download.
+  - `CHATTER_SCAN_TARGETS`: the networks to sweep with nmap. Unset, the
+    collector sweeps the /24 of the network it's on now. On a Mac the sweep
+    needs nmap (`brew install nmap`) and root for its ARP requests
+    (`make collector SUDO=1`); without them it logs an error and the rest
+    works.
+  - `CHATTER_SWEEP_MINUTES`: minutes between sweeps, 10 if unset.
 
   `CHATTER_COLLECTOR_ADDR` is where the sensor sends its reports, a different
   key: for the sensor to reach this collector, it's this machine's LAN address,
@@ -157,7 +163,9 @@ the sensor's counts can be checked against an exact number.
 ## 5. Collector image _(works)_
 
 `crates/collector/Dockerfile` builds the collector into a Debian slim image
-that runs as uid 65532 and keeps its database in `/var/lib/chatter/chatter.db`.
+with nmap. It keeps its database in `/var/lib/chatter/chatter.db`, and runs as
+root: the deployment drops every capability except `NET_RAW` and `NET_ADMIN`
+and puts it on the host's network, for nmap (see DECISIONS.md).
 The build context is the repo root; `.dockerignore` only lets the collector's
 sources, migrations and page in. CI
 (`.github/workflows/collector-image.yml`) pushes it to ghcr on every change to
@@ -299,3 +307,15 @@ Then run steps 1 and 2 again.
   `index.html`, `style.css`, `app.js`), without its made-up data. The
   collector reads `.env` itself (dotenvy), so `make collector` is the same
   command for every setup and the makefile no longer passes settings.
+- 2026-10-18: the collector sweeps the network with nmap (`-sn`) and shows
+  hostnames, IPs and vendors. The image now has nmap and runs as root. Checked
+  with podman: with only `NET_RAW` and `NET_ADMIN` it can't open a database in
+  a volume the old image (uid 65532) created, so the deployment hands the
+  volume to root once. nmap's sweep can't be checked in podman on the Mac: it's
+  rootless there, and nmap can't open the network device even with every
+  capability. The real check is the first sweep on the server.
+- 2026-10-18: the first sweep (on the Mac, as root) found MACs and vendors but
+  no hostnames: the Mac's DNS server had no reverse entries. Asking the default
+  gateway instead (`--dns-servers`, the gateway from `nmap --iflist`) named
+  nearly every host. The collector now does that, and it sweeps the network it
+  finds itself on unless `CHATTER_SCAN_TARGETS` is set.
