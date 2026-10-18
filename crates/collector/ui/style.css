@@ -115,7 +115,7 @@ canvas#plan:focus-visible { outline: 1px solid var(--signal); outline-offset: -1
 .tl-btn:hover, .tl-btn[aria-pressed="true"] { border-color: var(--signal); }
 .tl-btn:focus-visible { outline: 1px solid var(--signal); outline-offset: 2px; }
 .tl-btn.peak { margin-left: auto; font: 12px/1 var(--mono); letter-spacing: 0; text-transform: none; color: var(--phosphor); }
-canvas#heat { display: block; width: 100%; height: 104px; cursor: ew-resize; touch-action: none; }
+canvas#heat { display: block; width: 100%; height: 120px; cursor: ew-resize; touch-action: none; }
 canvas#heat:focus-visible { outline: 1px solid var(--signal); }
 
 /* --- profiler panel ------------------------------------------------ */
@@ -124,7 +124,7 @@ canvas#heat:focus-visible { outline: 1px solid var(--signal); }
 	top: 64px; /* below the buttons */
 	right: 18px;
 	width: 340px;
-	max-height: calc(100vh - 230px); /* ends above the heatmap */
+	max-height: calc(100vh - 246px); /* ends above the day graph */
 	overflow-y: auto;
 	padding: 18px 20px;
 	border: 1px solid var(--line);

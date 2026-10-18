@@ -59,9 +59,9 @@ let firstMinute = new Date();
 // (docs/monitoring.md, plan step 7).
 const DEVICES = [];
 
-// Rows of the heatmap: the day's busiest devices until there are rooms.
-// `at(i)` is the row's bytes a minute in bucket i.
-let HEAT_ROWS = [];
+// The whole network's bytes a minute in bucket i, and its busiest device then.
+const dayTotal = (i) => DEVICES.reduce((s, d) => s + d.day[i][0] + d.day[i][1], 0);
+const busiestAt = (i) => DEVICES.reduce((a, d) => (!a || d.day[i][0] + d.day[i][1] > a.day[i][0] + a.day[i][1] ? d : a), null);
 
 // What the HUD shows about the sensors.
 const STATUS = { sensors: 0, channel: 0, dropped: 0 };
@@ -120,11 +120,6 @@ function applyOverview(o) {
 		});
 		DEVICES.push(d);
 	});
-	HEAT_ROWS = [...DEVICES]
-		.map((d) => ({ d, total: d.day.reduce((s, [a, b]) => s + a + b, 0) }))
-		.sort((a, b) => b.total - a.total)
-		.slice(0, 8)
-		.map(({ d }) => ({ name: d.short, at: (i) => d.day[i][0] + d.day[i][1] }));
 	const newest = o.sensors.reduce((a, b) => (b.last_seen > a.last_seen ? b : a), o.sensors[0]);
 	Object.assign(STATUS, {
 		sensors: o.sensors.length,
@@ -170,10 +165,17 @@ function heatColor(t, alpha = 1) {
 function fmtBytes(b) {
 	if (b < 1024) return `${Math.round(b)} B`;
 	if (b < MiB) return `${(b / 1024).toFixed(1)} KiB`;
-	return `${(b / MiB).toFixed(1)} MiB`;
+	if (b < 1024 * MiB) return `${(b / MiB).toFixed(1)} MiB`;
+	return `${(b / 1024 / MiB).toFixed(1)} GiB`;
 }
 
-const hhmm = (date) => date.toTimeString().slice(0, 5);
+// Every time on the page: day before month, 24 hours (17/10/2026, 13:29:47),
+// whatever the browser's language.
+const fmt = (options) => new Intl.DateTimeFormat("en-GB", { hourCycle: "h23", ...options });
+const TIME = fmt({ hour: "2-digit", minute: "2-digit" });
+const TIME_S = fmt({ hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const DATE_TIME = fmt({ day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const hhmm = (date) => TIME.format(date);
 
 // ---------------------------------------------------------------------------
 // The 3D view: plan units in, screen pixels out
@@ -799,21 +801,45 @@ const playBtn = document.getElementById("play");
 const liveBtn = document.getElementById("live");
 const peakBtn = document.getElementById("peak");
 const atEl = document.getElementById("tl-at");
-const GUTTER = 92, TOP = 16, AXIS = 16;
+const GUTTER = 70, TOP = 22, AXIS = 16;
 let heatDirty = true, hover = null, dragging = false, peak = 0;
+let graphMax = 1; // the y axis's top, bytes a minute
 
 function heatGeom() {
 	const r = heatEl.getBoundingClientRect();
-	return { w: r.width, h: r.height, cw: (r.width - GUTTER) / BUCKETS, rh: (r.height - TOP - AXIS) / Math.max(1, HEAT_ROWS.length) };
+	return { w: r.width, h: r.height, cw: (r.width - GUTTER) / BUCKETS, ph: r.height - TOP - AXIS };
 }
 
 const colX = (g, i) => GUTTER + i * g.cw;
+const valY = (g, v) => TOP + g.ph * (1 - v / graphMax);
 
 function dayLabel(date) {
 	const today = new Date().toDateString() === date.toDateString();
 	return `${today ? "today" : "yesterday"} ${hhmm(date)}`;
 }
 
+// A round amount at or above `v` bytes: 1, 2 or 5 times a power of ten, in
+// the unit fmtBytes shows it in, so the axis reads 20 MiB, not 19.1.
+function niceCeil(v) {
+	const unit = v < 1024 ? 1 : v < MiB ? 1024 : v < 1024 * MiB ? MiB : 1024 * MiB;
+	const x = Math.max(1, v / unit);
+	const p = 10 ** Math.floor(Math.log10(x));
+	return [1, 2, 5, 10].map((m) => m * p).find((n) => n >= x) * unit;
+}
+
+// The day's highest buckets, at least `apart` buckets from each other.
+function hotspots(totals, n, apart) {
+	const picked = [];
+	for (const i of totals.map((_, i) => i).sort((a, b) => totals[b] - totals[a])) {
+		if (totals[i] <= 0 || picked.length === n) break;
+		if (picked.every((j) => Math.abs(i - j) >= apart)) picked.push(i);
+	}
+	return picked;
+}
+
+// The day as one line: the whole network's traffic per bucket, the area under
+// it coloured by how close it comes to the day's peak. Drawn once per change
+// into `heatCache`; each frame adds the playhead and the hover readout.
 function renderHeat() {
 	const g = heatGeom();
 	heatCache.width = Math.round(g.w * dpr);
@@ -822,23 +848,37 @@ function renderHeat() {
 	c.setTransform(dpr, 0, 0, dpr, 0, 0);
 	c.clearRect(0, 0, g.w, g.h);
 
-	let best = -1;
-	HEAT_ROWS.forEach((r, row) => {
-		const y = TOP + row * g.rh;
-		c.font = `600 10px "Avenir Next Condensed", "Arial Narrow", sans-serif`;
+	const totals = Array.from({ length: BUCKETS }, (_, i) => dayTotal(i));
+	const best = Math.max(0, ...totals);
+	peak = totals.indexOf(best);
+	graphMax = niceCeil(best * 1.15);
+
+	// the y axis: gridlines with their amount
+	c.font = "10px ui-monospace, Menlo, monospace";
+	for (const f of [0, 0.5, 1]) {
+		const v = graphMax * f, y = valY(g, v);
+		c.fillStyle = "rgba(127,231,242,0.08)";
+		c.fillRect(GUTTER, Math.round(y), g.w - GUTTER, 1);
 		c.fillStyle = "rgba(92,122,134,0.9)";
-		c.fillText(r.name.toUpperCase(), 0, y + g.rh / 2 + 3.5);
+		const text = f ? `${fmtBytes(v)}/min` : "0";
+		c.fillText(text, GUTTER - 8 - c.measureText(text).width, y + 3.5);
+	}
+
+	// the area, a column per bucket, and the line on top
+	if (best > 0) {
 		for (let i = 0; i < BUCKETS; i++) {
-			const v = r.at(i);
-			if (v > best) [best, peak] = [v, i];
-			const t = heat(v);
-			c.fillStyle = t < 0.02 ? "rgba(127,231,242,0.04)" : heatColor(t, 0.08 + 0.92 * t * t);
-			c.fillRect(colX(g, i), y + 1, Math.max(1, g.cw - 0.4), g.rh - 2);
+			const y = valY(g, totals[i]);
+			c.fillStyle = heatColor(totals[i] / best, 0.18 + 0.5 * (totals[i] / best));
+			c.fillRect(colX(g, i), y, Math.max(1, g.cw - 0.4), TOP + g.ph - y);
 		}
-	});
+		c.strokeStyle = "rgba(232,244,246,0.85)";
+		c.lineWidth = 1.2;
+		c.beginPath();
+		totals.forEach((v, i) => (i ? c.lineTo : c.moveTo).call(c, colX(g, i + 0.5), valY(g, v)));
+		c.stroke();
+	}
 
 	// hours along the bottom
-	c.font = "10px ui-monospace, Menlo, monospace";
 	for (let i = 0; i < BUCKETS; i++) {
 		const t = bucketTime(i);
 		if (t.getMinutes() !== 0) continue;
@@ -851,19 +891,27 @@ function renderHeat() {
 		}
 	}
 
-	// a mark above the rows: the outlier
-	const mark = (from, to, text, color) => {
-		const x1 = colX(g, from), x2 = colX(g, to + 1);
-		c.fillStyle = color;
-		c.fillRect(x1, TOP - 5, Math.max(2, x2 - x1), 1);
-		c.font = "10px ui-monospace, Menlo, monospace";
+	// the hotspots: a dot on the line, with when and how much
+	for (const i of hotspots(totals, 3, 24)) {
+		const x = colX(g, i + 0.5), y = valY(g, totals[i]);
+		c.fillStyle = heatColor(totals[i] / best);
+		c.beginPath();
+		c.arc(x, y, 2.5, 0, Math.PI * 2);
+		c.fill();
+		const text = `${hhmm(bucketTime(i))} · ${fmtBytes(totals[i])}/min`;
 		const w = c.measureText(text).width;
-		c.fillText(text, Math.min(x1, g.w - w), TOP - 8);
-	};
-	if (DEVICES.some((d) => d.outlier && d.minutes.some((m) => heat(m[0]) > 0.9))) mark(BUCKETS - 1, BUCKETS - 1, "outlier", "rgba(255,59,59,0.9)");
+		c.fillStyle = "rgba(232,244,246,0.9)";
+		c.fillText(text, Math.max(GUTTER, Math.min(x - w / 2, g.w - w)), Math.max(10, y - 7));
+	}
 
-	const r = HEAT_ROWS.reduce((a, b) => (b.at(peak) > a.at(peak) ? b : a), HEAT_ROWS[0]);
-	peakBtn.textContent = r ? `peak ${dayLabel(bucketTime(peak))} · ${r.name} · ${fmtBytes(best)}/min` : "";
+	// a mark above the line: the outlier
+	if (DEVICES.some((d) => d.outlier && d.minutes.some((m) => heat(m[0]) > 0.9))) {
+		c.fillStyle = "rgba(255,59,59,0.9)";
+		c.fillRect(colX(g, BUCKETS - 1), 4, 2, 6);
+	}
+
+	const top = busiestAt(peak);
+	peakBtn.textContent = best > 0 ? `peak ${dayLabel(bucketTime(peak))} · ${fmtBytes(best)}/min · most: ${top.short}` : "";
 	heatDirty = false;
 }
 
@@ -878,19 +926,27 @@ function drawTimeline(now) {
 	hctx.clearRect(0, 0, heatEl.width, heatEl.height);
 	hctx.drawImage(heatCache, 0, 0);
 	hctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+	hctx.font = "10px ui-monospace, Menlo, monospace";
 
+	// hover: a line, and the time and amount under the pointer
 	if (hover !== null && !dragging) {
 		const x = colX(g, hover + 0.5);
 		hctx.fillStyle = "rgba(232,244,246,0.25)";
-		hctx.fillRect(x, TOP - 2, 1, g.h - TOP - AXIS + 2);
+		hctx.fillRect(x, TOP, 1, g.ph);
+		const text = `${hhmm(bucketTime(hover))} · ${fmtBytes(dayTotal(hover))}/min`;
+		const w = hctx.measureText(text).width;
+		hctx.fillStyle = "rgba(4,10,14,0.85)";
+		hctx.fillRect(Math.min(x + 6, g.w - w - 8) - 3, TOP + 2, w + 6, 14);
+		hctx.fillStyle = "#e8f4f6";
+		hctx.fillText(text, Math.min(x + 6, g.w - w - 8), TOP + 12);
 	}
 
-	// the playhead: a line with the time on it
+	// the playhead: a line with a marker at the top
 	const x = colX(g, cursor + 0.5);
 	const live = mode === "live";
 	const glow = live && !reduced ? 0.6 + 0.4 * Math.sin(now / 300) : 1;
 	hctx.fillStyle = live ? `rgba(127,231,242,${glow.toFixed(2)})` : "#e8f4f6";
-	hctx.fillRect(x - 0.5, TOP - 4, 1.5, g.h - TOP - AXIS + 6);
+	hctx.fillRect(x - 0.5, TOP - 4, 1.5, g.ph + 4);
 	hctx.beginPath();
 	hctx.moveTo(x - 4, TOP - 6);
 	hctx.lineTo(x + 4.5, TOP - 6);
@@ -902,8 +958,9 @@ function drawTimeline(now) {
 		atEl.innerHTML = `<b>live</b> · replaying the last ${LOOP} minutes · next minute in ${left} s (played ${60_000 / MINUTE_MS}× faster)`;
 	} else {
 		const i = Math.floor(cursor);
-		const r = HEAT_ROWS.reduce((a, b) => (b.at(i) > a.at(i) ? b : a), HEAT_ROWS[0]);
-		atEl.innerHTML = `<b>${dayLabel(bucketTime(i))}</b>` + (r ? ` · busiest: ${r.name}, ${fmtBytes(r.at(i))}/min` : "");
+		const d = busiestAt(i);
+		atEl.innerHTML = `<b>${dayLabel(bucketTime(i))}</b> · ${fmtBytes(dayTotal(i))}/min`
+			+ (d ? ` · most: ${d.short}, ${fmtBytes(d.day[i][0] + d.day[i][1])}/min` : "");
 	}
 }
 
@@ -1051,7 +1108,7 @@ function select(d) {
 			<dt>IP</dt><dd>${d.ip ?? "not in a sweep yet"}</dd>
 			<dt>hostname</dt><dd>${d.hostname ?? "-"}</dd>
 			<dt>vendor</dt><dd>${d.vendor}</dd>
-			<dt>first seen</dt><dd>${new Date(d.firstSeen * 1000).toLocaleString()}</dd>
+			<dt>first seen</dt><dd>${DATE_TIME.format(new Date(d.firstSeen * 1000))}</dd>
 		</dl>`;
 	document.getElementById("back").addEventListener("click", openList);
 	wireClose();
@@ -1175,7 +1232,7 @@ document.addEventListener("keydown", (ev) => {
 });
 
 setInterval(() => {
-	document.getElementById("clock").textContent = new Date().toTimeString().slice(0, 8);
+	document.getElementById("clock").textContent = TIME_S.format(new Date());
 }, 250);
 
 resize();

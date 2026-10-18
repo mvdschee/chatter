@@ -107,7 +107,7 @@ only: no logos, fonts or assets from the game, since this repo is public.
 | Data flows | packet streaks riding an arc from each device to the router, at one slow, steady pace, in bursts | sensor minutes |
 | Floor glow | a soft glow on the floor under each device, bigger and redder with traffic | the minute on screen |
 | Device panel | "profiler", opens on a click: MAC, vendor, open ports, DNS names, 24 h sparkline, first seen | all sources |
-| Timeline | a heatmap of the last 24 hours at the bottom: a row per room, a column per 5 minutes. Drag it or press play and the plan shows that moment; it marks the peak, the scheduled scan and outliers | stored minutes |
+| Timeline | a graph of the last 24 hours at the bottom: the whole network's traffic per 5 minutes as a line, the area under it redder the closer it comes to the day's peak, the three biggest hotspots labelled with time and amount. Drag it or press play and the plan shows that moment | stored minutes |
 | Outlier | node turns red and glitches; the event goes into the Timeline panel, with a count on its button | outlier rules |
 
 ### Data flow animation
@@ -168,8 +168,8 @@ One reviewable chunk each, with its check:
    with the loop, and the day timeline from storage. Devices are placed by
    hand. _(First part built: the collector serves the page on `/` and its
    data on `/v1/overview`; the page polls it every loop instead of SSE, names
-   devices by MAC, puts them on a grid, and gives the heatmap a row per busy
-   device until there are rooms. The floor plan is still the drawn example.)_
+   devices by their sweep hostname or MAC, and puts them on a grid. The
+   floor plan is still the drawn example.)_
    Check: the owner's judgement, plus "a busy device turns red" with the C3
    test client.
 5. **Scans:** the app sweeps the network with nmap (hostnames, vendors and IPs
