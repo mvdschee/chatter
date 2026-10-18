@@ -8,14 +8,16 @@ use sqlx::Row;
 use crate::{
 	Result,
 	core::models::overview::{
-		BUCKET_S, BUCKETS, DeviceOverview, LOOP_MINUTES, Overview, SensorStatus,
+		BUCKET_S, BUCKETS, DeviceOverview, LOOP_MINUTES, Overview, PortOverview, PortScanSummary,
+		SensorStatus,
 	},
 	repository::{
 		db::{DatabaseRepository, DbValue},
 		schemas::{
 			DEVICE_MINUTES_DEVICES, DEVICE_MINUTES_LAST_N_REPORTS, DEVICE_MINUTES_PER_BUCKET,
 			REPORTS_LAST_N, REPORTS_LATEST_TIME, REPORTS_PER_BUCKET, REPORTS_SENSORS,
-			SCAN_HOSTS_LATEST,
+			SCAN_HOSTS_LAST_PORT_SCAN, SCAN_HOSTS_LATEST, SCAN_PORTS_LATEST,
+			SCANS_PORT_SCANS_SINCE,
 		},
 	},
 };
@@ -64,6 +66,8 @@ pub async fn overview(db: &DatabaseRepository) -> Result<Overview> {
 				ip: None,
 				hostname: None,
 				vendor: None,
+				ports: None,
+				port_scanned_at: None,
 				minutes: vec![[0, 0]; loop_reports.len()],
 				day: vec![[0, 0]; BUCKETS],
 			})
@@ -100,6 +104,40 @@ pub async fn overview(db: &DatabaseRepository) -> Result<Overview> {
 		}
 	}
 
+	for row in db.get_records(SCAN_HOSTS_LAST_PORT_SCAN, vec![]).await? {
+		let mac: String = row.try_get("mac")?;
+		if let Some(&d) = index.get(&mac) {
+			devices[d].port_scanned_at = row.try_get("finished_at")?;
+			devices[d].ports = Some(Vec::new());
+		}
+	}
+	for row in db.get_records(SCAN_PORTS_LATEST, vec![]).await? {
+		let mac: String = row.try_get("mac")?;
+		if let Some(ports) = index.get(&mac).and_then(|&d| devices[d].ports.as_mut()) {
+			ports.push(PortOverview {
+				port: row.try_get("port")?,
+				protocol: row.try_get("protocol")?,
+				service: row.try_get("service")?,
+				product: row.try_get("product")?,
+			});
+		}
+	}
+
+	let port_scans = db
+		.get_records(SCANS_PORT_SCANS_SINCE, vec![DbValue::Int(day_start)])
+		.await?
+		.iter()
+		.map(|row| {
+			Ok(PortScanSummary {
+				started_at: row.try_get("started_at")?,
+				finished_at: row.try_get("finished_at")?,
+				hosts: row.try_get("hosts")?,
+				open_ports: row.try_get("open_ports")?,
+				timed_out: row.try_get("timed_out")?,
+			})
+		})
+		.collect::<Result<_>>()?;
+
 	let sensors = db
 		.get_records(REPORTS_SENSORS, vec![])
 		.await?
@@ -122,6 +160,7 @@ pub async fn overview(db: &DatabaseRepository) -> Result<Overview> {
 		bucket_s: BUCKET_S,
 		sensors,
 		devices,
+		port_scans,
 	})
 }
 

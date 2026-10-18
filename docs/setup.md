@@ -123,6 +123,9 @@ tests, and `make check` runs clippy (host and riscv32imac) plus a fmt check.
     (`make collector SUDO=1`); without them it logs an error and the rest
     works.
   - `CHATTER_SWEEP_MINUTES`: minutes between sweeps, 10 if unset.
+  - `CHATTER_PORT_SCAN_AT`: the daily port scan's local time, `18:00` if
+    unset, or `off`. A missed one (the collector was down) runs 5 minutes
+    after it starts. `make port-scan SUDO=1` runs one now.
 
   `CHATTER_COLLECTOR_ADDR` is where the sensor sends its reports, a different
   key: for the sensor to reach this collector, it's this machine's LAN address,
@@ -319,3 +322,10 @@ Then run steps 1 and 2 again.
   gateway instead (`--dns-servers`, the gateway from `nmap --iflist`) named
   nearly every host. The collector now does that, and it sweeps the network it
   finds itself on unless `CHATTER_SCAN_TARGETS` is set.
+- 2026-10-18: the collector port-scans daily (`lan_scan`'s options and time).
+  Ports go into `scan_ports`, show in the device panel, and each scan is an
+  event in the Timeline panel and a band on the day graph. Locally `.env` has
+  `CHATTER_PORT_SCAN_AT=off`. On the server it runs at 18:00, next to
+  `lan_scan` until the collector sends the emails too. On the Mac (Wi-Fi) a
+  full scan timed out on every host: about 2 million probes in 30 minutes is
+  more than Wi-Fi carries with `-T4`; the wired server is the check.

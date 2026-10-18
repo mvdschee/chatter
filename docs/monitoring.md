@@ -173,8 +173,12 @@ One reviewable chunk each, with its check:
    Check: the owner's judgement, plus "a busy device turns red" with the C3
    test client.
 5. **Scans:** the app sweeps the network with nmap (hostnames, vendors and IPs
-   on the page, _built_), then port-scans it on a schedule (ports in the
-   device panel).
+   on the page), and port-scans it daily: every TCP port and the UDP ports
+   IoT devices use, with a light service check, the same as the infra repo's
+   `lan_scan` it replaces. Ports are in the device panel, each scan is an event
+   in the Timeline panel and a band on the day graph. _(Built.)_ Next: the
+   changes since the scan before as events (new device, new ports), then the
+   emails; then `lan_scan` is switched off.
    Check: a known open port shows up on the right device.
 6. **More sensors:** C3 support in the firmware, and a room suggestion from
    the strongest sensor.

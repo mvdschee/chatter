@@ -5,7 +5,8 @@
 //! test client. Settings come from the environment, see `config.rs`.
 //!
 //! `chatter-collector import <reports.jsonl>` loads the first collector's file
-//! of reports instead, and exits.
+//! of reports instead, and exits; `chatter-collector port-scan` runs one port
+//! scan now, and exits.
 
 pub use error::{Error, Result};
 
@@ -18,8 +19,8 @@ mod utils;
 
 use crate::{
 	core::{
-		models::config::Config,
-		setup::{HandleDatabase, HandleImport, HandleScans, HandleServerApi},
+		models::config::{Command, Config},
+		setup::{HandleDatabase, HandleImport, HandlePortScan, HandleScans, HandleServerApi},
 	},
 	services::web::{HttpServerState, handlers::test_file},
 };
@@ -30,8 +31,10 @@ async fn main() -> Result<()> {
 
 	let db = HandleDatabase::new(&config).run().await?;
 
-	if let Some(path) = &config.import {
-		return HandleImport::new(db, path).run().await;
+	match &config.command {
+		Command::Import(path) => return HandleImport::new(db, path).run().await,
+		Command::PortScan => return HandlePortScan::new(db, &config).run().await,
+		Command::Serve => {},
 	}
 
 	HandleScans::new(db.clone(), &config).run();

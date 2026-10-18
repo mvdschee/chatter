@@ -6,6 +6,13 @@ use crate::{Error, Result, core::models::scan::ScanTargets};
 
 /// A sweep of a home network takes seconds; past this, something hangs.
 const SWEEP_TIMEOUT: Duration = Duration::from_secs(300);
+/// A port scan takes about half an hour, and `--host-timeout` caps each host.
+const PORT_SCAN_TIMEOUT: Duration = Duration::from_secs(3 * 3600);
+
+/// Every TCP port, plus the UDP services IoT devices tend to expose.
+const PORTS: &str = "T:1-65535,U:53,67,123,161,1900,5353";
+/// A host that isn't done by then is reported as timed out, not as closed.
+const HOST_TIMEOUT: &str = "30m";
 
 /// Host discovery (`nmap -sn`), XML on stdout. Needs raw sockets (root, or
 /// `NET_RAW` and `NET_ADMIN`) for the ARP requests that give MAC addresses.
@@ -13,20 +20,52 @@ const SWEEP_TIMEOUT: Duration = Duration::from_secs(300);
 pub async fn sweep(targets: &ScanTargets, dns: Option<Ipv4Addr>) -> Result<String> {
 	let mut cmd = Command::new("nmap");
 	cmd.args(["-sn", "-oX", "-"]);
+	run(cmd, targets, dns, SWEEP_TIMEOUT).await
+}
+
+/// Every TCP port and some UDP ones, with a light service check (`-sS -sU
+/// -sV`), XML on stdout. Raw sockets, like the sweep. `exclude`: this
+/// machine, whose own raw packets don't show its open ports.
+pub async fn port_scan(
+	targets: &ScanTargets,
+	dns: Option<Ipv4Addr>,
+	exclude: Option<Ipv4Addr>,
+) -> Result<String> {
+	let mut cmd = Command::new("nmap");
+	cmd.args(["-sS", "-sU", "-sV", "--version-light", "-p", PORTS, "-T4", "--max-retries", "1"])
+		.args(["--host-timeout", HOST_TIMEOUT, "-oX", "-"]);
+	if let Some(ip) = exclude {
+		cmd.arg("--exclude").arg(ip.to_string());
+	}
+	run(cmd, targets, dns, PORT_SCAN_TIMEOUT).await
+}
+
+async fn run(
+	mut cmd: Command,
+	targets: &ScanTargets,
+	dns: Option<Ipv4Addr>,
+	limit: Duration,
+) -> Result<String> {
 	if let Some(dns) = dns {
 		cmd.arg("--dns-servers").arg(dns.to_string());
 	}
 	let run =
 		cmd.arg("--").args(targets.as_args()).stdin(Stdio::null()).kill_on_drop(true).output();
-	let output = timeout(SWEEP_TIMEOUT, run)
+	let output = timeout(limit, run)
 		.await
-		.map_err(|_| Error::Scan(format!("nmap took over {} s", SWEEP_TIMEOUT.as_secs())))?
+		.map_err(|_| Error::Scan(format!("nmap took over {} s", limit.as_secs())))?
 		.map_err(|e| Error::Scan(format!("can't run nmap: {e}")))?;
 	if !output.status.success() {
+		let stderr = String::from_utf8_lossy(&output.stderr);
+		let hint = if stderr.contains("root privileges") {
+			" (run as root: make port-scan SUDO=1, make collector SUDO=1; the container has NET_RAW)"
+		} else {
+			""
+		};
 		return Err(Error::Scan(format!(
-			"nmap failed ({}): {}",
+			"nmap failed ({}): {}{hint}",
 			output.status,
-			String::from_utf8_lossy(&output.stderr).trim()
+			stderr.trim()
 		)));
 	}
 	String::from_utf8(output.stdout).map_err(|_| Error::Scan("nmap output isn't UTF-8".into()))

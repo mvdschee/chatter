@@ -1,12 +1,15 @@
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use chrono::Local;
+use sqlx::Row;
 
 use crate::{
 	Result,
-	core::models::scan::{NmapRun, Scan, ScanTargets},
+	core::models::scan::{NmapRun, PortScanAt, Scan, ScanTargets},
 	error, info,
 	repository::{
 		db::{DatabaseRepository, DbValue},
-		schemas::{SCAN_HOSTS_INSERT, SCANS_INSERT},
+		schemas::{SCAN_HOSTS_INSERT, SCAN_PORTS_INSERT, SCANS_INSERT, SCANS_LAST_PORT_SCAN},
 	},
 	services::{cmd::nmap, network},
 };
@@ -24,27 +27,57 @@ pub async fn sweep(db: &DatabaseRepository, targets: &ScanTargets) -> Result<(us
 	Ok((scan.hosts.len(), scan.hosts.iter().filter(|h| h.hostname.is_some()).count()))
 }
 
+/// Scans every TCP port and some UDP ones on the targets and stores the open
+/// ones. This machine is left out: raw packets to its own address don't show
+/// its open ports, and it has no MAC to join to the sensors' data. Returns how
+/// many hosts it found, how many open ports, and how many hosts timed out.
+pub async fn port_scan(
+	db: &DatabaseRepository,
+	targets: &ScanTargets,
+) -> Result<(usize, usize, usize)> {
+	let dns = nmap::default_gateway().await.unwrap_or(None);
+	let me = network::default_ipv4().ok();
+	let xml = nmap::port_scan(targets, dns, me).await?;
+	let scan = Scan::from(NmapRun::from_xml(&xml)?);
+	store_scan(db, "ports", targets, &scan).await?;
+	Ok((
+		scan.hosts.len(),
+		scan.hosts.iter().map(|h| h.ports.len()).sum(),
+		scan.hosts.iter().filter(|h| h.timed_out).count(),
+	))
+}
+
 pub async fn store_scan(
 	db: &DatabaseRepository,
 	kind: &str,
 	targets: &ScanTargets,
 	scan: &Scan,
 ) -> Result<i64> {
-	let hosts = scan
-		.hosts
-		.iter()
-		.map(|h| {
-			(
-				SCAN_HOSTS_INSERT,
+	let mut rows = Vec::new();
+	for h in &scan.hosts {
+		rows.push((
+			SCAN_HOSTS_INSERT,
+			vec![
+				DbValue::Text(h.mac.to_string()),
+				DbValue::Text(h.ip.to_string()),
+				DbValue::TextOpt(h.hostname.clone()),
+				DbValue::TextOpt(h.vendor.clone()),
+				DbValue::Int(h.timed_out.into()),
+			],
+		));
+		for p in &h.ports {
+			rows.push((
+				SCAN_PORTS_INSERT,
 				vec![
 					DbValue::Text(h.mac.to_string()),
-					DbValue::Text(h.ip.to_string()),
-					DbValue::TextOpt(h.hostname.clone()),
-					DbValue::TextOpt(h.vendor.clone()),
+					DbValue::Int(p.port.into()),
+					DbValue::Text(p.protocol.clone()),
+					DbValue::TextOpt(p.service.clone()),
+					DbValue::TextOpt(p.product.clone()),
 				],
-			)
-		})
-		.collect();
+			));
+		}
+	}
 	db.insert_record_with_children(
 		SCANS_INSERT,
 		vec![
@@ -53,7 +86,7 @@ pub async fn store_scan(
 			DbValue::Int(scan.started_at),
 			DbValue::Int(scan.finished_at),
 		],
-		hosts,
+		rows,
 	)
 	.await
 }
@@ -85,6 +118,53 @@ pub async fn sweep_loop(db: DatabaseRepository, configured: Option<ScanTargets>,
 	}
 }
 
+/// Port-scans daily at `at` (plus up to an hour, so it doesn't hit the
+/// network at the same minute every day), catching up once if a run was
+/// missed. A failed scan is logged and the loop goes on.
+pub async fn port_scan_loop(
+	db: DatabaseRepository,
+	configured: Option<ScanTargets>,
+	at: PortScanAt,
+) {
+	loop {
+		let last = match db.get_record(SCANS_LAST_PORT_SCAN, vec![]).await {
+			Ok(row) => row.and_then(|r| r.try_get::<Option<i64>, _>("t").ok().flatten()),
+			Err(e) => {
+				error!("port scan: {e}");
+				None
+			},
+		};
+		let now = Local::now();
+		let (next, catch_up) = at.next_run(now, last);
+		// the scheduled run gets a spread; a catch-up doesn't
+		let spread = if catch_up {
+			0
+		} else {
+			SystemTime::now()
+				.duration_since(UNIX_EPOCH)
+				.map_or(0, |d| d.subsec_nanos() as u64 % 3600)
+		};
+		let wait = (next - now).to_std().unwrap_or_default() + Duration::from_secs(spread);
+		info!("next port scan in {} min", wait.as_secs() / 60);
+		tokio::time::sleep(wait).await;
+
+		match current_targets(configured.as_ref()) {
+			Ok(targets) => {
+				info!("port scan of {targets} started");
+				match port_scan(&db, &targets).await {
+					Ok((hosts, ports, timed_out)) => {
+						info!(
+							"port scan of {targets}: {hosts} hosts, {ports} open ports, {timed_out} timed out"
+						)
+					},
+					Err(e) => error!("port scan of {targets}: {e}"),
+				}
+			},
+			Err(e) => error!("port scan: {e}"),
+		}
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -92,7 +172,7 @@ mod tests {
 		handlers::{overview::overview, report::store_report},
 		models::{
 			report::{Report, ReportPayload},
-			scan::SWEEP_XML,
+			scan::{PORTS_XML, SWEEP_XML},
 		},
 	};
 
@@ -119,6 +199,14 @@ mod tests {
 		let d = &o.devices[0];
 		assert_eq!(d.hostname.as_deref(), Some("ESP_00001.lan"));
 		assert_eq!((d.ip.as_deref(), d.vendor.as_deref()), (Some("192.0.2.10"), Some("Espressif")));
+		assert!(d.ports.is_none(), "a sweep doesn't look at ports");
+
+		let scan = Scan::from(NmapRun::from_xml(PORTS_XML).unwrap());
+		store_scan(&db, "ports", &targets, &scan).await.unwrap();
+		let o = overview(&db).await.unwrap();
+		let ports: Vec<i64> = o.devices[0].ports.as_ref().unwrap().iter().map(|p| p.port).collect();
+		assert_eq!(ports, [80, 5353]);
+		assert_eq!(o.devices[0].port_scanned_at, Some(1_700_051_900));
 
 		for suffix in ["", "-wal", "-shm"] {
 			let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));

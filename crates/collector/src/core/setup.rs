@@ -1,7 +1,10 @@
 use crate::{
 	Result,
 	core::{
-		handlers::{import::import_reports, scan::sweep_loop},
+		handlers::{
+			import::import_reports,
+			scan::{current_targets, port_scan, port_scan_loop, sweep_loop},
+		},
 		models::config::Config,
 	},
 	info,
@@ -103,6 +106,36 @@ impl HandleScans {
 				info!("sweeping this machine's network every {} min", self.config.sweep_every_min)
 			},
 		}
-		tokio::spawn(sweep_loop(self.db, self.config.scan_targets, every));
+		tokio::spawn(sweep_loop(self.db.clone(), self.config.scan_targets.clone(), every));
+		match self.config.port_scan_at {
+			Some(at) => {
+				info!("port scan daily at {at}");
+				tokio::spawn(port_scan_loop(self.db, self.config.scan_targets, at));
+			},
+			None => info!("CHATTER_PORT_SCAN_AT=off: no port scans"),
+		}
+	}
+}
+
+/// One port scan, now (`chatter-collector port-scan`).
+pub struct HandlePortScan {
+	db: DatabaseRepository,
+	config: Config,
+}
+
+impl HandlePortScan {
+	pub fn new(db: DatabaseRepository, config: &Config) -> Self {
+		Self {
+			db,
+			config: config.clone(),
+		}
+	}
+
+	pub async fn run(self) -> Result<()> {
+		let targets = current_targets(self.config.scan_targets.as_ref())?;
+		info!("port scan of {targets}: this takes about half an hour");
+		let (hosts, ports, timed_out) = port_scan(&self.db, &targets).await?;
+		info!("port scan of {targets}: {hosts} hosts, {ports} open ports, {timed_out} timed out");
+		Ok(())
 	}
 }

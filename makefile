@@ -24,6 +24,11 @@ collector:
 	cargo build -q $(COLLECTOR_CRATE)
 	$(if $(SUDO),sudo) target/debug/chatter-collector
 
+# one port scan now (about half an hour), into CHATTER_DB; SUDO=1 on a Mac
+port-scan:
+	cargo build -q $(COLLECTOR_CRATE)
+	$(if $(SUDO),sudo) target/debug/chatter-collector port-scan
+
 # loads a collector's old reports file into CHATTER_DB; reports already there
 # are skipped
 FILE ?= .local/reports.jsonl

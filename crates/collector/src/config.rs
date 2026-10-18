@@ -2,7 +2,10 @@ use std::env;
 
 use crate::{
 	Error, Result,
-	core::models::{config::Config, scan::ScanTargets},
+	core::models::{
+		config::{Command, Config},
+		scan::{PortScanAt, ScanTargets},
+	},
 };
 
 /// Where to listen.
@@ -24,6 +27,10 @@ const SCAN_TARGETS_KEY: &str = "CHATTER_SCAN_TARGETS";
 /// Minutes between host sweeps.
 const SWEEP_EVERY_MIN_KEY: &str = "CHATTER_SWEEP_MINUTES";
 const SWEEP_EVERY_MIN_DEFAULT: u64 = 10;
+
+/// The daily port scan's local time, `HH:MM`, or `off`.
+const PORT_SCAN_AT_KEY: &str = "CHATTER_PORT_SCAN_AT";
+const PORT_SCAN_AT_DEFAULT: &str = "18:00";
 
 /// With a size, `GET /test.bin` serves that many MiB for the ESP32-C3 test
 /// client. Unset: no test file.
@@ -59,18 +66,29 @@ impl Config {
 				})?,
 				Err(_) => SWEEP_EVERY_MIN_DEFAULT,
 			},
-			import: import_arg()?,
+			port_scan_at: match load_env(PORT_SCAN_AT_KEY)
+				.unwrap_or_else(|_| PORT_SCAN_AT_DEFAULT.to_string())
+				.trim()
+			{
+				"off" => None,
+				at => Some(PortScanAt::new(at)?),
+			},
+			command: command()?,
 		})
 	}
 }
 
-/// No arguments runs the server; `import <file>` loads a file of reports.
-fn import_arg() -> Result<Option<String>> {
+/// No arguments runs the server; `import <file>` loads a file of reports,
+/// `port-scan` runs one port scan now.
+fn command() -> Result<Command> {
 	let args: Vec<String> = env::args().skip(1).collect();
-	match args.as_slice() {
-		[] => Ok(None),
-		[cmd, path] if cmd == "import" => Ok(Some(path.clone())),
-		_ => Err(Error::Config("usage: chatter-collector [import <reports.jsonl>]".into())),
+	match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+		[] => Ok(Command::Serve),
+		["import", path] => Ok(Command::Import(path.to_string())),
+		["port-scan"] => Ok(Command::PortScan),
+		_ => Err(Error::Config(
+			"usage: chatter-collector [import <reports.jsonl> | port-scan]".into(),
+		)),
 	}
 }
 

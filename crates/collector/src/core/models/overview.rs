@@ -21,6 +21,26 @@ pub struct Overview {
 	pub bucket_s: i64,
 	pub sensors: Vec<SensorStatus>,
 	pub devices: Vec<DeviceOverview>,
+	/// The port scans that finished in the day, oldest first.
+	pub port_scans: Vec<PortScanSummary>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PortScanSummary {
+	pub started_at: i64,
+	pub finished_at: i64,
+	pub hosts: i64,
+	pub open_ports: i64,
+	/// Hosts the per-host time limit cut short: their ports aren't counted.
+	pub timed_out: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PortOverview {
+	pub port: i64,
+	pub protocol: String,
+	pub service: Option<String>,
+	pub product: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -43,6 +63,11 @@ pub struct DeviceOverview {
 	pub ip: Option<String>,
 	pub hostname: Option<String>,
 	pub vendor: Option<String>,
+	/// Open ports from its newest port scan that wasn't cut short; `None`
+	/// before one has finished for it.
+	pub ports: Option<Vec<PortOverview>>,
+	/// When that scan finished.
+	pub port_scanned_at: Option<i64>,
 	/// `[tx, rx]` bytes per loop minute, like `Overview::minutes`.
 	pub minutes: Vec<[i64; 2]>,
 	/// `[tx, rx]` bytes a minute per bucket, averaged over the reports in it.

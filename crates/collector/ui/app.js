@@ -66,9 +66,14 @@ const busiestAt = (i) => DEVICES.reduce((a, d) => (!a || d.day[i][0] + d.day[i][
 // What the HUD shows about the sensors.
 const STATUS = { sensors: 0, channel: 0, dropped: 0 };
 
-// The Timeline panel's events: `{ hot, at, device, text }`. Nothing produces
-// them yet (plan step 7).
+// The Timeline panel's events: `{ time, text, hot, device?, from?, to? }`.
+// `hot`: it sent an email (the outlier rules, plan step 7); `device`: a click
+// opens it; `from`/`to`: a time span, marked on the day graph. For now: the
+// port scans.
 const EVENTS = [];
+
+// The day's port scans, as `{ from, to }` dates, marked on the day graph.
+let PORT_SCANS = [];
 
 // A small seeded random generator: the same scatter on every load.
 let rngState = 7;
@@ -116,10 +121,19 @@ function applyOverview(o) {
 		Object.assign(d, {
 			x: sx, y: sy, minutes: pad(x.minutes), day: x.day, rssi: x.rssi_max, firstSeen: x.first_seen,
 			name: host ?? x.mac, short: host ?? x.mac.slice(9), vendor: x.vendor ?? "unknown",
-			ip: x.ip, hostname: x.hostname,
+			ip: x.ip, hostname: x.hostname, ports: x.ports, portScannedAt: x.port_scanned_at,
 		});
 		DEVICES.push(d);
 	});
+	PORT_SCANS = o.port_scans.map((p) => ({ from: new Date(p.started_at * 1000), to: new Date(p.finished_at * 1000), ...p }));
+	EVENTS.length = 0;
+	for (const p of PORT_SCANS) {
+		EVENTS.push({
+			time: p.to, from: p.from, to: p.to, hot: false,
+			text: `Port scan, ${hhmm(p.from)}–${hhmm(p.to)}: ${p.hosts} hosts, ${p.open_ports} open ports`
+				+ (p.timed_out ? `, ${p.timed_out} timed out (their ports aren't known)` : "") + ".",
+		});
+	}
 	const newest = o.sensors.reduce((a, b) => (b.last_seen > a.last_seen ? b : a), o.sensors[0]);
 	Object.assign(STATUS, {
 		sensors: o.sensors.length,
@@ -661,7 +675,7 @@ function drawCallouts(now) {
 			d.name.toUpperCase(),
 			`MAC   ${d.mac}`,
 			`TX    ${fmtBytes(tx).padStart(10)}  RX ${fmtBytes(rx).padStart(10)}`,
-			`RSSI  ${d.rssi ?? "-"} dBm   PORTS ${d.ports.length || "-"}`,
+			`RSSI  ${d.rssi ?? "-"} dBm   PORTS ${d.ports ? d.ports.length : "-"}`,
 		];
 		const typed = reduced ? Infinity : Math.floor((now - d.shownAt) / 14);
 		const [nx, ny] = d.screen;
@@ -862,6 +876,19 @@ function renderHeat() {
 		c.fillStyle = "rgba(92,122,134,0.9)";
 		const text = f ? `${fmtBytes(v)}/min` : "0";
 		c.fillText(text, GUTTER - 8 - c.measureText(text).width, y + 3.5);
+	}
+
+	// the port scans: a band over their span, labelled
+	c.font = "10px ui-monospace, Menlo, monospace";
+	for (const p of PORT_SCANS) {
+		const from = Math.max(0, (p.from - dayStart) / BUCKET_MS), to = Math.min(BUCKETS, (p.to - dayStart) / BUCKET_MS);
+		if (to <= 0 || from >= BUCKETS) continue;
+		const x1 = colX(g, from), x2 = Math.max(x1 + 2, colX(g, to));
+		c.fillStyle = "rgba(127,231,242,0.07)";
+		c.fillRect(x1, TOP, x2 - x1, g.ph);
+		c.fillStyle = "rgba(127,231,242,0.55)";
+		c.fillRect(x1, TOP - 2, x2 - x1, 1);
+		c.fillText("port scan", Math.min(x1, g.w - 60), TOP - 5);
 	}
 
 	// the area, a column per bucket, and the line on top
@@ -1076,7 +1103,12 @@ function select(d) {
 	if (!d) return closePanel();
 	selected = d;
 	const [tx, rx] = d.minutes[LOOP - 1];
-	const ports = d.ports.length ? d.ports.map((p) => `<span class="chip">${p}/tcp</span>`).join("") : `<span class="note">no scan results yet</span>`;
+	const ports = !d.ports
+		? `<span class="note">not port-scanned yet</span>`
+		: d.ports.length
+			? d.ports.map((p) => `<span class="chip" title="${p.product ?? ""}">${p.port}/${p.protocol}${p.service ? ` ${p.service}` : ""}</span>`).join("")
+			: `<span class="note">none open</span>`;
+	const scanned = d.portScannedAt ? `<p class="note">port scan of ${DATE_TIME.format(new Date(d.portScannedAt * 1000))}</p>` : "";
 	const dns = d.dns.length ? d.dns.map((n) => `<span class="chip">${n}</span>`).join("") : `<span class="note">no lookups seen</span>`;
 	const alert = d.outlier ? `<div class="alert">Sent ${fmtBytes(d.outlier.bytes)} in one minute, about ${d.outlier.times}× its usual for this hour. Email sent.</div>` : "";
 	side.innerHTML = `
@@ -1098,6 +1130,7 @@ function select(d) {
 
 		<div class="eyebrow">Open ports</div>
 		<div class="chips">${ports}</div>
+		${scanned}
 
 		<div class="eyebrow">Looked up</div>
 		<div class="chips">${dns}</div>
@@ -1141,16 +1174,22 @@ function drawSpark(d) {
 	}
 }
 
-// The events, newest first; a click opens the device.
+// The events, newest first. A click opens the event's device, or replays its
+// moment on the plan.
 function renderEvents() {
-	const rows = [...EVENTS].sort((a, b) => b.at - a.at).map((e) => {
-		const time = hhmm(new Date(firstMinute.getTime() + e.at * 60_000));
-		return `<li><button data-id="${e.device}"><time>${time}</time><span class="${e.hot ? "hot" : ""}">${e.text}</span></button></li>`;
-	});
+	const sorted = [...EVENTS].sort((a, b) => b.time - a.time);
+	const rows = sorted.map((e, i) =>
+		`<li><button data-event="${i}"><time>${hhmm(e.time)}</time><span class="${e.hot ? "hot" : ""}">${e.text}</span></button></li>`);
 	const empty = rows.length ? "" : `<p class="note">No events yet.</p>`;
 	side.innerHTML = `${CLOSE}<div class="eyebrow">Timeline</div><ul class="list events">${rows.join("")}</ul>${empty}`;
 	wireClose();
-	side.querySelectorAll("button[data-id]").forEach((b) => b.addEventListener("click", () => select(DEVICES.find((d) => d.id === b.dataset.id))));
+	side.querySelectorAll("button[data-event]").forEach((b) => b.addEventListener("click", () => {
+		const e = sorted[Number(b.dataset.event)];
+		const d = e.device && DEVICES.find((x) => x.id === e.device);
+		if (d) return select(d);
+		playing = false;
+		seek(Math.round(((e.from ?? e.time) - dayStart) / BUCKET_MS));
+	}));
 }
 
 // The button counts the events that sent an email.

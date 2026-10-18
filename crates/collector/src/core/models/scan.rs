@@ -3,6 +3,7 @@
 
 use std::net::{IpAddr, Ipv4Addr};
 
+use chrono::{DateTime, Duration, NaiveTime, TimeZone};
 use serde::Deserialize;
 
 use crate::{Error, Result, core::models::report::Mac};
@@ -57,6 +58,51 @@ impl std::fmt::Display for ScanTargets {
 	}
 }
 
+/// When the daily port scan starts, local time (`HH:MM`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PortScanAt(NaiveTime);
+
+/// A missed scan starts this long after the collector does, not at once: a
+/// deploy restarts it, and the network is busy then anyway.
+const CATCH_UP_AFTER_MIN: i64 = 5;
+
+impl PortScanAt {
+	pub fn new(raw: &str) -> Result<Self> {
+		NaiveTime::parse_from_str(raw.trim(), "%H:%M")
+			.map(Self)
+			.map_err(|_| Error::Config(format!("port scan time: not HH:MM: {raw}")))
+	}
+
+	/// The next start after `now`: today's time if it's still ahead; soon if
+	/// today's was missed (no port scan finished since it was due, like a
+	/// systemd timer's `Persistent=true`); else tomorrow's. `last_finished`:
+	/// the newest port scan's end, unix seconds. The flag: it's a catch-up.
+	pub fn next_run<Tz: TimeZone>(
+		&self,
+		now: DateTime<Tz>,
+		last_finished: Option<i64>,
+	) -> (DateTime<Tz>, bool) {
+		let tz = now.timezone();
+		let at = |day: chrono::NaiveDate| {
+			tz.from_local_datetime(&day.and_time(self.0)).earliest().unwrap_or_else(|| now.clone())
+		};
+		let today = at(now.date_naive());
+		if now < today {
+			(today, false)
+		} else if last_finished.is_none_or(|t| t < today.timestamp()) {
+			(now + Duration::minutes(CATCH_UP_AFTER_MIN), true)
+		} else {
+			(at(now.date_naive() + Duration::days(1)), false)
+		}
+	}
+}
+
+impl std::fmt::Display for PortScanAt {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.0.format("%H:%M"))
+	}
+}
+
 // --- nmap's XML ------------------------------------------------------------
 // Only the parts the collector uses; everything else in the file is skipped.
 
@@ -71,10 +117,40 @@ pub struct NmapRun {
 
 #[derive(Debug, Deserialize)]
 pub struct NmapHost {
+	/// `"true"` when `--host-timeout` cut the host's scan short.
+	#[serde(rename = "@timedout")]
+	pub timed_out: Option<String>,
 	pub status: Option<NmapStatus>,
 	#[serde(rename = "address", default)]
 	pub addresses: Vec<NmapAddress>,
 	pub hostnames: Option<NmapHostnames>,
+	pub ports: Option<NmapPorts>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NmapPorts {
+	#[serde(rename = "port", default)]
+	pub ports: Vec<NmapPort>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NmapPort {
+	#[serde(rename = "@protocol")]
+	pub protocol: String,
+	#[serde(rename = "@portid")]
+	pub port: u16,
+	pub state: NmapStatus,
+	pub service: Option<NmapService>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NmapService {
+	#[serde(rename = "@name")]
+	pub name: Option<String>,
+	#[serde(rename = "@product")]
+	pub product: Option<String>,
+	#[serde(rename = "@version")]
+	pub version: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -138,6 +214,40 @@ pub struct ScannedHost {
 	pub ip: IpAddr,
 	pub hostname: Option<String>,
 	pub vendor: Option<String>,
+	/// A port scan cut short: `ports` is only part of what's open.
+	pub timed_out: bool,
+	/// Open ports; empty for a sweep, which doesn't look at ports.
+	pub ports: Vec<OpenPort>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OpenPort {
+	pub port: u16,
+	/// `tcp` or `udp`
+	pub protocol: String,
+	/// nmap's service name, e.g. `http`
+	pub service: Option<String>,
+	/// product and version, e.g. `lighttpd 1.4.59`
+	pub product: Option<String>,
+}
+
+impl From<NmapPort> for OpenPort {
+	fn from(p: NmapPort) -> Self {
+		let product = [
+			p.service.as_ref().and_then(|s| s.product.clone()),
+			p.service.as_ref().and_then(|s| s.version.clone()),
+		]
+		.into_iter()
+		.flatten()
+		.collect::<Vec<_>>()
+		.join(" ");
+		Self {
+			port: p.port,
+			protocol: p.protocol,
+			service: p.service.and_then(|s| s.name).filter(|n| !n.is_empty()),
+			product: Some(product).filter(|p| !p.is_empty()),
+		}
+	}
 }
 
 impl From<NmapRun> for Scan {
@@ -152,11 +262,21 @@ impl From<NmapRun> for Scan {
 				let mac = h.addresses.iter().find(|a| a.addrtype == "mac")?;
 				let ip =
 					h.addresses.iter().find(|a| a.addrtype == "ipv4" || a.addrtype == "ipv6")?;
+				// only "open": UDP's "open|filtered" means no answer at all
+				let ports = h.ports.map_or_else(Vec::new, |p| {
+					p.ports
+						.into_iter()
+						.filter(|p| p.state.state == "open")
+						.map(OpenPort::from)
+						.collect()
+				});
 				Some(ScannedHost {
 					mac: Mac::new(&mac.addr).ok()?,
 					ip: ip.addr.parse().ok()?,
 					hostname: h.hostnames.and_then(|n| n.names.into_iter().next()).map(|n| n.name),
 					vendor: mac.vendor.clone(),
+					timed_out: h.timed_out.as_deref() == Some("true"),
+					ports,
 				})
 			})
 			.collect();
@@ -202,6 +322,31 @@ pub const SWEEP_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 </nmaprun>
 "#;
 
+/// The shape of a port scan's XML (`-sS -sU -sV`); made-up addresses.
+#[cfg(test)]
+pub const PORTS_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun scanner="nmap" args="nmap -sS -sU -sV" start="1700050000" version="7.93" xmloutputversion="1.05">
+<scaninfo type="syn" protocol="tcp" numservices="65535" services="1-65535"/>
+<host starttime="1700050001" endtime="1700050400"><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="192.0.2.10" addrtype="ipv4"/>
+<address addr="AA:BB:CC:00:00:01" addrtype="mac" vendor="Espressif"/>
+<hostnames><hostname name="ESP_00001.lan" type="PTR"/></hostnames>
+<ports><extraports state="closed" count="65532"><extrareasons reason="reset" count="65532"/></extraports>
+<port protocol="tcp" portid="80"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="http" product="lighttpd" version="1.4.59" method="probed" conf="10"/></port>
+<extraports state="open|filtered" count="4"/>
+<port protocol="udp" portid="5353"><state state="open" reason="udp-response" reason_ttl="255"/><service name="mdns" method="table" conf="3"/></port>
+<port protocol="udp" portid="1900"><state state="open|filtered" reason="no-response" reason_ttl="0"/><service name="upnp" method="table" conf="3"/></port>
+</ports>
+</host>
+<host starttime="1700050001" endtime="1700051800" timedout="true"><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="192.0.2.11" addrtype="ipv4"/>
+<address addr="AA:BB:CC:00:00:02" addrtype="mac"/>
+<hostnames></hostnames>
+</host>
+<runstats><finished time="1700051900" timestr="x" summary="x" elapsed="1900" exit="success"/><hosts up="2" down="254" total="256"/></runstats>
+</nmaprun>
+"#;
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -222,6 +367,40 @@ mod tests {
 			(scan.hosts[1].hostname.as_deref(), scan.hosts[1].vendor.as_deref()),
 			(None, None)
 		);
+	}
+
+	#[test]
+	fn the_port_scan_runs_daily_and_catches_up_once() {
+		use chrono::Utc;
+		let at = PortScanAt::new("18:00").unwrap();
+		let t = |h, m| Utc.with_ymd_and_hms(2026, 10, 18, h, m, 0).unwrap();
+		// before the time: today's
+		assert_eq!(at.next_run(t(9, 0), None), (t(18, 0), false));
+		// after it, today's done: tomorrow's
+		let done = Some(t(18, 40).timestamp());
+		assert_eq!(at.next_run(t(20, 0), done), (t(18, 0) + Duration::days(1), false));
+		// after it, today's missed (the last one was yesterday): soon
+		let yesterday = Some((t(18, 40) - Duration::days(1)).timestamp());
+		assert_eq!(at.next_run(t(20, 0), yesterday), (t(20, 5), true));
+		assert_eq!(at.next_run(t(20, 0), None), (t(20, 5), true));
+		assert!(PortScanAt::new("25:00").is_err());
+		assert!(PortScanAt::new("off").is_err());
+	}
+
+	#[test]
+	fn reads_a_port_scan() {
+		let scan = Scan::from(NmapRun::from_xml(PORTS_XML).unwrap());
+		assert_eq!(scan.finished_at, 1_700_051_900);
+		let h = &scan.hosts[0];
+		assert!(!h.timed_out);
+		let ports: Vec<(u16, &str)> =
+			h.ports.iter().map(|p| (p.port, p.protocol.as_str())).collect();
+		assert_eq!(ports, [(80, "tcp"), (5353, "udp")], "open|filtered isn't open");
+		assert_eq!(h.ports[0].service.as_deref(), Some("http"));
+		assert_eq!(h.ports[0].product.as_deref(), Some("lighttpd 1.4.59"));
+		assert_eq!(h.ports[1].product, None);
+		assert!(scan.hosts[1].timed_out);
+		assert!(scan.hosts[1].ports.is_empty());
 	}
 
 	#[test]

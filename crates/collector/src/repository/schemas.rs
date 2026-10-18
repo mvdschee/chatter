@@ -65,13 +65,45 @@ pub const BROADCAST_MINUTES_INSERT: &str = "INSERT INTO broadcast_minutes \
 pub const SCANS_INSERT: &str = "INSERT INTO scans (kind, targets, started_at, finished_at) \
 	VALUES (?1, ?2, ?3, ?4) RETURNING id";
 
+/// When the newest port scan finished: `t`, NULL before the first.
+pub const SCANS_LAST_PORT_SCAN: &str =
+	"SELECT max(finished_at) AS t FROM scans WHERE kind = 'ports'";
+
+/// The port scans that finished since `?1`, oldest first: `started_at`,
+/// `finished_at`, and how many `hosts` and `open_ports` they found, and how
+/// many hosts `timed_out`.
+pub const SCANS_PORT_SCANS_SINCE: &str = "SELECT started_at, finished_at, \
+	(SELECT count(*) FROM scan_hosts h WHERE h.scan_id = s.id) AS hosts, \
+	(SELECT count(*) FROM scan_hosts h WHERE h.scan_id = s.id AND h.timed_out = 1) AS timed_out, \
+	(SELECT count(*) FROM scan_ports p WHERE p.scan_id = s.id) AS open_ports \
+	FROM scans s WHERE kind = 'ports' AND finished_at >= ?1 ORDER BY started_at";
+
 // --- scan_hosts ------------------------------------------------------------
 
 /// A child of `SCANS_INSERT`: `?1` is the scan's id.
-pub const SCAN_HOSTS_INSERT: &str =
-	"INSERT INTO scan_hosts (scan_id, mac, ip, hostname, vendor) VALUES (?1, ?2, ?3, ?4, ?5)";
+pub const SCAN_HOSTS_INSERT: &str = "INSERT INTO scan_hosts \
+	(scan_id, mac, ip, hostname, vendor, timed_out) VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
 
 /// Each MAC's newest sighting: `mac`, `ip`, `hostname`, `vendor` (SQLite takes
 /// the bare columns from the row with the max).
 pub const SCAN_HOSTS_LATEST: &str =
 	"SELECT mac, ip, hostname, vendor, max(scan_id) AS scan_id FROM scan_hosts GROUP BY mac";
+
+// --- scan_ports ------------------------------------------------------------
+
+/// A child of `SCANS_INSERT`: `?1` is the scan's id.
+pub const SCAN_PORTS_INSERT: &str = "INSERT INTO scan_ports \
+	(scan_id, mac, port, protocol, service, product) VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
+
+/// Each MAC's newest port scan that wasn't cut short: `mac`, `finished_at`.
+pub const SCAN_HOSTS_LAST_PORT_SCAN: &str = "SELECT h.mac, max(s.finished_at) AS finished_at \
+	FROM scan_hosts h JOIN scans s ON s.id = h.scan_id \
+	WHERE s.kind = 'ports' AND h.timed_out = 0 GROUP BY h.mac";
+
+/// The open ports from each MAC's newest port scan that wasn't cut short:
+/// `mac`, `port`, `protocol`, `service`, `product`.
+pub const SCAN_PORTS_LATEST: &str = "SELECT p.mac, p.port, p.protocol, p.service, p.product \
+	FROM scan_ports p JOIN \
+	(SELECT h.mac, max(h.scan_id) AS scan_id FROM scan_hosts h JOIN scans s ON s.id = h.scan_id \
+	WHERE s.kind = 'ports' AND h.timed_out = 0 GROUP BY h.mac) l \
+	ON l.mac = p.mac AND l.scan_id = p.scan_id ORDER BY p.mac, p.protocol, p.port";

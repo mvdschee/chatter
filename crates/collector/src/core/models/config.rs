@@ -1,4 +1,15 @@
-use crate::core::models::scan::ScanTargets;
+use crate::core::models::scan::{PortScanAt, ScanTargets};
+
+/// What the binary was started to do.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Command {
+	/// The server, with the scans in the background.
+	Serve,
+	/// `import <file>`: load a file of reports, then exit.
+	Import(String),
+	/// `port-scan`: one port scan now, then exit.
+	PortScan,
+}
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -11,6 +22,7 @@ pub struct Config {
 	/// What the host sweep covers; `None`: the /24 of this machine's network.
 	pub scan_targets: Option<ScanTargets>,
 	pub sweep_every_min: u64,
-	/// `chatter-collector import <file>`: load that file of reports, then exit.
-	pub import: Option<String>,
+	/// The daily port scan's time; `None`: no port scans.
+	pub port_scan_at: Option<PortScanAt>,
+	pub command: Command,
 }
