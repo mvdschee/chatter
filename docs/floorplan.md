@@ -1,9 +1,9 @@
 # The floor plan editor (research and plan)
 
-Status, 2026-10-19: research done; chunk 1 of the chunks below built. Plan
-step 3 in
-`docs/monitoring.md`. The view draws a hand-written example plan
-(`crates/collector/ui/app.js`, `WALLS` and `ROOMS`) until this exists.
+Status, 2026-10-19: research done; chunks 1 and 2 of the chunks below built.
+Plan step 3 in `docs/monitoring.md`. The view draws the saved plan, or a
+made-up example (`EXAMPLE_PLAN` in `crates/collector/ui/app.js`) until one
+with rooms is saved.
 
 ## Goal
 
@@ -156,9 +156,15 @@ One reviewable commit each:
    corner twice, no edges that cross or touch except neighbours at their
    shared corner, room ids unique; an opening sits on an edge of a room and
    fits on it. The underlay comes with chunk 7.
-2. The view draws from data: walls from the rooms' edges, a shared edge drawn
-   once, openings as gaps, room labels. Until a plan is saved the page shows
-   the example.
+2. Done: the view draws from data: walls from the rooms' edges, each edge
+   split at any corner on it so a shared wall (whole or in part) is drawn
+   once, openings as gaps, room labels inset from the top left, the floor and
+   the devices' spots only inside rooms. The plan is scaled to fit 1000 by 600
+   plan units and the view's frame takes its shape, so the look holds for any
+   size or shape of home. The router and the sensor keep their spot when it's
+   in a room, else go to the middle of the first room, until chunk 6. Until a
+   plan with rooms is saved the page shows the example, now a plan in metres
+   like any other.
 3. Draw rooms: the edit mode, snapping (corner, 90°, 10 cm grid), the length
    of the line being drawn, a typed length. The first chunk for the owner to
    try by hand.

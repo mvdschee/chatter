@@ -1,38 +1,46 @@
 "use strict";
 
 // ---------------------------------------------------------------------------
-// The floor plan. Drawn by hand here until the plan editor exists
-// (docs/monitoring.md, plan step 3); it's an example, not anyone's house.
+// The floor plan: the one saved through /v1/plan, else this example. It's
+// made up, not anyone's house. Rooms are polygons in metres, origin top left,
+// y down; openings are doorways on an edge (docs/floorplan.md).
 // ---------------------------------------------------------------------------
 
-// Plan units; the view projects them into 3D.
+const EXAMPLE_PLAN = {
+	rooms: [
+		{ id: "living", name: "Living room", points: [[0, 0], [4.5, 0], [4.5, 3.6], [0, 3.6]] },
+		{ id: "kitchen", name: "Kitchen", points: [[4.5, 0], [8.2, 0], [8.2, 3.6], [4.5, 3.6]] },
+		{ id: "office", name: "Office", points: [[8.2, 0], [11.5, 0], [11.5, 3.6], [8.2, 3.6]] },
+		{ id: "bedroom", name: "Bedroom", points: [[0, 3.6], [3.3, 3.6], [3.3, 6.5], [0, 6.5]] },
+		{ id: "hall", name: "Hall", points: [[3.3, 3.6], [6, 3.6], [6, 6.5], [3.3, 6.5]] },
+		{ id: "bathroom", name: "Bathroom", points: [[6, 3.6], [9.5, 3.6], [9.5, 6.5], [6, 6.5]] },
+		{ id: "utility", name: "Utility", points: [[9.5, 3.6], [11.5, 3.6], [11.5, 6.5], [9.5, 6.5]] },
+	],
+	openings: [
+		{ from: [4.5, 0], to: [4.5, 3.6], at: 0.6, width: 0.8 },
+		{ from: [8.2, 0], to: [8.2, 3.6], at: 0.4, width: 0.8 },
+		{ from: [0, 3.6], to: [3.3, 3.6], at: 0.5, width: 0.8 },
+		{ from: [3.3, 3.6], to: [6, 3.6], at: 0.75, width: 0.8 },
+		{ from: [3.3, 3.6], to: [3.3, 6.5], at: 0.5, width: 0.8 },
+		{ from: [6, 3.6], to: [6, 6.5], at: 0.3, width: 0.8 },
+		{ from: [9.5, 3.6], to: [9.5, 6.5], at: 0.5, width: 0.8 },
+		{ from: [6, 6.5], to: [3.3, 6.5], at: 0.5, width: 1 },
+	],
+};
+
+// Plan units; the view projects them into 3D. A plan in metres is scaled to
+// fit 1000 by 600 inside the margin, so the look below holds for a flat or a
+// house; PLAN then takes the plan's own shape (setPlan).
 const PLAN = { w: 1000, h: 600 };
+const MARGIN = 40;
 const WALL_H = 56;
 
-// Walls as polylines; gaps between them are doorways.
-const WALLS = [
-	[[40, 40], [960, 40], [960, 560], [40, 560], [40, 40]],
-	[[400, 40], [400, 190]], [[400, 250], [400, 330]],
-	[[40, 330], [140, 330]], [[200, 330], [520, 330]], [[580, 330], [700, 330]],
-	[[700, 40], [700, 150]], [[700, 210], [700, 330]],
-	[[700, 330], [960, 330]],
-	[[520, 330], [520, 400]], [[520, 460], [520, 560]],
-	[[300, 330], [300, 420]], [[300, 480], [300, 560]],
-	[[800, 330], [800, 430]], [[800, 490], [800, 560]],
-];
-
-const ROOMS = [
-	{ name: "Living room", at: [60, 70] },
-	{ name: "Kitchen", at: [420, 70] },
-	{ name: "Office", at: [720, 70] },
-	{ name: "Bedroom", at: [60, 360] },
-	{ name: "Hall", at: [320, 360] },
-	{ name: "Bathroom", at: [540, 360] },
-	{ name: "Utility", at: [820, 360] },
-];
-
-const ROUTER = { x: 410, y: 470, name: "Router" };
-const SENSOR = { x: 455, y: 520, name: "Sensor" };
+// Where the router and the sensor stand until they can be placed by hand,
+// when that's inside a room (plan units).
+const ROUTER_AT = [410, 470];
+const SENSOR_AT = [455, 520];
+const ROUTER = { x: ROUTER_AT[0], y: ROUTER_AT[1], name: "Router" };
+const SENSOR = { x: SENSOR_AT[0], y: SENSOR_AT[1], name: "Sensor" };
 
 // ---------------------------------------------------------------------------
 // The data, from the collector's /v1/overview
@@ -126,22 +134,9 @@ function rand() {
 }
 
 // Until devices can be placed by hand, each gets a spot on a grid over the
-// plan, the same one on every load: spots shuffled once, handed out in MAC order.
-const SPOTS = (() => {
-	const spots = [];
-	for (let x = 100; x <= 900; x += 114) {
-		for (let y = 95; y <= 510; y += 83) {
-			if (Math.hypot(x - ROUTER.x, y - ROUTER.y) > 70 && Math.hypot(x - SENSOR.x, y - SENSOR.y) > 50) spots.push([x, y]);
-		}
-	}
-	let seed = 11;
-	for (let i = spots.length - 1; i > 0; i--) {
-		seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-		const j = seed % (i + 1);
-		[spots[i], spots[j]] = [spots[j], spots[i]];
-	}
-	return spots;
-})();
+// plan's rooms, the same one on every load: spots shuffled once, handed out in
+// MAC order. Set by setPlan.
+let SPOTS = [];
 
 // A MAC with the "locally administered" bit set is made up (a phone's private
 // address per network), so no vendor can be known.
@@ -180,7 +175,7 @@ function applyOverview(o) {
 	DEVICES.length = 0;
 	seen.forEach((x, i) => {
 		const d = old.get(x.mac) ?? newDevice(x.mac);
-		const [sx, sy] = SPOTS[i % SPOTS.length];
+		const [sx, sy] = SPOTS[i % SPOTS.length] ?? [ROUTER.x, ROUTER.y];
 		// the name the host sweep found (without the local domain), else the MAC
 		const host = x.hostname?.split(".")[0];
 		Object.assign(d, {
@@ -430,27 +425,178 @@ function resize() {
 }
 window.addEventListener("resize", resize);
 
-// Walls as point-cloud curtains: dots along each wall, stacked to wall height.
-const wallDots = [];
-for (const line of WALLS) {
-	for (let i = 0; i < line.length - 1; i++) {
-		const [x1, y1] = line[i], [x2, y2] = line[i + 1];
-		const n = Math.max(1, Math.round(Math.hypot(x2 - x1, y2 - y1) / 6));
-		for (let k = 0; k <= n; k++) {
-			const x = x1 + ((x2 - x1) * k) / n, y = y1 + ((y2 - y1) * k) / n;
-			for (let z = 0; z <= WALL_H; z += 7) {
-				wallDots.push({ x, y, z, top: z + 7 > WALL_H, phase: rand() * Math.PI * 2 });
-			}
-		}
-	}
+// ---------------------------------------------------------------------------
+// The plan in plan units: walls, floor and labels
+// ---------------------------------------------------------------------------
+
+// Set by setPlan: the rooms (points in plan units, where the name goes), the
+// walls as point-cloud curtains (dots along each wall, stacked to wall
+// height), and the floor (a dot grid with a little jitter, so it reads as
+// scanned, not drawn).
+let rooms = [];
+let wallDots = [];
+let floorDots = [];
+
+const EPS = 1e-6;
+const corner = ([x, y]) => `${x},${y}`;
+
+// The plan from metres into plan units: its bounds fitted into 1000 by 600,
+// the same scale both ways, with the margin round them; w and h are its frame.
+function toUnits(plan) {
+	const xs = plan.rooms.flatMap((r) => r.points.map((p) => p[0]));
+	const ys = plan.rooms.flatMap((r) => r.points.map((p) => p[1]));
+	const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+	const s = Math.min((1000 - 2 * MARGIN) / (x1 - x0), (600 - 2 * MARGIN) / (y1 - y0));
+	const u = ([x, y]) => [MARGIN + (x - x0) * s, MARGIN + (y - y0) * s];
+	return {
+		w: (x1 - x0) * s + 2 * MARGIN,
+		h: (y1 - y0) * s + 2 * MARGIN,
+		rooms: plan.rooms.map((r) => ({ name: r.name, points: r.points.map(u) })),
+		openings: (plan.openings ?? []).map((o) => ({ from: u(o.from), to: u(o.to), at: o.at, width: o.width * s })),
+	};
 }
 
-// The floor: a dot grid with a little jitter, so it reads as scanned, not drawn.
-const floorDots = [];
-for (let x = 50; x < PLAN.w - 40; x += 16) {
-	for (let y = 50; y < PLAN.h - 40; y += 16) {
-		floorDots.push({ x: x + (rand() - 0.5) * 4, y: y + (rand() - 0.5) * 4, a: 0.25 + rand() * 0.5 });
+// Where c is along a→b: its distance from a along the line, and from the line.
+function along(c, a, b) {
+	const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+	const [dx, dy] = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+	const [px, py] = [c[0] - a[0], c[1] - a[1]];
+	return { t: px * dx + py * dy, off: Math.abs(px * dy - py * dx), len };
+}
+
+// The walls: every room edge, split at each corner that lies on it, so rooms
+// that share a wall, whole or in part, give the same pieces; each piece once.
+function wallPieces(rooms) {
+	const corners = rooms.flatMap((r) => r.points);
+	const pieces = new Map();
+	for (const { points } of rooms) {
+		points.forEach((a, i) => {
+			const b = points[(i + 1) % points.length];
+			const stops = corners
+				.map((c) => ({ c, ...along(c, a, b) }))
+				.filter(({ t, off, len }) => off < EPS && t > EPS && t < len - EPS)
+				.sort((p, q) => p.t - q.t)
+				.map(({ c }) => c);
+			[a, ...stops, b].forEach((p, k, all) => {
+				const q = all[k + 1];
+				if (q && corner(p) !== corner(q)) pieces.set([corner(p), corner(q)].sort().join(" "), [p, q]);
+			});
+		});
 	}
+	return [...pieces.values()];
+}
+
+// Whether p is in a doorway: on its edge's line, within its width.
+function inOpening(p, openings) {
+	return openings.some(({ from, to, at, width }) => {
+		const { t, off, len } = along(p, from, to);
+		return off < EPS && Math.abs(t - at * len) < width / 2;
+	});
+}
+
+// Whether p is inside the polygon (ray casting).
+function inside([x, y], points) {
+	let odd = false;
+	for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+		const [xi, yi] = points[i], [xj, yj] = points[j];
+		if (yi > y !== yj > y && x < xi + ((y - yi) * (xj - xi)) / (yj - yi)) odd = !odd;
+	}
+	return odd;
+}
+
+// The widest stretch across the polygon at height y, [left, right].
+function widestAt(y, points) {
+	const xs = [];
+	for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+		const [xi, yi] = points[i], [xj, yj] = points[j];
+		if (yi > y !== yj > y) xs.push(xi + ((y - yi) * (xj - xi)) / (yj - yi));
+	}
+	xs.sort((a, b) => a - b);
+	let best = [xs[0], xs[1]];
+	for (let k = 2; k + 1 < xs.length; k += 2) if (xs[k + 1] - xs[k] > best[1] - best[0]) best = [xs[k], xs[k + 1]];
+	return best;
+}
+
+// A room's name goes inset from its top left, on the widest stretch across it
+// just below its top.
+function labelAt(points) {
+	const ys = points.map((p) => p[1]);
+	const y = Math.min(Math.min(...ys) + 30, (Math.min(...ys) + Math.max(...ys)) / 2);
+	const [l, r] = widestAt(y, points);
+	return [l + Math.min(20, (r - l) / 2), y];
+}
+
+// A point in the middle of a room.
+function middleOf(points) {
+	const ys = points.map((p) => p[1]);
+	const y = (Math.min(...ys) + Math.max(...ys)) / 2;
+	const [l, r] = widestAt(y, points);
+	return [(l + r) / 2, y];
+}
+
+// Draws this plan from now on: a saved one or the example.
+function setPlan(plan) {
+	const p = toUnits(plan);
+	Object.assign(PLAN, { w: p.w, h: p.h });
+	const inPlan = (q) => p.rooms.some((r) => inside(q, r.points));
+	rooms = p.rooms.map((r) => ({ ...r, label: labelAt(r.points) }));
+
+	wallDots = [];
+	const pieces = wallPieces(p.rooms);
+	const corners = new Map(pieces.flat().map((c) => [corner(c), c]));
+	const between = pieces.flatMap(([[x1, y1], [x2, y2]]) => {
+		const n = Math.max(1, Math.round(Math.hypot(x2 - x1, y2 - y1) / 6));
+		return Array.from({ length: n - 1 }, (_, k) => [x1 + ((x2 - x1) * (k + 1)) / n, y1 + ((y2 - y1) * (k + 1)) / n]);
+	});
+	for (const [x, y] of [...corners.values(), ...between]) {
+		if (inOpening([x, y], p.openings)) continue;
+		for (let z = 0; z <= WALL_H; z += 7) {
+			wallDots.push({ x, y, z, top: z + 7 > WALL_H, phase: rand() * Math.PI * 2 });
+		}
+	}
+
+	floorDots = [];
+	for (let x = 50; x < PLAN.w - 40; x += 16) {
+		for (let y = 50; y < PLAN.h - 40; y += 16) {
+			const q = [x + (rand() - 0.5) * 4, y + (rand() - 0.5) * 4];
+			if (inPlan(q)) floorDots.push({ x: q[0], y: q[1], a: 0.25 + rand() * 0.5 });
+		}
+	}
+
+	// the router and the sensor where they stood, if that's in a room
+	const [rx, ry] = inPlan(ROUTER_AT) ? ROUTER_AT : middleOf(p.rooms[0].points);
+	const near = [rx + 45, ry + 50];
+	const [sx, sy] = inPlan(SENSOR_AT) ? SENSOR_AT : inPlan(near) ? near : [rx, ry];
+	Object.assign(ROUTER, { x: rx, y: ry });
+	Object.assign(SENSOR, { x: sx, y: sy });
+
+	SPOTS = [];
+	for (let x = 100; x <= PLAN.w - 100; x += 114) {
+		for (let y = 95; y <= PLAN.h - 90; y += 83) {
+			if (inPlan([x, y]) && Math.hypot(x - rx, y - ry) > 70 && Math.hypot(x - sx, y - sy) > 50) SPOTS.push([x, y]);
+		}
+	}
+	let seed = 11;
+	for (let i = SPOTS.length - 1; i > 0; i--) {
+		seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+		const j = seed % (i + 1);
+		[SPOTS[i], SPOTS[j]] = [SPOTS[j], SPOTS[i]];
+	}
+	DEVICES.forEach((d, i) => ([d.x, d.y] = SPOTS[i % SPOTS.length] ?? [rx, ry]));
+	resize();
+}
+
+// The saved plan, or the example until one with rooms is saved.
+async function loadPlan() {
+	let plan = null;
+	try {
+		const res = await fetch("/v1/plan");
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		plan = await res.json();
+	} catch (e) {
+		console.error("plan:", e);
+	}
+	setPlan(plan?.rooms.length ? plan : EXAMPLE_PLAN);
 }
 
 // ---------------------------------------------------------------------------
@@ -608,8 +754,8 @@ function drawFloor() {
 function drawRooms() {
 	ctx.font = `600 ${11 * fit * Math.min(cam.zoom, 1.6)}px "Avenir Next Condensed", "Arial Narrow", sans-serif`;
 	ctx.fillStyle = "rgba(92,122,134,0.85)";
-	for (const r of ROOMS) {
-		const [x, y] = project(r.at[0], r.at[1]);
+	for (const r of rooms) {
+		const [x, y] = project(r.label[0], r.label[1]);
 		ctx.fillText(r.name.toUpperCase().split("").join(" "), x, y);
 	}
 }
@@ -625,13 +771,16 @@ function drawWalls(now) {
 	}
 }
 
-// Clip to the house's outline, so glows and the ring stay on the floor.
+// Clip to the rooms, so glows and the ring stay on the floor.
 function clipToFloor() {
 	ctx.beginPath();
-	WALLS[0].forEach(([x, y], i) => {
-		const [px, py] = project(x, y);
-		i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
-	});
+	for (const r of rooms) {
+		r.points.forEach(([x, y], i) => {
+			const [px, py] = project(x, y);
+			i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+		});
+		ctx.closePath();
+	}
 	ctx.clip();
 }
 
@@ -1784,6 +1933,7 @@ setInterval(() => {
 resize();
 renderControls();
 onData();
+loadPlan();
 loadOverview();
 // the page opens playing the range (not with reduced motion)
 loadTimeline().then(() => {

@@ -144,3 +144,9 @@
 **Decision:** The floor plan is a list of rooms, each a polygon of corners in metres, plus openings on room edges; walls are the rooms' edges. It's stored as one JSON document in the `floorplans` table, a new row per save, and the newest row is the plan. Details in `docs/floorplan.md`.
 **Why:** The app needs rooms more than walls (which room a device is in), and with polygons that's a point-in-polygon test instead of face detection that has to be exactly right. A home is a few dozen corners, always loaded and edited whole, so tables per corner and wall would only add joins; a row per save keeps older versions to go back to.
 **Alternatives:** Walls first with rooms worked out as faces of the wall graph (react-planner: snapping and splitting must be exact, and doorways break faces); tables for rooms, corners and openings (more SQL, no query needs them apart).
+
+## 2026-10-19 - The view fits the plan to its frame, walls split at corners
+
+**Decision:** The page scales a plan in metres to fit 1000 by 600 plan units, the same scale both ways, and the view's frame takes the plan's shape with a 40-unit margin, so any home fills the view. Walls come from the rooms' edges, each split at every corner that lies on it and kept once per pair of corners; a doorway cuts every wall dot in its stretch, whichever room's edge names it.
+**Why:** The look (wall height, dot spacing, packet pace, glow sizes) was tuned in plan units; a fixed scale per metre would need retuning them all and would put more dots in a bigger home. Splitting at corners makes rooms that share part of a wall (a long room against two short ones) give the same pieces, so nothing is drawn twice and a door named on the short edge cuts the long one too.
+**Alternatives:** A fixed number of plan units per metre (walls and glows out of proportion between a flat and a house); matching shared edges only by their two corners (fails at T-junctions, which every row of rooms has).
