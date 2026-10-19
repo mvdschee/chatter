@@ -1,4 +1,7 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+	collections::HashMap,
+	time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use sqlx::Row;
 
@@ -6,14 +9,14 @@ use crate::{
 	Result,
 	core::{
 		handlers::overview::latest_report,
-		models::baseline::{Minute, WINDOW_S, baselines, hour_of},
+		models::baseline::{Minute, UsualTraffic, WINDOW_S, baselines, hour_of, usual_traffic},
 	},
 	error, info,
 	repository::{
 		db::{DatabaseRepository, DbValue},
 		schemas::{
-			BASELINES_DELETE_ALL, BASELINES_INSERT, DEVICE_MINUTES_BYTES_BETWEEN, REPORTS_BETWEEN,
-			SCANS_PORT_SCANS_BETWEEN,
+			BASELINES_ALL, BASELINES_DELETE_ALL, BASELINES_INSERT, DEVICE_MINUTES_BYTES_BETWEEN,
+			REPORTS_BETWEEN, SCANS_PORT_SCANS_BETWEEN,
 		},
 	},
 };
@@ -55,7 +58,7 @@ pub async fn compute_baselines(db: &DatabaseRepository) -> Result<usize> {
 	let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
 	let mut statements = vec![(BASELINES_DELETE_ALL, vec![])];
 	for d in &devices {
-		for (hour, b) in d.hours.iter().enumerate() {
+		for (hour, b) in d.hours.iter().chain([&d.all]).enumerate() {
 			statements.push((
 				BASELINES_INSERT,
 				vec![
@@ -71,6 +74,25 @@ pub async fn compute_baselines(db: &DatabaseRepository) -> Result<usize> {
 	}
 	db.execute_all(statements).await?;
 	Ok(devices.len())
+}
+
+/// Every device's stored baselines, for the page.
+pub async fn load_usual_traffic(db: &DatabaseRepository) -> Result<HashMap<String, UsualTraffic>> {
+	let rows = db
+		.get_records(BASELINES_ALL, vec![])
+		.await?
+		.iter()
+		.map(|row| {
+			Ok((
+				row.try_get("mac")?,
+				row.try_get("hour")?,
+				row.try_get("median")?,
+				row.try_get("mad")?,
+				row.try_get("n")?,
+			))
+		})
+		.collect::<Result<Vec<_>>>()?;
+	Ok(usual_traffic(&rows))
 }
 
 /// Works out the baselines now, then every hour. A failure is logged and the
@@ -127,7 +149,7 @@ mod tests {
 			.await
 			.unwrap();
 		assert_eq!(rows.len(), 1, "replaced, not added to");
-		assert_eq!(rows[0].try_get::<i64, _>("n").unwrap(), 120);
+		assert_eq!(rows[0].try_get::<i64, _>("n").unwrap(), 2 * 120, "the hours and all of them");
 		// half the minutes at 1000 bytes and half at 0: the median between them
 		let median: f64 = rows[0].try_get("median").unwrap();
 		assert!((median - 1_001f64.ln() / 2.0).abs() < 1e-9);

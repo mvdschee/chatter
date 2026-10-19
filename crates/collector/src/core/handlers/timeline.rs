@@ -4,8 +4,11 @@ use sqlx::Row;
 
 use crate::{
 	Result,
-	core::models::timeline::{
-		ChangeOverview, DeviceSeries, PortScanSummary, Timeline, Window, consolidate,
+	core::{
+		handlers::baseline::load_usual_traffic,
+		models::timeline::{
+			ChangeOverview, DeviceSeries, PortScanSummary, Timeline, Window, consolidate,
+		},
 	},
 	repository::{
 		db::{DatabaseRepository, DbValue},
@@ -48,9 +51,11 @@ pub async fn timeline(db: &DatabaseRepository, w: Window) -> Result<Timeline> {
 		buckets[b] =
 			[row.try_get::<i64, _>("tx")? / reports, row.try_get::<i64, _>("rx")? / reports];
 	}
+	let mut usual = load_usual_traffic(db).await?;
 	let devices = series
 		.into_iter()
 		.map(|(mac, buckets)| DeviceSeries {
+			usual: usual.remove(&mac),
 			mac,
 			buckets,
 		})
@@ -99,6 +104,7 @@ pub async fn timeline(db: &DatabaseRepository, w: Window) -> Result<Timeline> {
 		from: w.from,
 		to: w.to,
 		bucket_s: w.bucket_s,
+		hours: w.hours(),
 		total,
 		devices,
 		port_scans,

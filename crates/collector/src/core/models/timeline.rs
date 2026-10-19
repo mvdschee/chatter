@@ -5,6 +5,8 @@
 
 use serde::Serialize;
 
+use crate::core::models::baseline::{UsualTraffic, hour_of};
+
 /// The ranges the page offers, ending at the newest report.
 pub const RANGES: [(&str, i64); 5] =
 	[("1h", 3600), ("6h", 6 * 3600), ("24h", 86_400), ("7d", 7 * 86_400), ("30d", 30 * 86_400)];
@@ -56,6 +58,15 @@ impl Window {
 		((self.to - self.from) / self.bucket_s) as usize
 	}
 
+	/// Each bucket's hour of the day, in the collector's time zone, for
+	/// scoring it against that hour's baselines. `None` for buckets longer
+	/// than an hour: they span several, so they're scored against all hours.
+	pub fn hours(&self) -> Vec<Option<usize>> {
+		(0..self.buckets() as i64)
+			.map(|b| (self.bucket_s <= 3600).then(|| hour_of(self.from + b * self.bucket_s)))
+			.collect()
+	}
+
 	pub fn index(&self, t: i64) -> Option<usize> {
 		(t >= self.from && t < self.to).then(|| ((t - self.from) / self.bucket_s) as usize)
 	}
@@ -80,6 +91,8 @@ pub struct Timeline {
 	pub from: i64,
 	pub to: i64,
 	pub bucket_s: i64,
+	/// See `Window::hours`.
+	pub hours: Vec<Option<usize>>,
 	/// The network per bucket: `[average, peak]` bytes a minute.
 	pub total: Vec<[i64; 2]>,
 	/// Every device with traffic in the stretch.
@@ -95,6 +108,8 @@ pub struct DeviceSeries {
 	pub mac: String,
 	/// Per bucket: `[tx, rx]` bytes a minute, averaged over its minutes.
 	pub buckets: Vec<[i64; 2]>,
+	/// Its baselines; `None` before the first are worked out.
+	pub usual: Option<UsualTraffic>,
 }
 
 #[derive(Debug, Serialize)]
@@ -153,6 +168,15 @@ mod tests {
 		assert_eq!(w.index(1_700_000_123), Some(w.buckets() - 1));
 		assert_eq!(w.index(w.to), None);
 		assert_eq!(w.index(w.from - 1), None);
+	}
+
+	#[test]
+	fn only_buckets_up_to_an_hour_have_an_hour() {
+		let day = Window::ending_at(1_700_000_123, 86_400);
+		assert_eq!(day.hours().len(), day.buckets());
+		assert!(day.hours().iter().all(|h| h.is_some_and(|h| h < 24)));
+		let month = Window::ending_at(1_700_000_123, 30 * 86_400);
+		assert!(month.hours().iter().all(Option::is_none));
 	}
 
 	#[test]

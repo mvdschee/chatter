@@ -4,6 +4,8 @@
 
 use serde::Serialize;
 
+use crate::core::models::baseline::{ScoreScale, UsualTraffic};
+
 /// Minutes in the page's replay loop.
 pub const LOOP_MINUTES: usize = 5;
 /// The devices and the sensors' heartbeats cover this much before the newest
@@ -16,6 +18,11 @@ pub struct Overview {
 	pub latest: i64,
 	/// The times of the loop's minutes (the newest reports), oldest first.
 	pub minutes: Vec<i64>,
+	/// The hour of the day of each of those minutes, in the collector's time
+	/// zone: which of a device's baselines it's scored against.
+	pub hours: Vec<usize>,
+	/// How a device's traffic becomes its score.
+	pub score: ScoreScale,
 	pub sensors: Vec<SensorStatus>,
 	pub devices: Vec<DeviceOverview>,
 }
@@ -85,6 +92,8 @@ pub struct DeviceOverview {
 	pub port_scanned_at: Option<i64>,
 	/// `[tx, rx]` bytes per loop minute, like `Overview::minutes`.
 	pub minutes: Vec<[i64; 2]>,
+	/// Its baselines; `None` before the first are worked out.
+	pub usual: Option<UsualTraffic>,
 }
 
 #[cfg(test)]

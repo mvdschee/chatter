@@ -7,8 +7,15 @@ use sqlx::Row;
 
 use crate::{
 	Result,
-	core::models::overview::{
-		DeviceOverview, LOOP_MINUTES, Overview, PortOverview, RECENT_S, SensorStatus, seq_stats,
+	core::{
+		handlers::baseline::load_usual_traffic,
+		models::{
+			baseline::{ScoreScale, hour_of},
+			overview::{
+				DeviceOverview, LOOP_MINUTES, Overview, PortOverview, RECENT_S, SensorStatus,
+				seq_stats,
+			},
+		},
 	},
 	repository::{
 		db::{DatabaseRepository, DbValue},
@@ -50,13 +57,16 @@ pub async fn overview(db: &DatabaseRepository) -> Result<Overview> {
 	let slot: HashMap<i64, usize> =
 		loop_reports.iter().enumerate().map(|(i, (id, _))| (*id, i)).collect();
 
+	let mut usual = load_usual_traffic(db).await?;
 	let mut devices: Vec<DeviceOverview> = db
 		.get_records(DEVICE_MINUTES_DEVICES, vec![DbValue::Int(since)])
 		.await?
 		.iter()
 		.map(|row| {
+			let mac: String = row.try_get("mac")?;
 			Ok(DeviceOverview {
-				mac: row.try_get("mac")?,
+				usual: usual.remove(&mac),
+				mac,
 				first_seen: row.try_get("first_seen")?,
 				last_seen: row.try_get("last_seen")?,
 				rssi_max: row.try_get("rssi_max")?,
@@ -150,6 +160,8 @@ pub async fn overview(db: &DatabaseRepository) -> Result<Overview> {
 	Ok(Overview {
 		latest,
 		minutes: loop_reports.iter().map(|(_, t)| *t).collect(),
+		hours: loop_reports.iter().map(|(_, t)| hour_of(*t)).collect(),
+		score: ScoreScale::default(),
 		sensors,
 		devices,
 	})

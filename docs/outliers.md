@@ -1,7 +1,7 @@
 # Colour by a device's own normal (research and plan)
 
-Status, 2026-10-19: chunk 1 built (the baselines, stored hourly); nothing on
-the page yet. This is the colour half of
+Status, 2026-10-19: chunks 1 and 2 built (the baselines, stored hourly and
+sent to the page); the page doesn't use them yet. This is the colour half of
 `docs/monitoring.md` plan step 7 ("baselines plus the rules"); the emails
 come after it.
 
@@ -119,9 +119,15 @@ graph's peak band stays absolute.
    the first one heard, the fallback at 60 minutes, scans left out. The
    hours are the collector's, so the page gets the hour of each bucket
    rather than working it out in the browser's time zone.
-2. Baselines in `/v1/overview` and `/v1/timeline`, the learning state, and
-   the score and its MAD floor in Rust with their tests (the floor goes to
-   the page from there, so it's derived in one place).
+2. Done: baselines in `/v1/overview` and `/v1/timeline`. Each device has
+   `usual`: 24 `[median, mad]` pairs, `all` (over all hours, stored as hour
+   24), and `learning` (under a day of minutes); `None` before the first
+   run. The overview has the hour of each loop minute and `score`, the
+   scale the page scores with (`k`, the MAD floor, `white`, `red`), so the
+   floor and the thresholds live in one place. The timeline has each
+   bucket's hour, or `null` for buckets longer than an hour, which are
+   scored against `all`. A test pins the floor's constraint; the score
+   itself is computed by the page.
 3. The plan colours by score, size and particles by traffic, and the
    learning state; "usual now" in the panel.
 4. The owner looks at it on real data, then the thresholds get tuned.

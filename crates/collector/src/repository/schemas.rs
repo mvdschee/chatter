@@ -170,6 +170,10 @@ pub const SCAN_CHANGES_BETWEEN: &str = "SELECT c.mac, c.kind, c.alert, c.port, c
 
 // --- baselines -------------------------------------------------------------
 
+/// Every device's baselines: `mac`, `hour` (0-23, and 24 for all hours),
+/// `median`, `mad`, `n`.
+pub const BASELINES_ALL: &str = "SELECT mac, hour, median, mad, n FROM baselines";
+
 pub const BASELINES_DELETE_ALL: &str = "DELETE FROM baselines";
 
 pub const BASELINES_INSERT: &str = "INSERT INTO baselines \
