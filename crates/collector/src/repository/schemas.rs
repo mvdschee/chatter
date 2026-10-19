@@ -178,3 +178,11 @@ pub const BASELINES_DELETE_ALL: &str = "DELETE FROM baselines";
 
 pub const BASELINES_INSERT: &str = "INSERT INTO baselines \
 	(mac, hour, median, mad, n, computed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
+
+// --- floorplans ------------------------------------------------------------
+
+pub const FLOORPLANS_INSERT: &str =
+	"INSERT INTO floorplans (plan, saved_at) VALUES (?1, ?2) RETURNING id";
+
+/// The newest plan: `plan`, as JSON.
+pub const FLOORPLANS_LATEST: &str = "SELECT plan FROM floorplans ORDER BY id DESC LIMIT 1";

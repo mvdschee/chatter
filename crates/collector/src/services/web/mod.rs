@@ -33,7 +33,12 @@ impl HttpServer {
 			.merge(handlers::report::routes())
 			.merge(handlers::test_file::routes())
 			.merge(handlers::ui::routes())
-			.nest("/v1", handlers::overview::routes().merge(handlers::timeline::routes()))
+			.nest(
+				"/v1",
+				handlers::overview::routes()
+					.merge(handlers::plan::routes())
+					.merge(handlers::timeline::routes()),
+			)
 			.with_state(state);
 
 		let listener = TcpListener::bind(config.bind)

@@ -28,6 +28,9 @@ pub enum Error {
 	#[error("scan error: {0}")]
 	Scan(String),
 
+	#[error("floor plan: {0}")]
+	Plan(String),
+
 	#[error("HTTP error: {0}")]
 	Http(String),
 }

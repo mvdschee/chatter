@@ -204,7 +204,9 @@ One reviewable chunk each, with its check:
    minutes, missing ones in red), its newest report (uptime, channel,
    networks known, devices, dropped), and its mode, where identify will go.
 7. **Outliers and email:** baselines plus the rules above. The colour by a
-   device's own normal comes first: `docs/outliers.md`.
+   device's own normal comes first: `docs/outliers.md`. _(Colour built; the
+   emails are postponed to the very end, 2026-10-19: the page shows the
+   outliers, so notifications come last.)_
    Check: the C3 test client's download triggers exactly one email.
 8. **DNS names** in the device panel.
 

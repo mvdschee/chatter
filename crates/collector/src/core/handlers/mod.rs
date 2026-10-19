@@ -1,4 +1,5 @@
 pub mod baseline;
+pub mod floorplan;
 pub mod import;
 pub mod overview;
 pub mod report;

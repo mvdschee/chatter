@@ -1,6 +1,7 @@
 # The floor plan editor (research and plan)
 
-Status, 2026-10-19: research done, nothing built. Plan step 3 in
+Status, 2026-10-19: research done; chunk 1 of the chunks below built. Plan
+step 3 in
 `docs/monitoring.md`. The view draws a hand-written example plan
 (`crates/collector/ui/app.js`, `WALLS` and `ROOMS`) until this exists.
 
@@ -144,6 +145,28 @@ no tilt, no animation, plain lines.
 
 Touch: the same tools with a tap for a click; drawing on a phone is harder,
 but placing devices there matters most.
+
+## Chunks
+
+One reviewable commit each:
+
+1. Done: storage and API: a `floorplans` table, the plan as one JSON document and
+   a new row per save, behind `GET /v1/plan` (`null` before the first save)
+   and `PUT /v1/plan`. A save is checked: a room has 3 to 100 corners, no
+   corner twice, no edges that cross or touch except neighbours at their
+   shared corner, room ids unique; an opening sits on an edge of a room and
+   fits on it. The underlay comes with chunk 7.
+2. The view draws from data: walls from the rooms' edges, a shared edge drawn
+   once, openings as gaps, room labels. Until a plan is saved the page shows
+   the example.
+3. Draw rooms: the edit mode, snapping (corner, 90°, 10 cm grid), the length
+   of the line being drawn, a typed length. The first chunk for the owner to
+   try by hand.
+4. Edit: drag corners (a shared one moves in every room), rename and delete
+   rooms, undo and redo.
+5. Doors on edges.
+6. Place devices and sensors by dragging them; their own `positions` table.
+7. Underlay image, scaled from two points and a distance.
 
 ## Validation
 

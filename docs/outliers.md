@@ -3,7 +3,7 @@
 Status, 2026-10-19: chunks 1 to 4 done; the plan colours each device by
 its own normal. This is the colour half of
 `docs/monitoring.md` plan step 7 ("baselines plus the rules"); the emails
-come after it.
+are postponed to the end of the plan.
 
 ## The problem
 
@@ -143,7 +143,8 @@ graph's peak band stays absolute.
 4. Done: the owner looked at it on real data. Each device judged by its
    own normal reads right, the blips stand out, and the thresholds stay
    (2 and 3.5). Port scans stay red, since the timeline marks them.
-5. Then step 7's emails, which use the same score.
+5. Later: step 7's emails, which use the same score. Postponed to the end
+   of the plan (2026-10-19): the page shows the outliers for now.
 
 ## Validation
 
