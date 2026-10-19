@@ -81,7 +81,9 @@ timestamps on the bars were a requested feature
   range. Dropping the playhead while playing carries on from there. The page
   opens playing (not with reduced motion). While it plays, the plan eases
   toward each bucket over about 0.3 s instead of jumping, and a device's
-  pulse speeds up or slows down with its traffic without skipping.
+  pulse speeds up or slows down with its traffic without skipping. A red
+  moment sends extra packets, since a second holds half an hour at 24 h
+  (`docs/outliers.md`).
 - **The plan follows the playhead** as now; each bucket shows its average.
   So does the device panel: the moment's sent, received and total next to
   the usual range for its hour, and its traffic bars mark the playhead's

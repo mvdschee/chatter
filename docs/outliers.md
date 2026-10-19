@@ -1,7 +1,7 @@
 # Colour by a device's own normal (research and plan)
 
-Status, 2026-10-19: chunks 1 and 2 built (the baselines, stored hourly and
-sent to the page); the page doesn't use them yet. This is the colour half of
+Status, 2026-10-19: chunks 1 to 4 done; the plan colours each device by
+its own normal. This is the colour half of
 `docs/monitoring.md` plan step 7 ("baselines plus the rules"); the emails
 come after it.
 
@@ -87,7 +87,9 @@ answer is "who is doing something unusual for them".
 - **Size = traffic:** how much a device sends stays visible, without colour.
   The floor glow's size, the packet density and the pulse keep using
   absolute traffic (`heat(bytes)`), so a big talker still looks busy, just
-  not alarming.
+  not alarming. One exception: when the timeline plays history, a second
+  holds about half an hour at 24 h and more at longer ranges, too short for the trains traffic sends,
+  so a red moment adds up to one train a second each way.
 - **The panel** shows the device's usual traffic for this hour next to the
   current value ("usually: 40–90 KiB/min between 14:00 and 15:00").
 
@@ -138,7 +140,9 @@ graph's peak band stays absolute.
    absolute. On a day of real data, 2% of the 5-minute device buckets
    came out red and most buckets had no red device; the reds that came
    in groups looked like port scans, which the plan doesn't leave out.
-4. The owner looks at it on real data, then the thresholds get tuned.
+4. Done: the owner looked at it on real data. Each device judged by its
+   own normal reads right, the blips stand out, and the thresholds stay
+   (2 and 3.5). Port scans stay red, since the timeline marks them.
 5. Then step 7's emails, which use the same score.
 
 ## Validation

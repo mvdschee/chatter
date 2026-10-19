@@ -147,9 +147,11 @@ const SPOTS = (() => {
 // address per network), so no vendor can be known.
 const vendorless = (mac) => (parseInt(mac[1], 16) & 2 ? "private address (made-up MAC)" : "unknown");
 
+// Each flow starts partway to its next train of packets, or every arc stays
+// empty for the first seconds and then they all fire at once.
 function newDevice(mac) {
 	return { id: mac, name: mac, short: mac.slice(9), room: "not placed yet", mac, vendor: "unknown", ports: [], dns: [],
-		particles: [], spawn: [0, 0], shownAt: -1e9, screen: [0, 0] };
+		particles: [], spawn: [rand(), rand()], shownAt: -1e9, screen: [0, 0] };
 }
 
 // A port scan's change as a Timeline event, in lan_scan's words.
@@ -291,9 +293,11 @@ function score(d, bytes, hour) {
 // White up to `SCALE.white`, then ramping to red at `SCALE.red`; learning is
 // a neutral grey.
 const LEARNING = [143, 166, 175];
+// How far a score is from white (0) to red (1).
+const redness = (s) => (s == null ? 0 : Math.min(1, Math.max(0, (s - SCALE.white) / (SCALE.red - SCALE.white))));
 function scoreColor(s, alpha = 1) {
 	if (s == null) return `rgba(${LEARNING.join(",")},${alpha})`;
-	return heatColor(Math.min(1, Math.max(0, (s - SCALE.white) / (SCALE.red - SCALE.white))), alpha);
+	return heatColor(redness(s), alpha);
 }
 
 // The hour of the day the plan is showing.
@@ -724,9 +728,13 @@ function drawFlow(d, now, dt) {
 	});
 	ctx.setLineDash([]);
 
+	// History plays half an hour or more a second, too short for the trains
+	// traffic alone sends, so there a red moment adds up to one train a second
+	// each way: a second of red sends at least one.
+	const extra = mode === "history" ? redness(s) : 0;
 	[tx, rx].forEach((bytes, k) => {
 		const t = heat(bytes);
-		d.spawn[k] += dt * (0.06 + 0.6 * t * t);
+		d.spawn[k] += dt * (0.06 + 0.6 * t * t + extra);
 		while (d.spawn[k] >= 1) {
 			d.spawn[k] -= 1;
 			const n = 1 + Math.floor(rand() * (1 + 5 * t));
