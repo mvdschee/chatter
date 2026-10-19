@@ -57,8 +57,8 @@ const bucketTime = (i) => new Date(TL.from * 1000 + i * TL.bucketMs);
 const bucketOf = (date) => (date - TL.from * 1000) / TL.bucketMs;
 const seriesAt = (d, i) => TL.series.get(d.mac)?.[i] ?? [0, 0];
 
-// The loop's first minute, and the hour of the day of each of its minutes.
-let firstMinute = new Date();
+// The loop's minutes, as dates, and the hour of the day of each.
+let loopTimes = [];
 let loopHours = [];
 
 // How traffic becomes a score, from the overview: `{ k, floor, white, red }`.
@@ -169,8 +169,8 @@ function changeEvent(c) {
 
 // Merges an overview into DEVICES, keeping each device's particles.
 function applyOverview(o) {
-	if (o.minutes.length) firstMinute = new Date(o.minutes[0] * 1000);
 	const pad = (m, fill = [0, 0]) => [...Array(Math.max(0, LOOP - m.length)).fill(fill), ...m.slice(-LOOP)];
+	loopTimes = pad(o.minutes.map((t) => new Date(t * 1000)), null);
 	loopHours = pad(o.hours, null);
 	SCALE = o.score;
 	const seen = [...o.devices].sort((a, b) => a.mac.localeCompare(b.mac));
@@ -304,6 +304,38 @@ function hourNow(now) {
 
 const scoreNow = (d, now) => score(d, sum(current(d, now)), hourNow(now));
 
+// The minute or bucket the plan shows: when it is, and a device's [tx, rx]
+// bytes a minute then.
+function shownMoment(now) {
+	if (mode === "history") {
+		const i = Math.floor(cursor);
+		const when = TL.bucketMs > 60_000 ? `${whenLabel(bucketTime(i))}–${hhmm(bucketTime(i + 1))}, average` : whenLabel(bucketTime(i));
+		return { when, at: (d) => seriesAt(d, i) };
+	}
+	const i = Math.min(LOOP - 1, Math.floor((now - loopStart) / MINUTE_MS));
+	return { when: loopTimes[i] ? `live · ${hhmm(loopTimes[i])}` : "live", at: (d) => d.minutes[i] };
+}
+
+// The open device panel's traffic, usual range and bars follow the plan's
+// moment.
+function updateMoment(now) {
+	if (!selected || panel !== "device") return;
+	const m = shownMoment(now);
+	const [tx, rx] = m.at(selected);
+	const text = {
+		"p-when": m.when,
+		"p-sent": `${fmtBytes(tx)}/min`,
+		"p-received": `${fmtBytes(rx)}/min`,
+		"p-total": `${fmtBytes(tx + rx)}/min`,
+		"p-usual": usualText(selected, hourNow(now)),
+	};
+	for (const [id, t] of Object.entries(text)) {
+		const el = document.getElementById(id);
+		if (el && el.textContent !== t) el.textContent = t;
+	}
+	if (sparkKey(selected) !== sparkShown) drawSpark(selected);
+}
+
 // The device's usual bytes a minute at that hour: the middle half of its
 // minutes, from the median and the MAD on the log scale.
 function usualText(d, hour) {
@@ -311,7 +343,8 @@ function usualText(d, hour) {
 	if (d.usual.learning) return "learning: under a day of data";
 	const [median, mad] = hour == null ? d.usual.all : d.usual.hours[hour];
 	const [lo, hi] = [median - mad, median + mad].map((v) => fmtBytes(Math.expm1(Math.max(0, v))));
-	return lo === hi ? `about ${lo}/min` : `${lo}–${hi}/min`;
+	const when = hour == null ? "over all hours" : `between ${String(hour).padStart(2, "0")}:00 and ${String((hour + 1) % 24).padStart(2, "0")}:00`;
+	return `${lo === hi ? `about ${lo}` : `${lo}–${hi}`}/min ${when}`;
 }
 
 function fmtBytes(b) {
@@ -495,6 +528,7 @@ function step(now) {
 	moveCamera(now);
 	draw(now);
 	drawTimeline(now);
+	updateMoment(now);
 	lastFrame = now;
 	requestAnimationFrame(step);
 }
@@ -1368,7 +1402,6 @@ function renderList() {
 function select(d) {
 	if (!d) return closePanel();
 	selected = d;
-	const [tx, rx] = d.minutes[LOOP - 1];
 	const ports = !d.ports
 		? `<span class="note">not port-scanned yet</span>`
 		: d.ports.length
@@ -1384,12 +1417,12 @@ function select(d) {
 		<h2 class="name">${d.name}</h2>
 		<div class="where">${d.room}${d.locationOnly ? " · location only: its data is multi-stream, the sensors can't count it" : ""}</div>
 
-		<div class="eyebrow">Last minute</div>
+		<div class="eyebrow" id="p-when"></div>
 		<dl class="kv">
-			<dt>sent</dt><dd>${fmtBytes(tx)}</dd>
-			<dt>received</dt><dd>${fmtBytes(rx)}</dd>
-			<dt>usual now</dt><dd>${usualText(d, loopHours[LOOP - 1])}</dd>
-			<dt>signal</dt><dd>${d.rssi ?? "-"} dBm</dd>
+			<dt>sent</dt><dd id="p-sent"></dd>
+			<dt>received</dt><dd id="p-received"></dd>
+			<dt>total</dt><dd id="p-total"></dd>
+			<dt>usually</dt><dd id="p-usual"></dd>
 		</dl>
 
 		<div class="eyebrow">Traffic, ${zoomed ? "the stretch zoomed in to" : `last ${RANGES.find(([r]) => r === range)[1]}`}</div>
@@ -1408,13 +1441,42 @@ function select(d) {
 			<dt>IP</dt><dd>${d.ip ?? "not in a sweep yet"}</dd>
 			<dt>hostname</dt><dd>${d.hostname ?? "-"}</dd>
 			<dt>vendor</dt><dd>${d.vendor}</dd>
+			<dt>signal</dt><dd>${d.rssi ?? "-"} dBm, best in 24 h</dd>
 			<dt>first seen</dt><dd>${DATE_TIME.format(new Date(d.firstSeen * 1000))}</dd>
 		</dl>`;
 	document.getElementById("back").addEventListener("click", openList);
 	wireClose();
 	showPanel("device");
 	drawSpark(d);
+	updateMoment(performance.now());
+	// a click on a bar takes the timeline there
+	document.getElementById("spark").addEventListener("click", (ev) => {
+		const { per, bars } = sparkBars(d);
+		const r = ev.currentTarget.getBoundingClientRect();
+		seek(Math.floor(((ev.clientX - r.left) / r.width) * bars.length) * per);
+	});
 }
+
+// The device's traffic over the shown stretch in at most 48 bars, each the
+// average of `per` buckets.
+const sparkPer = (n) => Math.max(1, Math.ceil(n / 48));
+function sparkBars(d) {
+	const all = TL.series.get(d.mac) ?? [];
+	const per = sparkPer(all.length);
+	const bars = Array.from({ length: Math.ceil(all.length / per) }, (_, i) => {
+		const part = all.slice(i * per, i * per + per);
+		return part.reduce((t, x) => t + sum(x), 0) / Math.max(1, part.length);
+	});
+	return { per, bars };
+}
+
+// What the bars show: the stretch, and the bar the plan is at (the last one
+// live). It's redrawn when this changes.
+function sparkKey(d) {
+	const per = sparkPer(TL.series.get(d.mac)?.length ?? 0);
+	return `${TL.from}:${TL.to}:${mode === "live" ? "live" : Math.floor(Math.floor(cursor) / per)}`;
+}
+let sparkShown = "";
 
 function drawSpark(d) {
 	const el = document.getElementById("spark");
@@ -1423,24 +1485,31 @@ function drawSpark(d) {
 	el.height = r.height * dpr;
 	const c = el.getContext("2d");
 	c.scale(dpr, dpr);
-	// the shown stretch in at most 48 bars, each the average of its buckets,
-	// coloured by its score: against its hour when a bar is one bucket of up
-	// to an hour, else against all hours
-	const all = TL.series.get(d.mac) ?? [];
-	const per = Math.max(1, Math.ceil(all.length / 48));
+	sparkShown = sparkKey(d);
+	// each bar coloured by its score: against its hour when a bar is one
+	// bucket of up to an hour, else against all hours
+	const { per, bars } = sparkBars(d);
 	const hour = (i) => (per === 1 ? TL.hours[i] : null);
-	const halves = Array.from({ length: Math.ceil(all.length / per) }, (_, i) => {
-		const part = all.slice(i * per, i * per + per);
-		return part.reduce((t, x) => t + sum(x), 0) / Math.max(1, part.length);
-	});
-	const max = Math.max(1, ...halves);
-	const bw = r.width / halves.length;
-	halves.forEach((v, i) => {
-		const hgt = (v / max) * (r.height - 4);
+	const at = mode === "live" ? bars.length - 1 : Math.min(bars.length - 1, Math.floor(Math.floor(cursor) / per));
+	const max = Math.max(1, ...bars);
+	const bw = r.width / bars.length, top = 8;
+	bars.forEach((v, i) => {
+		const hgt = (v / max) * (r.height - top);
 		c.fillStyle = scoreColor(score(d, v, hour(i)));
-		c.globalAlpha = 0.85;
+		c.globalAlpha = i === at ? 1 : 0.55;
 		c.fillRect(i * bw + 1, r.height - hgt, Math.max(1, bw - 2), hgt);
 	});
+	// the plan's bar: a marker above it, like the timeline's playhead
+	if (at >= 0) {
+		const x = at * bw + bw / 2;
+		c.globalAlpha = 1;
+		c.fillStyle = mode === "live" ? "#7fe7f2" : "#e8f4f6";
+		c.beginPath();
+		c.moveTo(x - 4, 0);
+		c.lineTo(x + 4.5, 0);
+		c.lineTo(x, 5);
+		c.fill();
+	}
 	if (d.locationOnly) {
 		c.globalAlpha = 1;
 		c.fillStyle = "#5c7a86";

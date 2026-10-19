@@ -83,6 +83,10 @@ timestamps on the bars were a requested feature
   toward each bucket over about 0.3 s instead of jumping, and a device's
   pulse speeds up or slows down with its traffic without skipping.
 - **The plan follows the playhead** as now; each bucket shows its average.
+  So does the device panel: the moment's sent, received and total next to
+  the usual range for its hour, and its traffic bars mark the playhead's
+  bar. A click on a bar moves the playhead there. Signal is the best of
+  the last 24 hours, so it sits with the device's details.
 
 ### Data
 

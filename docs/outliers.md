@@ -89,7 +89,7 @@ answer is "who is doing something unusual for them".
   absolute traffic (`heat(bytes)`), so a big talker still looks busy, just
   not alarming.
 - **The panel** shows the device's usual traffic for this hour next to the
-  current value ("usual now: 40–90 KiB/min").
+  current value ("usually: 40–90 KiB/min between 14:00 and 15:00").
 
 ### The timeline
 
@@ -132,8 +132,8 @@ graph's peak band stays absolute.
    its packets, the devices list's swatch, and the panel's traffic bars
    (a bar of one bucket up to an hour against its hour, else against all
    hours). Size, packet density and the pulse stay on traffic. A learning
-   device, or one before the first baselines, is grey. The panel's "usual
-   now" is the middle half of its minutes at the last minute's hour
+   device, or one before the first baselines, is grey. The panel's
+   "usually" is the middle half of its minutes at the hour the plan shows
    (median ± MAD, back from the log scale). The network graph stays
    absolute. On a day of real data, 2% of the 5-minute device buckets
    came out red and most buckets had no red device; the reds that came

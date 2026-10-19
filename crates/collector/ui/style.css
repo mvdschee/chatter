@@ -198,7 +198,7 @@ canvas#heat:focus-visible { outline: 1px solid var(--signal); }
 	font-size: 13px;
 	margin-bottom: 14px;
 }
-.spark { width: 100%; height: 54px; display: block; }
+.spark { width: 100%; height: 54px; display: block; cursor: pointer; }
 
 .list { list-style: none; margin: 0; padding: 0; }
 .list button {
