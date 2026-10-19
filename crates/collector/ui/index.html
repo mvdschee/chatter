@@ -6,7 +6,8 @@
 <title>chatter</title>
 <!--
   The monitoring page (docs/monitoring.md). The collector serves it with
-  style.css and app.js; app.js loads the data from /v1/overview.
+  style.css and the scripts, ES modules from main.js on; they load the data
+  from /v1/overview, /v1/timeline and /v1/plan.
 -->
 <link rel="stylesheet" href="style.css">
 </head>
@@ -46,6 +47,6 @@
 
 </div>
 
-<script src="app.js"></script>
+<script type="module" src="main.js"></script>
 </body>
 </html>

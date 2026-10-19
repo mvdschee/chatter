@@ -8,7 +8,7 @@ are postponed to the end of the plan.
 ## The problem
 
 The plan colours every device by its traffic on one absolute scale: white
-below 1 KiB a minute, red at 5 MiB, on a log scale (`heat()` in `app.js`).
+below 1 KiB a minute, red at 5 MiB, on a log scale (`heat()` in `colour.js`).
 On a real network most devices have steady background traffic of tens of
 KiB a minute, so most of the plan shows pale red all the time. The one
 device that is really busy stands out, but on an ordinary minute everything

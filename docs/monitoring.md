@@ -3,7 +3,7 @@
 Status, 2026-10-18: the collector is growing into a network monitoring app
 with a live floor-plan view. This doc is the plan; the steps below say what's
 built. The page lives in `crates/collector/ui/` (`index.html`, `style.css`,
-`app.js`).
+and ES modules by domain from `main.js` on).
 
 ## Goal
 

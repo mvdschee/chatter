@@ -2,8 +2,8 @@
 
 Status, 2026-10-19: research done; chunks 1 and 2 of the chunks below built.
 Plan step 3 in `docs/monitoring.md`. The view draws the saved plan, or a
-made-up example (`EXAMPLE_PLAN` in `crates/collector/ui/app.js`) until one
-with rooms is saved.
+made-up example (`EXAMPLE_PLAN` in `crates/collector/ui/plan.js`) until
+one with rooms is saved.
 
 ## Goal
 
