@@ -176,13 +176,33 @@ One reviewable chunk each, with its check:
    on the page), and port-scans it daily: every TCP port and the UDP ports
    IoT devices use, with a light service check, the same as the infra repo's
    `lan_scan` it replaces. Ports are in the device panel, each scan is an event
-   in the Timeline panel and a band on the day graph. _(Built.)_ Next: the
-   changes since the scan before as events (new device, new ports), then the
-   emails; then `lan_scan` is switched off.
+   in the Timeline panel and a band on the day graph. What changed since a
+   device's port scan before follows `lan_scan`'s rules: a new device or new
+   port is an alert; a closed port, a new version, or a new high port on a
+   device that rotates them (one of its high ports closed before) is
+   information. The first port scan is the baseline, and a host that timed out
+   isn't compared. Each change is a Timeline event; the badge and the scan's
+   band count the alerts. Vendors come from IEEE's registry, downloaded monthly
+   (nmap's copy is as old as its package), else from nmap. _(Built;
+   `lan_scan` is off.)_ Not yet: the emails.
    Check: a known open port shows up on the right device.
 6. **More sensors:** C3 support in the firmware, and a room suggestion from
    the strongest sensor.
    Check: carry a test device from room to room.
+   **Identify mode** (after the floor plan): hold a sensor next to a device to
+   tell which one it is, then name and place it. The collector tells the
+   sensor in its answer to the report it already sends: `204` is "carry on"
+   (as now), `200` with a short body such as `identify 600` is "identify
+   mode for ten minutes". The sensor reads it after the status it checks
+   already; the parsing is in core, tested on the host. It may take up to a
+   minute to start; in identify mode the sensor reports every few seconds,
+   so "stop" arrives fast. If that first minute is too slow: a small poll
+   every 10 s, only while the page is in identify mode.
+   **Sensor status** _(built)_: a pill per sensor in the top bar and the
+   sensor on the plan, live, late or silent by its newest report, with a
+   ring for each new one; its panel has the day's heartbeat (reports per 5
+   minutes, missing ones in red), its newest report (uptime, channel,
+   networks known, devices, dropped), and its mode, where identify will go.
 7. **Outliers and email:** baselines plus the rules above.
    Check: the C3 test client's download triggers exactly one email.
 8. **DNS names** in the device panel.

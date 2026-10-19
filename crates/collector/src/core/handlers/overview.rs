@@ -8,16 +8,16 @@ use sqlx::Row;
 use crate::{
 	Result,
 	core::models::overview::{
-		BUCKET_S, BUCKETS, DeviceOverview, LOOP_MINUTES, Overview, PortOverview, PortScanSummary,
-		SensorStatus,
+		BUCKET_S, BUCKETS, ChangeOverview, DeviceOverview, LOOP_MINUTES, Overview, PortOverview,
+		PortScanSummary, SensorStatus, seq_stats,
 	},
 	repository::{
 		db::{DatabaseRepository, DbValue},
 		schemas::{
-			DEVICE_MINUTES_DEVICES, DEVICE_MINUTES_LAST_N_REPORTS, DEVICE_MINUTES_PER_BUCKET,
-			REPORTS_LAST_N, REPORTS_LATEST_TIME, REPORTS_PER_BUCKET, REPORTS_SENSORS,
-			SCAN_HOSTS_LAST_PORT_SCAN, SCAN_HOSTS_LATEST, SCAN_PORTS_LATEST,
-			SCANS_PORT_SCANS_SINCE,
+			DEVICE_MINUTES_COUNT_FOR_REPORT, DEVICE_MINUTES_DEVICES, DEVICE_MINUTES_LAST_N_REPORTS,
+			DEVICE_MINUTES_PER_BUCKET, REPORTS_LAST_N, REPORTS_LATEST_TIME, REPORTS_PER_BUCKET,
+			REPORTS_SENSORS, REPORTS_SEQS_SINCE, SCAN_CHANGES_SINCE, SCAN_HOSTS_LAST_PORT_SCAN,
+			SCAN_HOSTS_LATEST, SCAN_PORTS_LATEST, SCANS_PORT_SCANS_SINCE,
 		},
 	},
 };
@@ -134,24 +134,76 @@ pub async fn overview(db: &DatabaseRepository) -> Result<Overview> {
 				hosts: row.try_get("hosts")?,
 				open_ports: row.try_get("open_ports")?,
 				timed_out: row.try_get("timed_out")?,
+				alerts: row.try_get("alerts")?,
 			})
 		})
 		.collect::<Result<_>>()?;
 
-	let sensors = db
-		.get_records(REPORTS_SENSORS, vec![])
+	let changes = db
+		.get_records(SCAN_CHANGES_SINCE, vec![DbValue::Int(day_start)])
 		.await?
 		.iter()
 		.map(|row| {
-			Ok(SensorStatus {
-				name: row.try_get("sensor")?,
-				channel: row.try_get("channel")?,
-				dropped: row.try_get("dropped")?,
-				overflow: row.try_get("overflow")?,
-				last_seen: row.try_get("last_seen")?,
+			Ok(ChangeOverview {
+				at: row.try_get("finished_at")?,
+				mac: row.try_get("mac")?,
+				ip: row.try_get("ip")?,
+				hostname: row.try_get("hostname")?,
+				vendor: row.try_get("vendor")?,
+				kind: row.try_get("kind")?,
+				alert: row.try_get::<i64, _>("alert")? == 1,
+				port: row.try_get("port")?,
+				protocol: row.try_get("protocol")?,
+				service: row.try_get("service")?,
+				product: row.try_get("product")?,
+				before: row.try_get("before")?,
+				ports: row.try_get("ports")?,
 			})
 		})
 		.collect::<Result<_>>()?;
+
+	// each sensor's day: its sequence numbers in order, and its reports per bucket
+	let mut days: HashMap<String, (Vec<i64>, Vec<i64>)> = HashMap::new();
+	let window = vec![DbValue::Int(day_start), DbValue::Int(BUCKET_S)];
+	for row in db.get_records(REPORTS_SEQS_SINCE, window).await? {
+		let (seqs, beats) =
+			days.entry(row.try_get("sensor")?).or_insert_with(|| (Vec::new(), vec![0; BUCKETS]));
+		seqs.push(row.try_get("seq")?);
+		if let Some(b) = bucket_index(row.try_get("bucket")?) {
+			beats[b] += 1;
+		}
+	}
+
+	let mut sensors = Vec::new();
+	for row in db.get_records(REPORTS_SENSORS, vec![]).await? {
+		let name: String = row.try_get("sensor")?;
+		let report: i64 = row.try_get("id")?;
+		let devices = db
+			.get_record(DEVICE_MINUTES_COUNT_FOR_REPORT, vec![DbValue::Int(report)])
+			.await?
+			.map(|r| r.try_get("n"))
+			.transpose()?
+			.unwrap_or(0);
+		let (seqs, heartbeat) =
+			days.remove(&name).unwrap_or_else(|| (Vec::new(), vec![0; BUCKETS]));
+		let (missing, restarts) = seq_stats(&seqs);
+		let nets_known: String = row.try_get("nets_known")?;
+		sensors.push(SensorStatus {
+			name,
+			last_seen: row.try_get("last_seen")?,
+			seq: row.try_get("seq")?,
+			uptime_s: row.try_get("uptime_s")?,
+			channel: row.try_get("channel")?,
+			dropped: row.try_get("dropped")?,
+			overflow: row.try_get("overflow")?,
+			nets_known: serde_json::from_str(&nets_known).unwrap_or_default(),
+			devices,
+			reports: seqs.len() as i64,
+			missing,
+			restarts,
+			heartbeat,
+		});
+	}
 
 	Ok(Overview {
 		latest,
@@ -161,6 +213,7 @@ pub async fn overview(db: &DatabaseRepository) -> Result<Overview> {
 		sensors,
 		devices,
 		port_scans,
+		changes,
 	})
 }
 

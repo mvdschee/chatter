@@ -27,6 +27,9 @@ pub enum Error {
 
 	#[error("scan error: {0}")]
 	Scan(String),
+
+	#[error("HTTP error: {0}")]
+	Http(String),
 }
 
 impl From<sqlx::Error> for Error {

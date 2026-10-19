@@ -20,7 +20,10 @@ mod utils;
 use crate::{
 	core::{
 		models::config::{Command, Config},
-		setup::{HandleDatabase, HandleImport, HandlePortScan, HandleScans, HandleServerApi},
+		setup::{
+			HandleDatabase, HandleImport, HandlePortScan, HandleScans, HandleServerApi,
+			HandleVendors,
+		},
 	},
 	services::web::{HttpServerState, handlers::test_file},
 };
@@ -31,13 +34,17 @@ async fn main() -> Result<()> {
 
 	let db = HandleDatabase::new(&config).run().await?;
 
-	match &config.command {
-		Command::Import(path) => return HandleImport::new(db, path).run().await,
-		Command::PortScan => return HandlePortScan::new(db, &config).run().await,
-		Command::Serve => {},
+	if let Command::Import(path) = &config.command {
+		return HandleImport::new(db, path).run().await;
 	}
 
-	HandleScans::new(db.clone(), &config).run();
+	let vendors = HandleVendors::new(&config).run();
+
+	if config.command == Command::PortScan {
+		return HandlePortScan::new(db, &config, vendors).run().await;
+	}
+
+	HandleScans::new(db.clone(), &config, vendors).run();
 
 	let state = HttpServerState {
 		db,

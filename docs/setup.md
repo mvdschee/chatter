@@ -123,6 +123,10 @@ tests, and `make check` runs clippy (host and riscv32imac) plus a fmt check.
     (`make collector SUDO=1`); without them it logs an error and the rest
     works.
   - `CHATTER_SWEEP_MINUTES`: minutes between sweeps, 10 if unset.
+  - The data directory is `CHATTER_DB`'s: next to the database the
+    collector keeps `oui.csv`, IEEE's vendor list, downloaded when it's
+    missing or a month old (`https://standards-oui.ieee.org/oui/oui.csv`, with
+    the User-Agent `chatter`). Without it, vendors are nmap's.
   - `CHATTER_PORT_SCAN_AT`: the daily port scan's local time, `18:00` if
     unset, or `off`. A missed one (the collector was down) runs 5 minutes
     after it starts. `make port-scan SUDO=1` runs one now.
@@ -333,3 +337,16 @@ Then run steps 1 and 2 again.
   container (host network, root with `NET_RAW` and `NET_ADMIN`) finished with
   no host timed out, so the Mac's timeouts were its Wi-Fi. The next one was
   scheduled for the next day's 18:00 plus its spread.
+- 2026-10-18: the infra repo's `lan_scan` is off on the server (its timer
+  stopped); the collector's daily port scan replaces it, without the emails
+  for now. The collector compares each port scan with the one before, per
+  device, with `lan_scan`'s rules, and shows the changes in the Timeline.
+- 2026-10-19: vendors from IEEE's registry, like `lan_scan` did: about 40k
+  prefixes, 3.9 MB, refreshed monthly into the data directory. Checked locally
+  and in the podman image (read-only root, so the image now has
+  `ca-certificates` for rustls).
+
+- 2026-10-19: the page shows each sensor's status: live, late or silent from
+  its newest report, a heartbeat ring on the plan for each new one, and a
+  panel with the day's heartbeat, missing reports and restarts (from gaps in
+  `seq`), and the newest report's details.

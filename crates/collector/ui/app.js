@@ -66,10 +66,38 @@ const busiestAt = (i) => DEVICES.reduce((a, d) => (!a || d.day[i][0] + d.day[i][
 // What the HUD shows about the sensors.
 const STATUS = { sensors: 0, channel: 0, dropped: 0 };
 
+// The sensors, from the overview, each with `beatAt`: when the page saw a new
+// report from it (for the heartbeat ring on the plan).
+let SENSORS = [];
+
+// The firmware reports once a minute. Live: a report within two and a half
+// of those; late: within ten minutes; else silent.
+const REPORT_PERIOD_S = 60;
+function sensorState(s) {
+	const age = Date.now() / 1000 - s.last_seen;
+	return age <= 2.5 * REPORT_PERIOD_S ? "live" : age <= 600 ? "late" : "silent";
+}
+const STATE_COLOR = { live: "#7fe7f2", late: "#f2c14e", silent: "#ff3b3b" };
+
+function fmtAgo(seconds) {
+	const s = Math.max(0, Math.round(seconds));
+	if (s < 90) return `${s} s ago`;
+	if (s < 90 * 60) return `${Math.round(s / 60)} min ago`;
+	if (s < 48 * 3600) return `${Math.round(s / 3600)} h ago`;
+	return `${Math.round(s / 86400)} days ago`;
+}
+
+function fmtDuration(seconds) {
+	const m = Math.floor(seconds / 60), h = Math.floor(m / 60), d = Math.floor(h / 24);
+	if (d) return `${d} d ${h % 24} h`;
+	if (h) return `${h} h ${m % 60} min`;
+	return `${m} min`;
+}
+
 // The Timeline panel's events: `{ time, text, hot, device?, from?, to? }`.
-// `hot`: it sent an email (the outlier rules, plan step 7); `device`: a click
-// opens it; `from`/`to`: a time span, marked on the day graph. For now: the
-// port scans.
+// `hot`: an alert (a new device or port; later the outlier rules too);
+// `device`: a click opens it; `from`/`to`: a time span. The port scans, and
+// what they found changed.
 const EVENTS = [];
 
 // The day's port scans, as `{ from, to }` dates, marked on the day graph.
@@ -100,9 +128,28 @@ const SPOTS = (() => {
 	return spots;
 })();
 
+// A MAC with the "locally administered" bit set is made up (a phone's private
+// address per network), so no vendor can be known.
+const vendorless = (mac) => (parseInt(mac[1], 16) & 2 ? "private address (made-up MAC)" : "unknown");
+
 function newDevice(mac) {
 	return { id: mac, name: mac, short: mac.slice(9), room: "not placed yet", mac, vendor: "unknown", ports: [], dns: [],
 		particles: [], spawn: [0, 0], shownAt: -1e9, screen: [0, 0] };
+}
+
+// A port scan's change as a Timeline event, in lan_scan's words.
+function changeEvent(c) {
+	const who = c.hostname?.split(".")[0] ?? c.vendor ?? c.mac;
+	const label = `${who} (${c.ip ?? c.mac})`;
+	const port = c.port == null ? "" : `${c.port}/${c.protocol}${c.service ? ` ${c.service}` : ""}${c.product ? `, ${c.product}` : ""}`;
+	const text = {
+		new_device: `New device: ${label}, ${c.ports} open port${c.ports === 1 ? "" : "s"}.`,
+		new_port: `New port on ${label}: ${port}.`,
+		new_rotating_port: `New rotating high port on ${label}: ${port}.`,
+		closed_port: `Closed on ${label}: ${port}.`,
+		changed_port: `Changed on ${label}: ${c.port}/${c.protocol} ${c.before} → ${c.product} (firmware update?).`,
+	}[c.kind] ?? `${c.kind} on ${label}.`;
+	return { time: new Date(c.at * 1000), text, hot: c.alert, device: c.mac };
 }
 
 // Merges an overview into DEVICES, keeping each device's particles.
@@ -120,7 +167,7 @@ function applyOverview(o) {
 		const host = x.hostname?.split(".")[0];
 		Object.assign(d, {
 			x: sx, y: sy, minutes: pad(x.minutes), day: x.day, rssi: x.rssi_max, firstSeen: x.first_seen,
-			name: host ?? x.mac, short: host ?? x.mac.slice(9), vendor: x.vendor ?? "unknown",
+			name: host ?? x.mac, short: host ?? x.mac.slice(9), vendor: x.vendor ?? vendorless(x.mac),
 			ip: x.ip, hostname: x.hostname, ports: x.ports, portScannedAt: x.port_scanned_at,
 		});
 		DEVICES.push(d);
@@ -131,9 +178,19 @@ function applyOverview(o) {
 		EVENTS.push({
 			time: p.to, from: p.from, to: p.to, hot: false,
 			text: `Port scan, ${hhmm(p.from)}–${hhmm(p.to)}: ${p.hosts} hosts, ${p.open_ports} open ports`
-				+ (p.timed_out ? `, ${p.timed_out} timed out (their ports aren't known)` : "") + ".",
+				+ (p.timed_out ? `, ${p.timed_out} timed out (their ports aren't known)` : "")
+				+ (p.alerts ? `, ${p.alerts} alert${p.alerts > 1 ? "s" : ""}` : "") + ".",
 		});
 	}
+	for (const c of o.changes) EVENTS.push(changeEvent(c));
+	const before = new Map(SENSORS.map((x) => [x.name, x]));
+	SENSORS = o.sensors.map((x) => {
+		const old = before.get(x.name);
+		// a new report since the last fetch: a heartbeat on the plan
+		const beatAt = !old ? -1e9 : x.last_seen > old.last_seen ? performance.now() : old.beatAt;
+		return { ...x, beatAt };
+	});
+	renderSensorPills();
 	const newest = o.sensors.reduce((a, b) => (b.last_seen > a.last_seen ? b : a), o.sensors[0]);
 	Object.assign(STATUS, {
 		sensors: o.sensors.length,
@@ -396,7 +453,7 @@ function draw(now) {
 	ctx.globalCompositeOperation = "source-over";
 
 	drawStation(ROUTER, "#7fe7f2", 9);
-	drawStation(SENSOR, "#5c7a86", 6);
+	drawSensor(now);
 	for (const d of DEVICES) drawNode(d, now);
 	drawCallouts(now);
 	drawHud(now);
@@ -574,6 +631,24 @@ function drawFlow(d, now, dt) {
 	d.particles = d.particles.filter((p) => (p.s - p.size) / len < 1);
 }
 
+// The sensor on the plan, in its state's colour; a ring goes out when a new
+// report has come in.
+function drawSensor(now) {
+	const s = SENSORS[0];
+	if (!s) return drawStation(SENSOR, "#5c7a86", 6);
+	const color = STATE_COLOR[sensorState(s)];
+	const [x, yTop] = drawStation({ ...SENSOR, name: s.name }, color, 6);
+	SENSOR.screen = [x, yTop];
+	const t = (now - s.beatAt) / 1400;
+	if (t >= 0 && t < 1 && !reduced) {
+		ctx.strokeStyle = `rgba(127,231,242,${(0.8 * (1 - t)).toFixed(3)})`;
+		ctx.lineWidth = 1.2;
+		ctx.beginPath();
+		ctx.arc(x, yTop, 8 + 26 * t, 0, Math.PI * 2);
+		ctx.stroke();
+	}
+}
+
 function drawStation(s, color, size) {
 	const [x, y] = project(s.x, s.y);
 	const [, yTop] = project(s.x, s.y, 26);
@@ -587,6 +662,7 @@ function drawStation(s, color, size) {
 	ctx.fillRect(x - size, yTop - size, size * 2, size * 2);
 	ctx.strokeRect(x - size, yTop - size, size * 2, size * 2);
 	label(s.name.toUpperCase(), x + size + 6, yTop + 4, color, "display");
+	return [x, yTop];
 }
 
 function drawNode(d, now) {
@@ -804,6 +880,7 @@ function onData() {
 	renderEventsBtn();
 	if (panel === "list") renderList();
 	if (panel === "events") renderEvents();
+	if (panel === "sensor") openSensor(openSensorName);
 }
 
 // The heatmap: a row per room, a column per 5 minutes, drawn once per change
@@ -886,9 +963,11 @@ function renderHeat() {
 		const x1 = colX(g, from), x2 = Math.max(x1 + 2, colX(g, to));
 		c.fillStyle = "rgba(127,231,242,0.07)";
 		c.fillRect(x1, TOP, x2 - x1, g.ph);
-		c.fillStyle = "rgba(127,231,242,0.55)";
+		const color = p.alerts ? "rgba(255,59,59,0.9)" : "rgba(127,231,242,0.55)";
+		c.fillStyle = color;
 		c.fillRect(x1, TOP - 2, x2 - x1, 1);
-		c.fillText("port scan", Math.min(x1, g.w - 60), TOP - 5);
+		const text = p.alerts ? `port scan · ${p.alerts} alert${p.alerts > 1 ? "s" : ""}` : "port scan";
+		c.fillText(text, Math.min(x1, g.w - c.measureText(text).width), TOP - 5);
 	}
 
 	// the area, a column per bucket, and the line on top
@@ -1051,7 +1130,7 @@ peakBtn.addEventListener("click", () => {
 const side = document.getElementById("side");
 const devicesBtn = document.getElementById("devices-btn");
 const eventsBtn = document.getElementById("events-btn");
-let panel = null; // null, "list", "device" or "events"
+let panel = null; // null, "list", "device", "events" or "sensor"
 
 function showPanel(mode) {
 	panel = mode;
@@ -1192,7 +1271,96 @@ function renderEvents() {
 	}));
 }
 
-// The button counts the events that sent an email.
+// --- the sensors: a pill each in the top bar, and their panel ---------------
+
+const pillsEl = document.getElementById("sensor-pills");
+
+function renderSensorPills() {
+	pillsEl.innerHTML = SENSORS.map((s) =>
+		`<button class="top-btn sensor-pill" data-sensor="${s.name}" aria-controls="side">`
+		+ `<span class="dot ${sensorState(s)}"></span>${s.name}<span class="ago"></span></button>`).join("");
+	pillsEl.querySelectorAll("button").forEach((b) => b.addEventListener("click", () =>
+		(panel === "sensor" && openSensorName === b.dataset.sensor ? closePanel() : openSensor(b.dataset.sensor))));
+	updateSensorAges();
+}
+
+// The "… ago" texts, the dots and the open panel's line, every tick.
+function updateSensorAges() {
+	for (const b of pillsEl.querySelectorAll("button")) {
+		const s = SENSORS.find((x) => x.name === b.dataset.sensor);
+		if (!s) continue;
+		b.querySelector(".ago").textContent = fmtAgo(Date.now() / 1000 - s.last_seen);
+		b.querySelector(".dot").className = `dot ${sensorState(s)}`;
+	}
+	const line = document.getElementById("sensor-ago");
+	const s = SENSORS.find((x) => x.name === openSensorName);
+	if (line && s) line.innerHTML = `<span class="dot ${sensorState(s)}"></span> ${sensorState(s)} · last report ${fmtAgo(Date.now() / 1000 - s.last_seen)}`;
+}
+
+let openSensorName = null;
+
+function openSensor(name) {
+	const s = SENSORS.find((x) => x.name === name);
+	if (!s) return;
+	selected = null;
+	openSensorName = name;
+	const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+	side.innerHTML = `
+		${CLOSE}
+		<div class="eyebrow">Sensor</div>
+		<h2 class="name">${s.name}</h2>
+		<div class="where" id="sensor-ago"></div>
+
+		<div class="eyebrow">Heartbeat, last 24 hours</div>
+		<canvas class="spark" id="beat"></canvas>
+		<p class="note">${plural(s.reports, "report")}, ${s.missing} missing, ${plural(s.restarts, "restart")}</p>
+
+		<div class="eyebrow">Newest report</div>
+		<dl class="kv">
+			<dt>at</dt><dd>${DATE_TIME.format(new Date(s.last_seen * 1000))}</dd>
+			<dt>number</dt><dd>${s.seq}</dd>
+			<dt>uptime</dt><dd>${fmtDuration(s.uptime_s)}</dd>
+			<dt>channel</dt><dd>${s.channel || "not connected yet"}</dd>
+			<dt>networks</dt><dd>${plural(s.nets_known.length, "watched network")} known</dd>
+			<dt>devices</dt><dd>${s.devices} heard</dd>
+			<dt>dropped</dt><dd>${s.dropped} frames</dd>
+			<dt>overflow</dt><dd>${s.overflow} devices</dd>
+		</dl>
+
+		<div class="eyebrow">Mode</div>
+		<p>Normal: counting, and reporting every minute.</p>
+		<p class="note">Identify mode (hold the sensor next to a device to tell which one it is) comes after the floor plan.</p>`;
+	wireClose();
+	showPanel("sensor");
+	updateSensorAges();
+	drawBeat(s);
+}
+
+// The day as a strip: a bar per 5 minutes, as tall as the reports in it (five
+// is a full one); a red tick where it was expected and nothing came.
+function drawBeat(s) {
+	const el = document.getElementById("beat");
+	const r = el.getBoundingClientRect();
+	el.width = r.width * dpr;
+	el.height = r.height * dpr;
+	const c = el.getContext("2d");
+	c.scale(dpr, dpr);
+	const bw = r.width / s.heartbeat.length;
+	const first = s.heartbeat.findIndex((n) => n > 0);
+	s.heartbeat.forEach((n, i) => {
+		const x = i * bw;
+		if (n > 0) {
+			const h = (Math.min(n, BUCKET_MIN) / BUCKET_MIN) * (r.height - 4);
+			c.fillStyle = n >= BUCKET_MIN - 1 ? "rgba(127,231,242,0.75)" : "rgba(242,193,78,0.85)";
+			c.fillRect(x, r.height - h, Math.max(1, bw - 0.3), h);
+		} else if (first >= 0 && i > first) {
+			c.fillStyle = "rgba(255,59,59,0.8)";
+			c.fillRect(x, r.height - 3, Math.max(1, bw - 0.3), 3);
+		}
+	});
+}
+
+// The button counts the day's alerts.
 function renderEventsBtn() {
 	const hot = EVENTS.filter((e) => e.hot).length;
 	eventsBtn.innerHTML = `Timeline${hot ? `<span class="badge">${hot}</span>` : ""}`;
@@ -1246,7 +1414,7 @@ document.getElementById("zoom-in").addEventListener("click", () => zoomAt(W / 2,
 document.getElementById("zoom-out").addEventListener("click", () => zoomAt(W / 2, H / 2, 0.8));
 document.getElementById("view-reset").addEventListener("click", resetView);
 
-// pick a device by clicking near its node
+// pick a device by clicking near its node, or the sensor
 canvas.addEventListener("click", (ev) => {
 	if (dragged) {
 		dragged = false;
@@ -1254,6 +1422,9 @@ canvas.addEventListener("click", (ev) => {
 	}
 	const r = canvas.getBoundingClientRect();
 	const x = ev.clientX - r.left, y = ev.clientY - r.top;
+	if (SENSORS[0] && SENSOR.screen && Math.hypot(SENSOR.screen[0] - x, SENSOR.screen[1] - y) < 16) {
+		return openSensor(SENSORS[0].name);
+	}
 	let best = null, bestDist = 24;
 	for (const d of DEVICES) {
 		const dist = Math.hypot(d.screen[0] - x, d.screen[1] - y);
@@ -1272,6 +1443,7 @@ document.addEventListener("keydown", (ev) => {
 
 setInterval(() => {
 	document.getElementById("clock").textContent = TIME_S.format(new Date());
+	updateSensorAges();
 }, 250);
 
 resize();

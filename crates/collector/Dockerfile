@@ -10,11 +10,11 @@ COPY crates/collector/ ./
 RUN cargo build --release --locked
 
 FROM debian:bookworm-slim AS runtime
-# nmap for the network scans. The container runs as root, on the host's
+# nmap for the network scans; CA certificates for the vendor list's download. The container runs as root, on the host's
 # network, with every capability dropped except NET_RAW and NET_ADMIN (set by
 # the deployment, see DECISIONS.md): nmap's ARP sweep needs raw sockets.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends nmap && \
+    apt-get install -y --no-install-recommends nmap ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir -p /var/lib/chatter
 

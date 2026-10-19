@@ -288,6 +288,119 @@ impl From<NmapRun> for Scan {
 	}
 }
 
+// --- changes between port scans --------------------------------------------
+// The infra repo's lan_scan rules, which this replaces.
+
+/// The OS hands out ports from here up (Linux from 32768, iOS from 49152).
+pub const DYNAMIC_FROM: u16 = 32768;
+
+/// `-sV` answers that say nothing; a change to or from these isn't news.
+const VAGUE: [&str; 3] = ["", "unknown", "tcpwrapped"];
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Change {
+	/// Not in any port scan before, with this many open ports.
+	NewDevice {
+		ports: usize,
+	},
+	NewPort(OpenPort),
+	/// A new high port on a device that rotates them (once one of its high
+	/// ports has closed: iOS, Home Assistant, a TV): not an alert.
+	NewRotatingPort(OpenPort),
+	ClosedPort(OpenPort),
+	/// The same port, another product or version (a firmware update?).
+	ChangedPort {
+		port: OpenPort,
+		before: String,
+	},
+}
+
+impl Change {
+	pub fn is_alert(&self) -> bool {
+		matches!(self, Change::NewDevice { .. } | Change::NewPort(_))
+	}
+
+	pub fn kind(&self) -> &'static str {
+		match self {
+			Change::NewDevice {
+				..
+			} => "new_device",
+			Change::NewPort(_) => "new_port",
+			Change::NewRotatingPort(_) => "new_rotating_port",
+			Change::ClosedPort(_) => "closed_port",
+			Change::ChangedPort {
+				..
+			} => "changed_port",
+		}
+	}
+
+	pub fn port(&self) -> Option<&OpenPort> {
+		match self {
+			Change::NewDevice {
+				..
+			} => None,
+			Change::NewPort(p) | Change::NewRotatingPort(p) | Change::ClosedPort(p) => Some(p),
+			Change::ChangedPort {
+				port,
+				..
+			} => Some(port),
+		}
+	}
+}
+
+fn key(p: &OpenPort) -> (&str, u16) {
+	(p.protocol.as_str(), p.port)
+}
+
+/// A device's changes since its port scan before. `previous`: its open ports
+/// then, `None` if no port scan has seen it. `volatile_high`: one of its high
+/// ports has closed before; a high port closing now makes it so too.
+pub fn compare(
+	previous: Option<&[OpenPort]>,
+	current: &[OpenPort],
+	volatile_high: bool,
+) -> Vec<Change> {
+	let Some(previous) = previous else {
+		return vec![Change::NewDevice {
+			ports: current.len(),
+		}];
+	};
+	let had = |p: &OpenPort| previous.iter().any(|q| key(q) == key(p));
+	let has = |p: &OpenPort| current.iter().any(|q| key(q) == key(p));
+	let mut gone: Vec<&OpenPort> = previous.iter().filter(|p| !has(p)).collect();
+	let mut new: Vec<&OpenPort> = current.iter().filter(|p| !had(p)).collect();
+	gone.sort_by_key(|p| key(p));
+	new.sort_by_key(|p| key(p));
+	let volatile = volatile_high || gone.iter().any(|p| p.port >= DYNAMIC_FROM);
+
+	let mut changes: Vec<Change> = new
+		.into_iter()
+		.map(|p| {
+			if volatile && p.port >= DYNAMIC_FROM {
+				Change::NewRotatingPort(p.clone())
+			} else {
+				Change::NewPort(p.clone())
+			}
+		})
+		.collect();
+	changes.extend(gone.into_iter().map(|p| Change::ClosedPort(p.clone())));
+	let vague = |p: &Option<String>| VAGUE.contains(&p.as_deref().unwrap_or(""));
+	let mut kept: Vec<&OpenPort> = current.iter().filter(|p| had(p)).collect();
+	kept.sort_by_key(|p| key(p));
+	for p in kept {
+		let Some(old) = previous.iter().find(|q| key(q) == key(p)) else {
+			continue;
+		};
+		if old.product != p.product && !vague(&old.product) && !vague(&p.product) {
+			changes.push(Change::ChangedPort {
+				port: p.clone(),
+				before: old.product.clone().unwrap_or_default(),
+			});
+		}
+	}
+	changes
+}
+
 /// The shape of `nmap -sn -oX -`; made-up addresses and names.
 #[cfg(test)]
 pub const SWEEP_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -385,6 +498,59 @@ mod tests {
 		assert_eq!(at.next_run(t(20, 0), None), (t(20, 5), true));
 		assert!(PortScanAt::new("25:00").is_err());
 		assert!(PortScanAt::new("off").is_err());
+	}
+
+	fn port(port: u16, product: Option<&str>) -> OpenPort {
+		OpenPort {
+			port,
+			protocol: "tcp".into(),
+			service: None,
+			product: product.map(str::to_string),
+		}
+	}
+
+	#[test]
+	fn changes_follow_lan_scans_rules() {
+		// never seen: a new device, an alert
+		let c = compare(None, &[port(80, None)], false);
+		assert_eq!(
+			c,
+			[Change::NewDevice {
+				ports: 1
+			}]
+		);
+		assert!(c[0].is_alert());
+
+		// a new low port: an alert; a closed one: information
+		let c = compare(Some(&[port(80, None)]), &[port(443, None)], false);
+		assert_eq!(c, [Change::NewPort(port(443, None)), Change::ClosedPort(port(80, None))]);
+		assert_eq!(c.iter().filter(|c| c.is_alert()).count(), 1);
+
+		// a high port closing makes the device rotate: the new high port is information
+		let c = compare(Some(&[port(40000, None)]), &[port(40001, None)], false);
+		assert_eq!(c[0], Change::NewRotatingPort(port(40001, None)));
+		assert!(!c[0].is_alert());
+		// and it stays that way next time, even if nothing closes
+		let c = compare(Some(&[]), &[port(50000, None)], true);
+		assert_eq!(c, [Change::NewRotatingPort(port(50000, None))]);
+		// a device that doesn't rotate: a new high port is an alert
+		let c = compare(Some(&[]), &[port(50000, None)], false);
+		assert_eq!(c, [Change::NewPort(port(50000, None))]);
+
+		// a new version is news; to or from a vague answer isn't
+		let c = compare(Some(&[port(80, Some("x 1.0"))]), &[port(80, Some("x 1.1"))], false);
+		assert_eq!(
+			c,
+			[Change::ChangedPort {
+				port: port(80, Some("x 1.1")),
+				before: "x 1.0".into()
+			}]
+		);
+		assert!(compare(Some(&[port(80, Some("x 1.0"))]), &[port(80, None)], false).is_empty());
+		assert!(
+			compare(Some(&[port(80, Some("tcpwrapped"))]), &[port(80, Some("x"))], false)
+				.is_empty()
+		);
 	}
 
 	#[test]

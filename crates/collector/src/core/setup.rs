@@ -1,11 +1,17 @@
+use std::{
+	path::PathBuf,
+	sync::{Arc, RwLock},
+};
+
 use crate::{
 	Result,
 	core::{
 		handlers::{
 			import::import_reports,
 			scan::{current_targets, port_scan, port_scan_loop, sweep_loop},
+			vendor::{load_vendors, vendor_loop},
 		},
-		models::config::Config,
+		models::{config::Config, vendor::SharedVendors},
 	},
 	info,
 	repository::db::DatabaseRepository,
@@ -88,13 +94,15 @@ impl HandleImport {
 pub struct HandleScans {
 	db: DatabaseRepository,
 	config: Config,
+	vendors: SharedVendors,
 }
 
 impl HandleScans {
-	pub fn new(db: DatabaseRepository, config: &Config) -> Self {
+	pub fn new(db: DatabaseRepository, config: &Config, vendors: SharedVendors) -> Self {
 		Self {
 			db,
 			config: config.clone(),
+			vendors,
 		}
 	}
 
@@ -106,11 +114,16 @@ impl HandleScans {
 				info!("sweeping this machine's network every {} min", self.config.sweep_every_min)
 			},
 		}
-		tokio::spawn(sweep_loop(self.db.clone(), self.config.scan_targets.clone(), every));
+		tokio::spawn(sweep_loop(
+			self.db.clone(),
+			self.config.scan_targets.clone(),
+			every,
+			self.vendors.clone(),
+		));
 		match self.config.port_scan_at {
 			Some(at) => {
 				info!("port scan daily at {at}");
-				tokio::spawn(port_scan_loop(self.db, self.config.scan_targets, at));
+				tokio::spawn(port_scan_loop(self.db, self.config.scan_targets, at, self.vendors));
 			},
 			None => info!("CHATTER_PORT_SCAN_AT=off: no port scans"),
 		}
@@ -121,21 +134,43 @@ impl HandleScans {
 pub struct HandlePortScan {
 	db: DatabaseRepository,
 	config: Config,
+	vendors: SharedVendors,
 }
 
 impl HandlePortScan {
-	pub fn new(db: DatabaseRepository, config: &Config) -> Self {
+	pub fn new(db: DatabaseRepository, config: &Config, vendors: SharedVendors) -> Self {
 		Self {
 			db,
 			config: config.clone(),
+			vendors,
 		}
 	}
 
 	pub async fn run(self) -> Result<()> {
 		let targets = current_targets(self.config.scan_targets.as_ref())?;
 		info!("port scan of {targets}: this takes about half an hour");
-		let (hosts, ports, timed_out) = port_scan(&self.db, &targets).await?;
+		let (hosts, ports, timed_out) = port_scan(&self.db, &targets, &self.vendors).await?;
 		info!("port scan of {targets}: {hosts} hosts, {ports} open ports, {timed_out} timed out");
 		Ok(())
+	}
+}
+
+/// IEEE's vendor list: the copy in the data directory now, and a refresh in
+/// the background when it's missing or a month old.
+pub struct HandleVendors {
+	path: PathBuf,
+}
+
+impl HandleVendors {
+	pub fn new(config: &Config) -> Self {
+		Self {
+			path: config.data_dir().join("oui.csv"),
+		}
+	}
+
+	pub fn run(self) -> SharedVendors {
+		let vendors: SharedVendors = Arc::new(RwLock::new(load_vendors(&self.path)));
+		tokio::spawn(vendor_loop(self.path, vendors.clone()));
+		vendors
 	}
 }

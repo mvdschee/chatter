@@ -53,6 +53,16 @@ html, body {
 }
 .top-btn:hover, .top-btn[aria-expanded="true"] { border-color: var(--signal); }
 .top-btn:focus-visible { outline: 1px solid var(--signal); outline-offset: 2px; }
+/* a sensor's heartbeat: live, late or silent */
+#sensor-pills { display: contents; }
+.sensor-pill { display: inline-flex; align-items: center; gap: 7px; letter-spacing: 0.12em; }
+.sensor-pill .ago { font: 11px/1 var(--mono); letter-spacing: 0; text-transform: none; color: var(--muted); }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.dot.live { background: var(--signal); box-shadow: 0 0 6px var(--signal); animation: beat 2s ease-in-out infinite; }
+.dot.late { background: #f2c14e; }
+.dot.silent { background: var(--heat); }
+@keyframes beat { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .dot.live { animation: none; } }
 .badge { margin-left: 6px; padding: 1px 5px; background: var(--heat); color: var(--void); letter-spacing: 0; }
 .clock { font: 13px/1 var(--mono); color: var(--phosphor); font-variant-numeric: tabular-nums; }
 

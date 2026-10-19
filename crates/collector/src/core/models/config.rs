@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use crate::core::models::scan::{PortScanAt, ScanTargets};
 
 /// What the binary was started to do.
@@ -25,4 +27,14 @@ pub struct Config {
 	/// The daily port scan's time; `None`: no port scans.
 	pub port_scan_at: Option<PortScanAt>,
 	pub command: Command,
+}
+
+impl Config {
+	/// Where the collector keeps its files: the database's directory.
+	pub fn data_dir(&self) -> PathBuf {
+		match Path::new(&self.db_path).parent() {
+			Some(dir) if !dir.as_os_str().is_empty() => dir.to_path_buf(),
+			_ => PathBuf::from("."),
+		}
+	}
 }

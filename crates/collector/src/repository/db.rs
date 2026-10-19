@@ -62,6 +62,15 @@ impl DatabaseRepository {
 			.map_err(|e| Error::Database(format!("migration: {e}")))
 	}
 
+	/// Insert with dynamic SQL and arguments; the SQL ends in `RETURNING id`.
+	pub async fn insert_record(&self, sql: &'static str, params: Vec<DbValue>) -> Result<i64> {
+		let row = bind(sqlx::query(sql), params)
+			.fetch_one(&self.pool)
+			.await
+			.map_err(|e| Error::Database(format!("insert record: {e}")))?;
+		Ok(row.try_get("id")?)
+	}
+
 	/// Inserts a record and its children in one transaction: all of them or
 	/// none. The parent's SQL ends in `RETURNING id`; each child's SQL takes
 	/// that id as `?1`, before its own params.
