@@ -49,19 +49,26 @@ const LOOP = 5; // minutes in the replay loop
 const RANGES = [["1h", "1 hour"], ["6h", "6 hours"], ["24h", "24 hours"], ["7d", "7 days"], ["30d", "30 days"]];
 let range = "24h";
 let zoomed = null;
-const TL = { from: 0, to: 0, bucketMs: 300_000, total: [], series: new Map(), scans: [], changes: [] };
+// `hours`: each bucket's hour of the day, or null for buckets longer than an
+// hour (scored against all hours).
+const TL = { from: 0, to: 0, bucketMs: 300_000, total: [], series: new Map(), hours: [], scans: [], changes: [] };
 const buckets = () => TL.total.length;
 const bucketTime = (i) => new Date(TL.from * 1000 + i * TL.bucketMs);
 const bucketOf = (date) => (date - TL.from * 1000) / TL.bucketMs;
 const seriesAt = (d, i) => TL.series.get(d.mac)?.[i] ?? [0, 0];
 
-// The loop's first minute.
+// The loop's first minute, and the hour of the day of each of its minutes.
 let firstMinute = new Date();
+let loopHours = [];
+
+// How traffic becomes a score, from the overview: `{ k, floor, white, red }`.
+let SCALE = null;
 
 // Every device seen in the last 24 hours. `minutes` are the loop's [tx, rx]
-// bytes; its history is in `TL.series`. `locationOnly` and `outlier` aren't filled in yet:
-// devices the sensors can place but not count, and the outlier rules
-// (docs/monitoring.md, plan step 7).
+// bytes; its history is in `TL.series`. `usual`: its baselines, `{ hours,
+// all, learning }`, or null before the first are worked out. `locationOnly`
+// and `outlier` aren't filled in yet: devices the sensors can place but not
+// count, and the outlier rules (docs/monitoring.md, plan step 7).
 const DEVICES = [];
 
 // The network's average and peak bytes a minute in bucket i, and its busiest
@@ -163,7 +170,9 @@ function changeEvent(c) {
 // Merges an overview into DEVICES, keeping each device's particles.
 function applyOverview(o) {
 	if (o.minutes.length) firstMinute = new Date(o.minutes[0] * 1000);
-	const pad = (m) => [...Array(Math.max(0, LOOP - m.length)).fill([0, 0]), ...m.slice(-LOOP)];
+	const pad = (m, fill = [0, 0]) => [...Array(Math.max(0, LOOP - m.length)).fill(fill), ...m.slice(-LOOP)];
+	loopHours = pad(o.hours, null);
+	SCALE = o.score;
 	const seen = [...o.devices].sort((a, b) => a.mac.localeCompare(b.mac));
 	const old = new Map(DEVICES.map((d) => [d.id, d]));
 	DEVICES.length = 0;
@@ -175,7 +184,7 @@ function applyOverview(o) {
 		Object.assign(d, {
 			x: sx, y: sy, minutes: pad(x.minutes), rssi: x.rssi_max, firstSeen: x.first_seen,
 			name: host ?? x.mac, short: host ?? x.mac.slice(9), vendor: x.vendor ?? vendorless(x.mac),
-			ip: x.ip, hostname: x.hostname, ports: x.ports, portScannedAt: x.port_scanned_at,
+			ip: x.ip, hostname: x.hostname, ports: x.ports, portScannedAt: x.port_scanned_at, usual: x.usual,
 		});
 		DEVICES.push(d);
 	});
@@ -202,7 +211,7 @@ function applyOverview(o) {
 function applyTimeline(t) {
 	// the playhead stays on its moment while the range moves on with new reports
 	const at = bucketTime(cursor);
-	Object.assign(TL,{ from: t.from, to: t.to, bucketMs: t.bucket_s * 1000, total: t.total });
+	Object.assign(TL,{ from: t.from, to: t.to, bucketMs: t.bucket_s * 1000, total: t.total, hours: t.hours });
 	TL.series = new Map(t.devices.map((x) => [x.mac, x.buckets]));
 	PORT_SCANS = t.port_scans.map((p) => ({ from: new Date(p.started_at * 1000), to: new Date(p.finished_at * 1000), ...p }));
 	EVENTS.length = 0;
@@ -262,6 +271,47 @@ function heatColor(t, alpha = 1) {
 	const [a, b, u] = t < 0.5 ? [WHITE, PALE, t / 0.5] : [PALE, RED, (t - 0.5) / 0.5];
 	const c = a.map((v, i) => Math.round(v + (b[i] - v) * u));
 	return `rgba(${c[0]},${c[1]},${c[2]},${alpha})`;
+}
+
+// ---------------------------------------------------------------------------
+// Colour by a device's own normal (docs/outliers.md): how unusual its bytes a
+// minute are for it at that hour of the day. Size and particles stay on
+// traffic, through `heat`.
+// ---------------------------------------------------------------------------
+
+// The score: 0 at its usual or below, `SCALE.red` at red. `hour` null: against
+// all hours. Null while the device is still learning.
+function score(d, bytes, hour) {
+	const u = d.usual;
+	if (!u || u.learning || !SCALE) return null;
+	const [median, mad] = hour == null ? u.all : u.hours[hour];
+	return Math.max(0, (SCALE.k * (Math.log1p(bytes) - median)) / Math.max(mad, SCALE.floor));
+}
+
+// White up to `SCALE.white`, then ramping to red at `SCALE.red`; learning is
+// a neutral grey.
+const LEARNING = [143, 166, 175];
+function scoreColor(s, alpha = 1) {
+	if (s == null) return `rgba(${LEARNING.join(",")},${alpha})`;
+	return heatColor(Math.min(1, Math.max(0, (s - SCALE.white) / (SCALE.red - SCALE.white))), alpha);
+}
+
+// The hour of the day the plan is showing.
+function hourNow(now) {
+	if (mode === "history") return TL.hours[Math.floor(cursor)] ?? null;
+	return loopHours[Math.min(LOOP - 1, Math.floor((now - loopStart) / MINUTE_MS))] ?? null;
+}
+
+const scoreNow = (d, now) => score(d, sum(current(d, now)), hourNow(now));
+
+// The device's usual bytes a minute at that hour: the middle half of its
+// minutes, from the median and the MAD on the log scale.
+function usualText(d, hour) {
+	if (!d.usual) return "not worked out yet";
+	if (d.usual.learning) return "learning: under a day of data";
+	const [median, mad] = hour == null ? d.usual.all : d.usual.hours[hour];
+	const [lo, hi] = [median - mad, median + mad].map((v) => fmtBytes(Math.expm1(Math.max(0, v))));
+	return lo === hi ? `about ${lo}/min` : `${lo}–${hi}/min`;
 }
 
 function fmtBytes(b) {
@@ -557,11 +607,12 @@ function drawFloorHeat(now) {
 		const [tx, rx] = current(d, now);
 		const t = heat(tx + rx);
 		if (t < 0.05) continue;
+		const s = scoreNow(d, now);
 		const [x, y, k] = project(d.x, d.y);
 		const r = (30 + 80 * t) * fit * cam.zoom * k;
 		const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
-		g.addColorStop(0, heatColor(t, 0.22 * t));
-		g.addColorStop(1, heatColor(t, 0));
+		g.addColorStop(0, scoreColor(s, 0.22 * t));
+		g.addColorStop(1, scoreColor(s, 0));
 		ctx.save();
 		ctx.translate(x, y);
 		ctx.scale(1, Math.cos(TILT));
@@ -620,10 +671,11 @@ function drawFlow(d, now, dt) {
 	const at = (u) => arcPoint([d.x, d.y], [ROUTER.x, ROUTER.y], 25 + len * 0.19, u);
 	const arc = Array.from({ length: 33 }, (_, i) => at(i / 32));
 	const all = heat(tx + rx);
+	const s = scoreNow(d, now);
 
 	// the channel, faint, with a slow drift each way
 	ctx.lineCap = "butt";
-	ctx.strokeStyle = heatColor(all, reduced ? 0.3 + 0.5 * all : 0.05 + 0.1 * all);
+	ctx.strokeStyle = scoreColor(s, reduced ? 0.3 + 0.5 * all : 0.05 + 0.1 * all);
 	ctx.lineWidth = reduced ? 1 + 3 * all : 1;
 	path(arc);
 	ctx.stroke();
@@ -632,7 +684,7 @@ function drawFlow(d, now, dt) {
 		const t = heat(bytes);
 		ctx.setLineDash(k ? [1, 13] : [1, 9]);
 		ctx.lineDashOffset = (k ? 1 : -1) * (now / 1000) * 8;
-		ctx.strokeStyle = heatColor(t, 0.08 + 0.2 * t);
+		ctx.strokeStyle = scoreColor(s, 0.08 + 0.2 * t);
 		path(arc);
 		ctx.stroke();
 	});
@@ -644,11 +696,11 @@ function drawFlow(d, now, dt) {
 		while (d.spawn[k] >= 1) {
 			d.spawn[k] -= 1;
 			const n = 1 + Math.floor(rand() * (1 + 5 * t));
-			let s = 0;
+			let gap = 0;
 			for (let j = 0; j < n; j++) {
 				const size = 5 + rand() * (6 + 16 * t);
-				d.particles.push({ lane: k, s: -s, size, t });
-				s += size + 5;
+				d.particles.push({ lane: k, s: -gap, size, score: s });
+				gap += size + 5;
 			}
 		}
 	});
@@ -662,8 +714,8 @@ function drawFlow(d, now, dt) {
 		const seg = Array.from({ length: 5 }, (_, i) => at(u(tail + ((head - tail) * i) / 4)));
 		const [hx, hy, kk] = seg[4];
 		const g = ctx.createLinearGradient(seg[0][0], seg[0][1], hx, hy);
-		g.addColorStop(0, heatColor(p.t, 0));
-		g.addColorStop(1, heatColor(p.t, 0.95));
+		g.addColorStop(0, scoreColor(p.score, 0));
+		g.addColorStop(1, scoreColor(p.score, 0.95));
 		ctx.strokeStyle = g;
 		// a soft glow, then the core
 		ctx.globalAlpha = 0.25;
@@ -742,7 +794,8 @@ function drawNode(d, now) {
 		ctx.fillRect(x - 10 + Math.random() * 6, y + 3, 22, 1);
 	}
 
-	const color = glitching ? "#ff3b3b" : d.locationOnly ? "#5c7a86" : heatColor(t);
+	const s = scoreNow(d, now);
+	const color = glitching ? "#ff3b3b" : d.locationOnly ? "#5c7a86" : scoreColor(s);
 	// the pulse's phase adds up, so a change in traffic changes its speed
 	// without making it jump
 	d.pulsePhase = (d.pulsePhase ?? 0) + (now - (d.pulseAt ?? now)) / (500 - 300 * t);
@@ -750,7 +803,7 @@ function drawNode(d, now) {
 	const pulse = reduced || d.locationOnly ? 0 : (Math.sin(d.pulsePhase) + 1) * (2 + 6 * t);
 
 	if (!d.locationOnly) {
-		ctx.fillStyle = glitching ? "rgba(255,59,59,0.2)" : heatColor(t, 0.12);
+		ctx.fillStyle = glitching ? "rgba(255,59,59,0.2)" : scoreColor(s, 0.12);
 		ctx.beginPath();
 		ctx.arc(x, y, (10 + pulse) * k, 0, Math.PI * 2);
 		ctx.fill();
@@ -1303,7 +1356,7 @@ function renderList() {
 	}).sort((a, b) => b.total - a.total);
 	side.innerHTML = `${CLOSE}<div class="eyebrow">Devices, by the last minute</div><ul class="list">${rows
 		.map(({ d, total }) => {
-			const color = d.outlier ? "#ff3b3b" : d.locationOnly ? "#5c7a86" : heatColor(heat(total));
+			const color = d.outlier ? "#ff3b3b" : d.locationOnly ? "#5c7a86" : scoreColor(score(d, total, loopHours[LOOP - 1]));
 			const rate = d.locationOnly ? "location only" : fmtBytes(total);
 			return `<li><button data-id="${d.id}"><span class="swatch" style="background:${color}"></span><span>${d.name}</span><span class="rate">${rate}</span></button></li>`;
 		})
@@ -1335,6 +1388,7 @@ function select(d) {
 		<dl class="kv">
 			<dt>sent</dt><dd>${fmtBytes(tx)}</dd>
 			<dt>received</dt><dd>${fmtBytes(rx)}</dd>
+			<dt>usual now</dt><dd>${usualText(d, loopHours[LOOP - 1])}</dd>
 			<dt>signal</dt><dd>${d.rssi ?? "-"} dBm</dd>
 		</dl>
 
@@ -1369,9 +1423,12 @@ function drawSpark(d) {
 	el.height = r.height * dpr;
 	const c = el.getContext("2d");
 	c.scale(dpr, dpr);
-	// the shown stretch in at most 48 bars, each the average of its buckets
+	// the shown stretch in at most 48 bars, each the average of its buckets,
+	// coloured by its score: against its hour when a bar is one bucket of up
+	// to an hour, else against all hours
 	const all = TL.series.get(d.mac) ?? [];
 	const per = Math.max(1, Math.ceil(all.length / 48));
+	const hour = (i) => (per === 1 ? TL.hours[i] : null);
 	const halves = Array.from({ length: Math.ceil(all.length / per) }, (_, i) => {
 		const part = all.slice(i * per, i * per + per);
 		return part.reduce((t, x) => t + sum(x), 0) / Math.max(1, part.length);
@@ -1380,7 +1437,7 @@ function drawSpark(d) {
 	const bw = r.width / halves.length;
 	halves.forEach((v, i) => {
 		const hgt = (v / max) * (r.height - 4);
-		c.fillStyle = heatColor(heat(v));
+		c.fillStyle = scoreColor(score(d, v, hour(i)));
 		c.globalAlpha = 0.85;
 		c.fillRect(i * bw + 1, r.height - hgt, Math.max(1, bw - 2), hgt);
 	});

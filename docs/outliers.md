@@ -128,8 +128,16 @@ graph's peak band stays absolute.
    bucket's hour, or `null` for buckets longer than an hour, which are
    scored against `all`. A test pins the floor's constraint; the score
    itself is computed by the page.
-3. The plan colours by score, size and particles by traffic, and the
-   learning state; "usual now" in the panel.
+3. Done: the plan colours by score: the node, its floor glow, its arc and
+   its packets, the devices list's swatch, and the panel's traffic bars
+   (a bar of one bucket up to an hour against its hour, else against all
+   hours). Size, packet density and the pulse stay on traffic. A learning
+   device, or one before the first baselines, is grey. The panel's "usual
+   now" is the middle half of its minutes at the last minute's hour
+   (median ± MAD, back from the log scale). The network graph stays
+   absolute. On a day of real data, 2% of the 5-minute device buckets
+   came out red and most buckets had no red device; the reds that came
+   in groups looked like port scans, which the plan doesn't leave out.
 4. The owner looks at it on real data, then the thresholds get tuned.
 5. Then step 7's emails, which use the same score.
 

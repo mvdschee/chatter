@@ -115,9 +115,9 @@ only: no logos, fonts or assets from the game, since this repo is public.
 - The last few minutes of sensor data (for example 5) play **on a loop**.
   Each minute's numbers set the flow for its slice of the loop, so the view
   shows the recent rhythm instead of one frozen number.
-- **Colour: white is low traffic, red is high.** The same number sets how
-  often packet bursts leave, how many packets a burst has and how long they
-  are. The pace stays the same for every flow, so it reads as a stream.
+- **Colour: white is the device's usual traffic, red is far above it**
+  (`docs/outliers.md`). The traffic itself sets how often packet bursts
+  leave, how many packets a burst has and how long they are. The pace stays the same for every flow, so it reads as a stream.
 - When a new minute arrives, it joins the loop and the oldest drops out. The
   change blends in over a second or two, so nothing jumps.
 - The loop shows real minutes only and never invents activity between them.
