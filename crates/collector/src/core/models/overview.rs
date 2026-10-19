@@ -1,73 +1,23 @@
-//! What the monitoring page shows: every device with its last few minutes and
-//! its day in buckets, and the sensors. Read-only, out as JSON.
+//! What the monitoring page shows live: every device seen in the last 24
+//! hours with its last few minutes, and the sensors. Read-only, out as JSON.
+//! The history is the timeline (`timeline.rs`).
 
 use serde::Serialize;
 
 /// Minutes in the page's replay loop.
 pub const LOOP_MINUTES: usize = 5;
-/// The day view: 288 buckets of 5 minutes.
-pub const BUCKET_S: i64 = 300;
-pub const BUCKETS: usize = 288;
+/// The devices and the sensors' heartbeats cover this much before the newest
+/// report.
+pub const RECENT_S: i64 = 24 * 3600;
 
 #[derive(Debug, Serialize)]
 pub struct Overview {
-	/// The newest report's time; the day ends there. Unix seconds, like every
-	/// time here.
+	/// The newest report's time. Unix seconds, like every time here.
 	pub latest: i64,
 	/// The times of the loop's minutes (the newest reports), oldest first.
 	pub minutes: Vec<i64>,
-	/// The first bucket's start.
-	pub day_start: i64,
-	pub bucket_s: i64,
 	pub sensors: Vec<SensorStatus>,
 	pub devices: Vec<DeviceOverview>,
-	/// The port scans that finished in the day, oldest first.
-	pub port_scans: Vec<PortScanSummary>,
-	/// What those port scans found changed, in order.
-	pub changes: Vec<ChangeOverview>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ChangeOverview {
-	/// When the scan that found it finished.
-	pub at: i64,
-	pub mac: String,
-	/// The host as that scan saw it.
-	pub ip: Option<String>,
-	pub hostname: Option<String>,
-	pub vendor: Option<String>,
-	/// `new_device`, `new_port`, `new_rotating_port`, `closed_port`,
-	/// `changed_port`
-	pub kind: String,
-	pub alert: bool,
-	pub port: Option<i64>,
-	pub protocol: Option<String>,
-	pub service: Option<String>,
-	pub product: Option<String>,
-	/// `changed_port`: the product before.
-	pub before: Option<String>,
-	/// Its open ports in that scan.
-	pub ports: i64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PortScanSummary {
-	pub started_at: i64,
-	pub finished_at: i64,
-	pub hosts: i64,
-	pub open_ports: i64,
-	/// Hosts the per-host time limit cut short: their ports aren't counted.
-	pub timed_out: i64,
-	/// Changes since the scan before that are worth an alert.
-	pub alerts: i64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PortOverview {
-	pub port: i64,
-	pub protocol: String,
-	pub service: Option<String>,
-	pub product: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -84,13 +34,13 @@ pub struct SensorStatus {
 	pub nets_known: Vec<u8>,
 	/// Devices in its newest report.
 	pub devices: i64,
-	/// In the day: reports that arrived, and how many went missing (gaps in
-	/// `seq`) and restarts (`seq` going back).
+	/// In the last 24 hours: reports that arrived, and how many went missing
+	/// (gaps in `seq`) and restarts (`seq` going back).
 	pub reports: i64,
 	pub missing: i64,
 	pub restarts: i64,
-	/// Reports per bucket of the day: its heartbeat.
-	pub heartbeat: Vec<i64>,
+	/// When each of those reports arrived, oldest first: its heartbeat.
+	pub beats: Vec<i64>,
 }
 
 /// What a run of sequence numbers says: how many reports went missing in
@@ -109,11 +59,20 @@ pub fn seq_stats(seqs: &[i64]) -> (i64, i64) {
 }
 
 #[derive(Debug, Serialize)]
+pub struct PortOverview {
+	pub port: i64,
+	pub protocol: String,
+	pub service: Option<String>,
+	pub product: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct DeviceOverview {
 	pub mac: String,
 	pub first_seen: i64,
 	pub last_seen: i64,
-	/// The strongest signal in the day, `None` if it sent nothing the sensor heard.
+	/// The strongest signal in the last 24 hours, `None` if it sent nothing the
+	/// sensor heard.
 	pub rssi_max: Option<i64>,
 	/// From the newest host sweep that found it; `None` if none has.
 	pub ip: Option<String>,
@@ -126,8 +85,6 @@ pub struct DeviceOverview {
 	pub port_scanned_at: Option<i64>,
 	/// `[tx, rx]` bytes per loop minute, like `Overview::minutes`.
 	pub minutes: Vec<[i64; 2]>,
-	/// `[tx, rx]` bytes a minute per bucket, averaged over the reports in it.
-	pub day: Vec<[i64; 2]>,
 }
 
 #[cfg(test)]

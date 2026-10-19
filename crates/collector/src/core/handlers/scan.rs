@@ -359,7 +359,9 @@ mod tests {
 		payload.received_at = 1_700_138_300;
 		store_report(&db, &Report::try_from(payload).unwrap()).await.unwrap();
 
-		let o = overview(&db).await.unwrap();
+		let latest = crate::core::handlers::overview::latest_report(&db).await.unwrap();
+		let window = crate::core::models::timeline::Window::ending_at(latest, 86_400);
+		let o = crate::core::handlers::timeline::timeline(&db, window).await.unwrap();
 		let kinds: Vec<&str> = o.changes.iter().map(|c| c.kind.as_str()).collect();
 		assert_eq!(kinds, ["new_port", "closed_port", "new_device"]);
 		assert_eq!(o.changes[0].port, Some(8080));

@@ -5,6 +5,7 @@ use super::HttpServerState;
 pub mod overview;
 pub mod report;
 pub mod test_file;
+pub mod timeline;
 pub mod ui;
 
 pub fn root_routes() -> Router<HttpServerState> {

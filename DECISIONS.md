@@ -126,3 +126,9 @@
 **Decision:** The collector downloads IEEE's MA-L registry (`oui.csv`) into its data directory when it's missing or a month old, and a scan takes a host's vendor from it before nmap's. The download uses reqwest with rustls (no OpenSSL) and the User-Agent `chatter`; the image has `ca-certificates`. A failed download keeps the old copy.
 **Why:** nmap's vendor list is as old as its package, so newer devices show up without one; the infra repo's `lan_scan` did the same for that reason. reqwest is what the other services use for HTTP; rustls keeps the build to crates.io.
 **Alternatives:** nmap's list only (gaps for new devices); ureq (blocking, a second style); shipping the CSV in the image (stale between image builds).
+
+## 2026-10-19 - Timeline buckets computed from the stored minutes, average and peak
+
+**Decision:** `GET /v1/timeline` takes a range (1h–30d, ending at the newest report) or a from/to stretch, picks the smallest bucket that keeps it under 400 buckets (the classic traffic-graph tiers: minutes, 5 min, 30 min, 2 h), and works out each bucket's average and peak minute from `device_minutes` on every request. No rollup tables. Details in `docs/timeline.md`.
+**Why:** A home's minutes are few enough for SQLite to group on the fly (30 days in about 0.1 s), and computing from the raw minutes means no rollup job and nothing to keep in sync. The peak is kept because an average can't be turned back into one: a 5-minute port scan would vanish at 30 days.
+**Alternatives:** RRD-style rollup tables per tier (worth it once a year of minutes makes the query slow); a fixed 24-hour day in the overview (what it was).

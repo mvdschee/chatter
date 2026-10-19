@@ -125,6 +125,11 @@ canvas#plan:focus-visible { outline: 1px solid var(--signal); outline-offset: -1
 .tl-btn:hover, .tl-btn[aria-pressed="true"] { border-color: var(--signal); }
 .tl-btn:focus-visible { outline: 1px solid var(--signal); outline-offset: 2px; }
 .tl-btn.peak { margin-left: auto; font: 12px/1 var(--mono); letter-spacing: 0; text-transform: none; color: var(--phosphor); }
+.ranges { display: inline-flex; gap: 4px; }
+.tl-btn.range { min-width: 24px; padding: 5px 6px; letter-spacing: 0.08em; }
+.tl-btn[hidden] { display: none; }
+.beat { display: block; width: 100%; height: 16px; }
+.beat-label { display: flex; justify-content: space-between; font: 10px/1 var(--mono); color: var(--muted); margin: 8px 0 4px; }
 canvas#heat { display: block; width: 100%; height: 120px; cursor: ew-resize; touch-action: none; }
 canvas#heat:focus-visible { outline: 1px solid var(--signal); }
 

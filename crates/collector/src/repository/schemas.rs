@@ -21,20 +21,22 @@ pub const REPORTS_LATEST_TIME: &str = "SELECT max(received_at) AS t FROM reports
 pub const REPORTS_LAST_N: &str =
 	"SELECT id, received_at FROM reports ORDER BY received_at DESC, id DESC LIMIT ?1";
 
-/// Reports per bucket of `?2` seconds from `?1`: `bucket`, `n`.
-pub const REPORTS_PER_BUCKET: &str = "SELECT (received_at - ?1) / ?2 AS bucket, count(*) AS n \
-	FROM reports WHERE received_at >= ?1 GROUP BY bucket";
-
 /// Each sensor's newest report: `sensor`, `id`, `seq`, `uptime_s`, `channel`,
 /// `dropped`, `overflow`, `nets_known`, `last_seen` (SQLite takes the bare
 /// columns from the row with the max).
 pub const REPORTS_SENSORS: &str = "SELECT sensor, id, seq, uptime_s, channel, dropped, overflow, \
 	nets_known, max(received_at) AS last_seen FROM reports GROUP BY sensor";
 
-/// Every sensor's reports since `?1`, in order: `sensor`, `seq`, `bucket` (of
-/// `?2` seconds from `?1`).
-pub const REPORTS_SEQS_SINCE: &str = "SELECT sensor, seq, (received_at - ?1) / ?2 AS bucket \
-	FROM reports WHERE received_at >= ?1 ORDER BY sensor, received_at, id";
+/// Every sensor's reports since `?1`, in order: `sensor`, `seq`,
+/// `received_at`.
+pub const REPORTS_TIMES_SINCE: &str = "SELECT sensor, seq, received_at FROM reports \
+	WHERE received_at >= ?1 ORDER BY sensor, received_at, id";
+
+/// Every report from `?1` up to `?2` with the bytes of all its devices:
+/// `received_at`, `total`.
+pub const REPORTS_TOTALS_BETWEEN: &str = "SELECT r.received_at, coalesce((SELECT \
+	sum(d.tx_bytes + d.rx_bytes) FROM device_minutes d WHERE d.report_id = r.id), 0) AS total \
+	FROM reports r WHERE r.received_at >= ?1 AND r.received_at < ?2";
 
 // --- device_minutes --------------------------------------------------------
 
@@ -47,11 +49,11 @@ pub const DEVICE_MINUTES_DEVICES: &str = "SELECT mac, min(received_at) AS first_
 	max(received_at) AS last_seen, max(CASE WHEN received_at >= ?1 THEN rssi_max END) AS rssi_max \
 	FROM device_minutes GROUP BY mac";
 
-/// Bytes per device per bucket of `?2` seconds from `?1`: `mac`, `bucket`,
-/// `tx`, `rx`.
-pub const DEVICE_MINUTES_PER_BUCKET: &str = "SELECT mac, (received_at - ?1) / ?2 AS bucket, \
-	sum(tx_bytes) AS tx, sum(rx_bytes) AS rx FROM device_minutes WHERE received_at >= ?1 \
-	GROUP BY mac, bucket";
+/// Bytes per device per bucket of `?2` seconds from `?1` up to `?3`: `mac`,
+/// `bucket`, `tx`, `rx`.
+pub const DEVICE_MINUTES_PER_BUCKET_BETWEEN: &str = "SELECT mac, (received_at - ?1) / ?2 AS bucket, \
+	sum(tx_bytes) AS tx, sum(rx_bytes) AS rx FROM device_minutes \
+	WHERE received_at >= ?1 AND received_at < ?3 GROUP BY mac, bucket";
 
 /// The device rows of the newest `?1` reports: `report_id`, `mac`,
 /// `tx_bytes`, `rx_bytes`.
@@ -80,19 +82,20 @@ pub const SCANS_INSERT: &str = "INSERT INTO scans (kind, targets, started_at, fi
 pub const SCANS_PORT_SCANS_BEFORE: &str =
 	"SELECT count(*) AS n FROM scans WHERE kind = 'ports' AND id < ?1";
 
-/// When the newest port scan finished: `t`, NULL before the first.
-pub const SCANS_LAST_PORT_SCAN: &str =
-	"SELECT max(finished_at) AS t FROM scans WHERE kind = 'ports'";
-
-/// The port scans that finished since `?1`, oldest first: `started_at`,
-/// `finished_at`, and how many `hosts` and `open_ports` they found, and how
-/// many hosts `timed_out`, and how many changes were `alerts`.
-pub const SCANS_PORT_SCANS_SINCE: &str = "SELECT started_at, finished_at, \
+/// The port scans that overlap `?1` up to `?2`, oldest first: `started_at`,
+/// `finished_at`, how many `hosts` and `open_ports` they found, how many
+/// hosts `timed_out`, and how many changes were `alerts`.
+pub const SCANS_PORT_SCANS_BETWEEN: &str = "SELECT started_at, finished_at, \
 	(SELECT count(*) FROM scan_hosts h WHERE h.scan_id = s.id) AS hosts, \
 	(SELECT count(*) FROM scan_hosts h WHERE h.scan_id = s.id AND h.timed_out = 1) AS timed_out, \
 	(SELECT count(*) FROM scan_changes c WHERE c.scan_id = s.id AND c.alert = 1) AS alerts, \
 	(SELECT count(*) FROM scan_ports p WHERE p.scan_id = s.id) AS open_ports \
-	FROM scans s WHERE kind = 'ports' AND finished_at >= ?1 ORDER BY started_at";
+	FROM scans s WHERE kind = 'ports' AND finished_at >= ?1 AND started_at < ?2 \
+	ORDER BY started_at";
+
+/// When the newest port scan finished: `t`, NULL before the first.
+pub const SCANS_LAST_PORT_SCAN: &str =
+	"SELECT max(finished_at) AS t FROM scans WHERE kind = 'ports'";
 
 // --- scan_hosts ------------------------------------------------------------
 
@@ -145,12 +148,12 @@ pub const SCAN_CHANGES_INSERT: &str = "INSERT INTO scan_changes \
 pub const SCAN_CHANGES_ROTATES: &str = "SELECT 1 AS x FROM scan_changes \
 	WHERE mac = ?1 AND kind = 'closed_port' AND port >= ?2 LIMIT 1";
 
-/// The changes found by port scans that finished since `?1`, in order: the
-/// change, when its scan finished, the host as that scan saw it, and how
-/// many open ports it had then.
-pub const SCAN_CHANGES_SINCE: &str = "SELECT c.mac, c.kind, c.alert, c.port, c.protocol, \
+/// The changes found by port scans that finished from `?1` up to `?2`, in
+/// order: the change, when its scan finished, the host as that scan saw it,
+/// and how many open ports it had then.
+pub const SCAN_CHANGES_BETWEEN: &str = "SELECT c.mac, c.kind, c.alert, c.port, c.protocol, \
 	c.service, c.product, c.before, s.finished_at, h.ip, h.hostname, h.vendor, \
 	(SELECT count(*) FROM scan_ports p WHERE p.scan_id = c.scan_id AND p.mac = c.mac) AS ports \
 	FROM scan_changes c JOIN scans s ON s.id = c.scan_id \
 	LEFT JOIN scan_hosts h ON h.scan_id = c.scan_id AND h.mac = c.mac \
-	WHERE s.finished_at >= ?1 ORDER BY s.finished_at, c.id";
+	WHERE s.finished_at >= ?1 AND s.finished_at < ?2 ORDER BY s.finished_at, c.id";

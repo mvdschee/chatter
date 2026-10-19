@@ -42,26 +42,34 @@ const MiB = 1024 * 1024;
 const MINUTE_MS = 6000; // how long each replayed minute lasts on screen
 const LOOP = 5; // minutes in the replay loop
 
-// The day: 5-minute buckets of [tx, rx] bytes a minute, the last one holding
-// the newest report.
-const BUCKET_MIN = 5;
-const BUCKETS = (24 * 60) / BUCKET_MIN;
-const BUCKET_MS = BUCKET_MIN * 60_000;
-let dayStart = Math.floor(Date.now() / BUCKET_MS) * BUCKET_MS - (BUCKETS - 1) * BUCKET_MS;
-const bucketTime = (i) => new Date(dayStart + i * BUCKET_MS);
+// The timeline: the stretch on show, from /v1/timeline (docs/timeline.md).
+// `total` is per bucket [average, peak] bytes a minute; `series` each
+// device's [tx, rx] per bucket. A range ends at the newest report; `zoomed`
+// is a stretch picked on the graph, in unix seconds.
+const RANGES = [["1h", "1 hour"], ["6h", "6 hours"], ["24h", "24 hours"], ["7d", "7 days"], ["30d", "30 days"]];
+let range = "24h";
+let zoomed = null;
+const TL = { from: 0, to: 0, bucketMs: 300_000, total: [], series: new Map(), scans: [], changes: [] };
+const buckets = () => TL.total.length;
+const bucketTime = (i) => new Date(TL.from * 1000 + i * TL.bucketMs);
+const bucketOf = (date) => (date - TL.from * 1000) / TL.bucketMs;
+const seriesAt = (d, i) => TL.series.get(d.mac)?.[i] ?? [0, 0];
 
 // The loop's first minute.
 let firstMinute = new Date();
 
-// Every device seen in the day. `minutes` are the loop's [tx, rx] bytes,
-// `day` its buckets. `locationOnly` and `outlier` aren't filled in yet:
+// Every device seen in the last 24 hours. `minutes` are the loop's [tx, rx]
+// bytes; its history is in `TL.series`. `locationOnly` and `outlier` aren't filled in yet:
 // devices the sensors can place but not count, and the outlier rules
 // (docs/monitoring.md, plan step 7).
 const DEVICES = [];
 
-// The whole network's bytes a minute in bucket i, and its busiest device then.
-const dayTotal = (i) => DEVICES.reduce((s, d) => s + d.day[i][0] + d.day[i][1], 0);
-const busiestAt = (i) => DEVICES.reduce((a, d) => (!a || d.day[i][0] + d.day[i][1] > a.day[i][0] + a.day[i][1] ? d : a), null);
+// The network's average and peak bytes a minute in bucket i, and its busiest
+// device then.
+const totalAt = (i) => TL.total[i]?.[0] ?? 0;
+const peakAt = (i) => TL.total[i]?.[1] ?? 0;
+const sum = ([tx, rx]) => tx + rx;
+const busiestAt = (i) => DEVICES.reduce((a, d) => (!a || sum(seriesAt(d, i)) > sum(seriesAt(a, i)) ? d : a), null);
 
 // What the HUD shows about the sensors.
 const STATUS = { sensors: 0, channel: 0, dropped: 0 };
@@ -154,10 +162,9 @@ function changeEvent(c) {
 
 // Merges an overview into DEVICES, keeping each device's particles.
 function applyOverview(o) {
-	dayStart = o.day_start * 1000;
 	if (o.minutes.length) firstMinute = new Date(o.minutes[0] * 1000);
 	const pad = (m) => [...Array(Math.max(0, LOOP - m.length)).fill([0, 0]), ...m.slice(-LOOP)];
-	const seen = o.devices.filter((x) => x.last_seen * 1000 >= dayStart).sort((a, b) => a.mac.localeCompare(b.mac));
+	const seen = [...o.devices].sort((a, b) => a.mac.localeCompare(b.mac));
 	const old = new Map(DEVICES.map((d) => [d.id, d]));
 	DEVICES.length = 0;
 	seen.forEach((x, i) => {
@@ -166,23 +173,12 @@ function applyOverview(o) {
 		// the name the host sweep found (without the local domain), else the MAC
 		const host = x.hostname?.split(".")[0];
 		Object.assign(d, {
-			x: sx, y: sy, minutes: pad(x.minutes), day: x.day, rssi: x.rssi_max, firstSeen: x.first_seen,
+			x: sx, y: sy, minutes: pad(x.minutes), rssi: x.rssi_max, firstSeen: x.first_seen,
 			name: host ?? x.mac, short: host ?? x.mac.slice(9), vendor: x.vendor ?? vendorless(x.mac),
 			ip: x.ip, hostname: x.hostname, ports: x.ports, portScannedAt: x.port_scanned_at,
 		});
 		DEVICES.push(d);
 	});
-	PORT_SCANS = o.port_scans.map((p) => ({ from: new Date(p.started_at * 1000), to: new Date(p.finished_at * 1000), ...p }));
-	EVENTS.length = 0;
-	for (const p of PORT_SCANS) {
-		EVENTS.push({
-			time: p.to, from: p.from, to: p.to, hot: false,
-			text: `Port scan, ${hhmm(p.from)}–${hhmm(p.to)}: ${p.hosts} hosts, ${p.open_ports} open ports`
-				+ (p.timed_out ? `, ${p.timed_out} timed out (their ports aren't known)` : "")
-				+ (p.alerts ? `, ${p.alerts} alert${p.alerts > 1 ? "s" : ""}` : "") + ".",
-		});
-	}
-	for (const c of o.changes) EVENTS.push(changeEvent(c));
 	const before = new Map(SENSORS.map((x) => [x.name, x]));
 	SENSORS = o.sensors.map((x) => {
 		const old = before.get(x.name);
@@ -199,6 +195,41 @@ function applyOverview(o) {
 	});
 	if (selected && !DEVICES.includes(selected)) closePanel();
 	onData();
+}
+
+// Takes in a timeline: the graph, the plan's history, and the stretch's port
+// scans and changes as Timeline events.
+function applyTimeline(t) {
+	// the playhead stays on its moment while the range moves on with new reports
+	const at = bucketTime(cursor);
+	Object.assign(TL,{ from: t.from, to: t.to, bucketMs: t.bucket_s * 1000, total: t.total });
+	TL.series = new Map(t.devices.map((x) => [x.mac, x.buckets]));
+	PORT_SCANS = t.port_scans.map((p) => ({ from: new Date(p.started_at * 1000), to: new Date(p.finished_at * 1000), ...p }));
+	EVENTS.length = 0;
+	for (const p of PORT_SCANS) {
+		EVENTS.push({
+			time: p.to, from: p.from, to: p.to, hot: false,
+			text: `Port scan, ${whenLabel(p.from)}–${hhmm(p.to)}: ${p.hosts} hosts, ${p.open_ports} open ports`
+				+ (p.timed_out ? `, ${p.timed_out} timed out (their ports aren't known)` : "")
+				+ (p.alerts ? `, ${p.alerts} alert${p.alerts > 1 ? "s" : ""}` : "") + ".",
+		});
+	}
+	for (const c of t.changes) EVENTS.push(changeEvent(c));
+	if (mode === "live") cursor = buckets() - 1;
+	else cursor = Math.max(0, Math.min(bucketOf(at), buckets() - 1));
+	renderControls();
+	onData();
+}
+
+async function loadTimeline() {
+	const query = zoomed ? `from=${zoomed.from}&to=${zoomed.to}` : `range=${range}`;
+	try {
+		const res = await fetch(`/v1/timeline?${query}`);
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		applyTimeline(await res.json());
+	} catch (e) {
+		console.error("timeline:", e);
+	}
 }
 
 async function loadOverview() {
@@ -343,20 +374,35 @@ let loopStart = 0, ringStart = 0, lastFrame = 0, glitchUntil = 0;
 let selected = null;
 let lastPlayed = -1;
 
-// "live" plays the loop of the last minutes; "history" shows the day's bucket
-// at `cursor`, which is fractional while playing.
+// "live" plays the loop of the last minutes; "history" shows the timeline's
+// bucket at `cursor`, which is fractional while playing. Play loops over the
+// stretch, a whole pass in about a minute at any range.
 let mode = "live";
-let cursor = BUCKETS - 1;
+let cursor = 0;
 let playing = false;
-const PLAY_RATE = 4; // buckets a second: the day in 72 s
+const PASS_S = 60;
 
-// Traffic at this moment. Live: eases from the previous minute into the
-// current one over the first second. History: between two buckets while
-// playing. Only real minutes and buckets are used.
+// Traffic at this moment, worked out once a frame. History plays several
+// buckets a second, so it eases toward them (on the log scale the colours
+// use), or the plan would flash from bucket to bucket.
+const EASE_MS = 300;
 function current(d, now) {
+	if (d.curAt === now) return d.cur;
+	const target = traffic(d, now);
+	const a = mode === "history" && d.cur ? 1 - Math.exp(-(now - d.curAt) / EASE_MS) : 1;
+	d.cur = a < 1 ? d.cur.map((v, k) => Math.expm1(Math.log1p(v) + (Math.log1p(target[k]) - Math.log1p(v)) * a)) : target;
+	d.curAt = now;
+	return d.cur;
+}
+
+// Live: eases from the previous minute into the current one over the first
+// second. History: between two buckets while playing. Only real minutes and
+// buckets are used.
+function traffic(d, now) {
 	if (mode === "history") {
-		const i = Math.floor(cursor), j = Math.min(BUCKETS - 1, i + 1), u = cursor - i;
-		return [0, 1].map((k) => d.day[i][k] + (d.day[j][k] - d.day[i][k]) * u);
+		const i = Math.floor(cursor), j = Math.min(buckets() - 1, i + 1), u = cursor - i;
+		const a = seriesAt(d, i), b = seriesAt(d, j);
+		return [0, 1].map((k) => a[k] + (b[k] - a[k]) * u);
 	}
 	const pos = (now - loopStart) / MINUTE_MS;
 	const i = Math.min(LOOP - 1, Math.floor(pos));
@@ -373,10 +419,11 @@ function outlierNow(d, now) {
 }
 
 // The loop came round: fetch the data again, so a new minute joins if the
-// sensor sent one.
+// sensor sent one. A zoomed-in stretch doesn't move.
 function newMinute(now) {
 	ringStart = now;
 	loadOverview();
+	if (!zoomed) loadTimeline();
 }
 
 function step(now) {
@@ -390,9 +437,10 @@ function step(now) {
 		// the outlier's minute starts: the whole view tears for a moment
 		if (DEVICES.some((d) => outlierNow(d, now))) glitchUntil = now + 700;
 	}
-	if (playing) {
-		cursor += ((now - lastFrame) / 1000) * PLAY_RATE;
-		if (cursor >= BUCKETS - 1) goLive();
+	// held while the playhead is dragged; playing carries on from where it's dropped
+	if (playing && !dragging) {
+		cursor += ((now - lastFrame) / 1000) * (buckets() / PASS_S);
+		if (cursor >= buckets() - 1) cursor = 0;
 	}
 	moveCamera(now);
 	draw(now);
@@ -695,7 +743,11 @@ function drawNode(d, now) {
 	}
 
 	const color = glitching ? "#ff3b3b" : d.locationOnly ? "#5c7a86" : heatColor(t);
-	const pulse = reduced || d.locationOnly ? 0 : (Math.sin(now / (500 - 300 * t)) + 1) * (2 + 6 * t);
+	// the pulse's phase adds up, so a change in traffic changes its speed
+	// without making it jump
+	d.pulsePhase = (d.pulsePhase ?? 0) + (now - (d.pulseAt ?? now)) / (500 - 300 * t);
+	d.pulseAt = now;
+	const pulse = reduced || d.locationOnly ? 0 : (Math.sin(d.pulsePhase) + 1) * (2 + 6 * t);
 
 	if (!d.locationOnly) {
 		ctx.fillStyle = glitching ? "rgba(255,59,59,0.2)" : heatColor(t, 0.12);
@@ -895,18 +947,22 @@ const atEl = document.getElementById("tl-at");
 const GUTTER = 70, TOP = 22, AXIS = 16;
 let heatDirty = true, hover = null, dragging = false, peak = 0;
 let graphMax = 1; // the y axis's top, bytes a minute
+let picking = null; // shift-drag: the stretch being picked, [from, to] buckets
 
 function heatGeom() {
 	const r = heatEl.getBoundingClientRect();
-	return { w: r.width, h: r.height, cw: (r.width - GUTTER) / BUCKETS, ph: r.height - TOP - AXIS };
+	return { w: r.width, h: r.height, cw: (r.width - GUTTER) / Math.max(1, buckets()), ph: r.height - TOP - AXIS };
 }
 
 const colX = (g, i) => GUTTER + i * g.cw;
 const valY = (g, v) => TOP + g.ph * (1 - v / graphMax);
 
-function dayLabel(date) {
-	const today = new Date().toDateString() === date.toDateString();
-	return `${today ? "today" : "yesterday"} ${hhmm(date)}`;
+// "today 18:50", "yesterday 18:50", else "17/10 18:50".
+const DAY_MONTH = fmt({ day: "2-digit", month: "2-digit" });
+function whenLabel(date) {
+	const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(date).setHours(0, 0, 0, 0)) / 86_400_000);
+	const day = days === 0 ? "today" : days === 1 ? "yesterday" : DAY_MONTH.format(date);
+	return `${day} ${hhmm(date)}`;
 }
 
 // A round amount at or above `v` bytes: 1, 2 or 5 times a power of ten, in
@@ -918,19 +974,41 @@ function niceCeil(v) {
 	return [1, 2, 5, 10].map((m) => m * p).find((n) => n >= x) * unit;
 }
 
-// The day's highest buckets, at least `apart` buckets from each other.
-function hotspots(totals, n, apart) {
+// The highest buckets, at least `apart` buckets from each other.
+function hotspots(values, n, apart) {
 	const picked = [];
-	for (const i of totals.map((_, i) => i).sort((a, b) => totals[b] - totals[a])) {
-		if (totals[i] <= 0 || picked.length === n) break;
+	for (const i of values.map((_, i) => i).sort((a, b) => values[b] - values[a])) {
+		if (values[i] <= 0 || picked.length === n) break;
 		if (picked.every((j) => Math.abs(i - j) >= apart)) picked.push(i);
 	}
 	return picked;
 }
 
-// The day as one line: the whole network's traffic per bucket, the area under
-// it coloured by how close it comes to the day's peak. Drawn once per change
-// into `heatCache`; each frame adds the playhead and the hover readout.
+// Ticks along the time axis: the smallest step that keeps labels apart, on
+// local hours and days. Labels are times within a day, dates beyond.
+const TICK_STEPS_MIN = [15, 30, 60, 180, 360, 720, 1440, 2880, 7200, 10_080];
+function timeTicks(g) {
+	const span = TL.to * 1000 - TL.from * 1000;
+	const px = (g.w - GUTTER) / span; // pixels a millisecond
+	const step = TICK_STEPS_MIN.find((m) => m * 60_000 * px >= 70) ?? TICK_STEPS_MIN.at(-1);
+	const ticks = [];
+	const t = new Date(TL.from * 1000);
+	t.setSeconds(0, 0);
+	t.setMinutes(Math.ceil(t.getMinutes() / Math.min(step, 60)) * Math.min(step, 60));
+	for (; t < TL.to * 1000; t.setMinutes(t.getMinutes() + Math.min(step, 60))) {
+		const minuteOfDay = t.getHours() * 60 + t.getMinutes();
+		const dayNo = Math.floor((t - new Date(2000, 0, 1)) / 86_400_000);
+		const on = step < 1440 ? minuteOfDay % step === 0 : minuteOfDay === 0 && dayNo % (step / 1440) === 0;
+		if (on) ticks.push({ x: GUTTER + (t - TL.from * 1000) * px, label: step < 1440 ? hhmm(t) : DAY_MONTH.format(t) });
+	}
+	return ticks;
+}
+
+// The stretch as a graph: the network's average a minute per bucket as a line
+// with the area under it, a faint band up to each bucket's busiest minute (so
+// a short spike survives a long range), coloured by how close it comes to the
+// peak. Drawn once per change into `heatCache`; each frame adds the playhead,
+// the hover readout and a shift-drag selection.
 function renderHeat() {
 	const g = heatGeom();
 	heatCache.width = Math.round(g.w * dpr);
@@ -938,10 +1016,12 @@ function renderHeat() {
 	const c = heatCache.getContext("2d");
 	c.setTransform(dpr, 0, 0, dpr, 0, 0);
 	c.clearRect(0, 0, g.w, g.h);
+	const n = buckets();
 
-	const totals = Array.from({ length: BUCKETS }, (_, i) => dayTotal(i));
-	const best = Math.max(0, ...totals);
-	peak = totals.indexOf(best);
+	const averages = TL.total.map(([a]) => a);
+	const peaks = TL.total.map(([, p]) => p);
+	const best = Math.max(0, ...peaks);
+	peak = peaks.indexOf(best);
 	graphMax = niceCeil(best * 1.15);
 
 	// the y axis: gridlines with their amount
@@ -955,56 +1035,54 @@ function renderHeat() {
 		c.fillText(text, GUTTER - 8 - c.measureText(text).width, y + 3.5);
 	}
 
-	// the port scans: a band over their span, labelled
-	c.font = "10px ui-monospace, Menlo, monospace";
+	// the port scans: a band over their span, labelled, red with alerts
 	for (const p of PORT_SCANS) {
-		const from = Math.max(0, (p.from - dayStart) / BUCKET_MS), to = Math.min(BUCKETS, (p.to - dayStart) / BUCKET_MS);
-		if (to <= 0 || from >= BUCKETS) continue;
+		const from = Math.max(0, bucketOf(p.from)), to = Math.min(n, bucketOf(p.to));
+		if (to <= 0 || from >= n) continue;
 		const x1 = colX(g, from), x2 = Math.max(x1 + 2, colX(g, to));
 		c.fillStyle = "rgba(127,231,242,0.07)";
 		c.fillRect(x1, TOP, x2 - x1, g.ph);
-		const color = p.alerts ? "rgba(255,59,59,0.9)" : "rgba(127,231,242,0.55)";
-		c.fillStyle = color;
+		c.fillStyle = p.alerts ? "rgba(255,59,59,0.9)" : "rgba(127,231,242,0.55)";
 		c.fillRect(x1, TOP - 2, x2 - x1, 1);
 		const text = p.alerts ? `port scan · ${p.alerts} alert${p.alerts > 1 ? "s" : ""}` : "port scan";
 		c.fillText(text, Math.min(x1, g.w - c.measureText(text).width), TOP - 5);
 	}
 
-	// the area, a column per bucket, and the line on top
 	if (best > 0) {
-		for (let i = 0; i < BUCKETS; i++) {
-			const y = valY(g, totals[i]);
-			c.fillStyle = heatColor(totals[i] / best, 0.18 + 0.5 * (totals[i] / best));
-			c.fillRect(colX(g, i), y, Math.max(1, g.cw - 0.4), TOP + g.ph - y);
+		const width = Math.max(1, g.cw - 0.4);
+		for (let i = 0; i < n; i++) {
+			const ya = valY(g, averages[i]), yp = valY(g, peaks[i]);
+			// the peak band, faint, then the average's area
+			c.fillStyle = heatColor(peaks[i] / best, 0.12);
+			c.fillRect(colX(g, i), yp, width, ya - yp);
+			c.fillStyle = heatColor(averages[i] / best, 0.18 + 0.5 * (averages[i] / best));
+			c.fillRect(colX(g, i), ya, width, TOP + g.ph - ya);
 		}
 		c.strokeStyle = "rgba(232,244,246,0.85)";
 		c.lineWidth = 1.2;
 		c.beginPath();
-		totals.forEach((v, i) => (i ? c.lineTo : c.moveTo).call(c, colX(g, i + 0.5), valY(g, v)));
+		averages.forEach((v, i) => (i ? c.lineTo : c.moveTo).call(c, colX(g, i + 0.5), valY(g, v)));
 		c.stroke();
 	}
 
-	// hours along the bottom
-	for (let i = 0; i < BUCKETS; i++) {
-		const t = bucketTime(i);
-		if (t.getMinutes() !== 0) continue;
-		const x = colX(g, i);
+	// time along the bottom
+	for (const t of timeTicks(g)) {
 		c.fillStyle = "rgba(127,231,242,0.18)";
-		c.fillRect(x, g.h - AXIS, 1, t.getHours() % 3 ? 3 : 6);
-		if (t.getHours() % 3 === 0 && x > GUTTER + 12 && x < g.w - 30) {
+		c.fillRect(t.x, g.h - AXIS, 1, 5);
+		if (t.x > GUTTER + 12 && t.x < g.w - 30) {
 			c.fillStyle = "rgba(92,122,134,0.9)";
-			c.fillText(hhmm(t), x - 15, g.h - 2);
+			c.fillText(t.label, t.x - c.measureText(t.label).width / 2, g.h - 2);
 		}
 	}
 
-	// the hotspots: a dot on the line, with when and how much
-	for (const i of hotspots(totals, 3, 24)) {
-		const x = colX(g, i + 0.5), y = valY(g, totals[i]);
-		c.fillStyle = heatColor(totals[i] / best);
+	// the hotspots: the busiest minutes, a dot at the peak with when and how much
+	for (const i of hotspots(peaks, 3, Math.max(1, Math.round(n / 12)))) {
+		const x = colX(g, i + 0.5), y = valY(g, peaks[i]);
+		c.fillStyle = heatColor(peaks[i] / best);
 		c.beginPath();
 		c.arc(x, y, 2.5, 0, Math.PI * 2);
 		c.fill();
-		const text = `${hhmm(bucketTime(i))} · ${fmtBytes(totals[i])}/min`;
+		const text = `${whenLabel(bucketTime(i))} · ${fmtBytes(peaks[i])}/min`;
 		const w = c.measureText(text).width;
 		c.fillStyle = "rgba(232,244,246,0.9)";
 		c.fillText(text, Math.max(GUTTER, Math.min(x - w / 2, g.w - w)), Math.max(10, y - 7));
@@ -1013,11 +1091,11 @@ function renderHeat() {
 	// a mark above the line: the outlier
 	if (DEVICES.some((d) => d.outlier && d.minutes.some((m) => heat(m[0]) > 0.9))) {
 		c.fillStyle = "rgba(255,59,59,0.9)";
-		c.fillRect(colX(g, BUCKETS - 1), 4, 2, 6);
+		c.fillRect(colX(g, n - 1), 4, 2, 6);
 	}
 
-	const top = busiestAt(peak);
-	peakBtn.textContent = best > 0 ? `peak ${dayLabel(bucketTime(peak))} · ${fmtBytes(best)}/min · most: ${top.short}` : "";
+	const top = n ? busiestAt(peak) : null;
+	peakBtn.textContent = best > 0 ? `peak ${whenLabel(bucketTime(peak))} · ${fmtBytes(best)}/min${top ? ` · most: ${top.short}` : ""}` : "";
 	heatDirty = false;
 }
 
@@ -1033,13 +1111,21 @@ function drawTimeline(now) {
 	hctx.drawImage(heatCache, 0, 0);
 	hctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 	hctx.font = "10px ui-monospace, Menlo, monospace";
+	if (!buckets()) return;
 
-	// hover: a line, and the time and amount under the pointer
+	// shift-drag: the stretch being picked
+	if (picking) {
+		const [a, b] = [Math.min(...picking), Math.max(...picking) + 1];
+		hctx.fillStyle = "rgba(127,231,242,0.15)";
+		hctx.fillRect(colX(g, a), TOP, colX(g, b) - colX(g, a), g.ph);
+	}
+
+	// hover: a line, and the time, the average and the peak under the pointer
 	if (hover !== null && !dragging) {
 		const x = colX(g, hover + 0.5);
 		hctx.fillStyle = "rgba(232,244,246,0.25)";
 		hctx.fillRect(x, TOP, 1, g.ph);
-		const text = `${hhmm(bucketTime(hover))} · ${fmtBytes(dayTotal(hover))}/min`;
+		const text = `${whenLabel(bucketTime(hover))} · ${fmtBytes(totalAt(hover))}/min, peak ${fmtBytes(peakAt(hover))}`;
 		const w = hctx.measureText(text).width;
 		hctx.fillStyle = "rgba(4,10,14,0.85)";
 		hctx.fillRect(Math.min(x + 6, g.w - w - 8) - 3, TOP + 2, w + 6, 14);
@@ -1065,63 +1151,111 @@ function drawTimeline(now) {
 	} else {
 		const i = Math.floor(cursor);
 		const d = busiestAt(i);
-		atEl.innerHTML = `<b>${dayLabel(bucketTime(i))}</b> · ${fmtBytes(dayTotal(i))}/min`
-			+ (d ? ` · most: ${d.short}, ${fmtBytes(d.day[i][0] + d.day[i][1])}/min` : "");
+		atEl.innerHTML = `<b>${whenLabel(bucketTime(i))}</b> · ${fmtBytes(totalAt(i))}/min`
+			+ (d ? ` · most: ${d.short}, ${fmtBytes(sum(seriesAt(d, i)))}/min` : "");
 	}
 }
+
+const rangesEl = document.getElementById("ranges");
+const zoomOutBtn = document.getElementById("zoom-out-tl");
 
 function renderControls() {
 	playBtn.textContent = playing ? "Pause" : "Play";
 	liveBtn.setAttribute("aria-pressed", String(mode === "live"));
+	rangesEl.innerHTML = RANGES.map(([r, label]) =>
+		`<button class="tl-btn range" data-range="${r}" aria-pressed="${!zoomed && r === range}" title="the last ${label}">${r}</button>`).join("");
+	rangesEl.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => setRange(b.dataset.range)));
+	zoomOutBtn.hidden = !zoomed;
+}
+
+function setRange(r) {
+	range = r;
+	zoomed = null;
+	playing = false;
+	loadTimeline();
+	renderControls();
+}
+
+// Zoom in to buckets a to b (shift-drag), or back out to the range.
+function zoomTo(a, b) {
+	if (b - a < 2) return;
+	zoomed = { from: Math.floor(bucketTime(a) / 1000), to: Math.ceil(bucketTime(b + 1) / 1000) };
+	playing = false;
+	mode = "history";
+	cursor = 0;
+	loadTimeline();
+	renderControls();
+}
+
+function zoomOut() {
+	if (!zoomed) return;
+	zoomed = null;
+	loadTimeline();
+	renderControls();
 }
 
 function seek(i) {
 	mode = "history";
-	cursor = Math.max(0, Math.min(BUCKETS - 1, i));
+	cursor = Math.max(0, Math.min(buckets() - 1, i));
 	renderControls();
 }
 
 function goLive() {
 	mode = "live";
 	playing = false;
-	cursor = BUCKETS - 1;
+	if (zoomed) zoomOut();
+	cursor = buckets() - 1;
 	renderControls();
 }
 
+// Play from the playhead; from the start if it's live or at the end.
 function togglePlay() {
-	if (!playing && (mode === "live" || cursor >= BUCKETS - 2)) seek(0);
+	if (!playing && (mode === "live" || cursor >= buckets() - 2)) seek(0);
 	playing = !playing;
 	renderControls();
 }
 
 function bucketAt(ev) {
 	const r = heatEl.getBoundingClientRect();
-	return Math.max(0, Math.min(BUCKETS - 1, Math.floor((ev.clientX - r.left - GUTTER) / ((r.width - GUTTER) / BUCKETS))));
+	const n = Math.max(1, buckets());
+	return Math.max(0, Math.min(n - 1, Math.floor((ev.clientX - r.left - GUTTER) / ((r.width - GUTTER) / n))));
 }
 
+// Drag: replay a moment. Shift-drag: pick a stretch to zoom in to.
 heatEl.addEventListener("pointerdown", (ev) => {
-	dragging = true;
-	playing = false;
 	heatEl.setPointerCapture(ev.pointerId);
+	if (ev.shiftKey) {
+		picking = [bucketAt(ev), bucketAt(ev)];
+		return;
+	}
+	dragging = true;
 	seek(bucketAt(ev));
 });
 heatEl.addEventListener("pointermove", (ev) => {
 	hover = bucketAt(ev);
-	if (dragging) seek(hover);
+	if (picking) picking[1] = hover;
+	else if (dragging) seek(hover);
 });
-heatEl.addEventListener("pointerup", () => (dragging = false));
+heatEl.addEventListener("pointerup", () => {
+	if (picking) zoomTo(Math.min(...picking), Math.max(...picking));
+	picking = null;
+	dragging = false;
+});
 heatEl.addEventListener("pointerleave", () => (hover = null));
+heatEl.addEventListener("dblclick", zoomOut);
 heatEl.addEventListener("keydown", (ev) => {
 	const by = ev.shiftKey ? 12 : 1;
 	if (ev.key === "ArrowLeft") seek(Math.round(cursor) - by);
 	else if (ev.key === "ArrowRight") seek(Math.round(cursor) + by);
 	else if (ev.key === "End") goLive();
 	else if (ev.key === " ") togglePlay();
+	else if (ev.key === "Escape") zoomOut();
 	else return;
 	ev.preventDefault();
 });
 playBtn.addEventListener("click", togglePlay);
 liveBtn.addEventListener("click", goLive);
+zoomOutBtn.addEventListener("click", zoomOut);
 peakBtn.addEventListener("click", () => {
 	playing = false;
 	seek(peak);
@@ -1204,7 +1338,7 @@ function select(d) {
 			<dt>signal</dt><dd>${d.rssi ?? "-"} dBm</dd>
 		</dl>
 
-		<div class="eyebrow">Traffic, last 24 hours</div>
+		<div class="eyebrow">Traffic, ${zoomed ? "the stretch zoomed in to" : `last ${RANGES.find(([r]) => r === range)[1]}`}</div>
 		<canvas class="spark" id="spark"></canvas>
 
 		<div class="eyebrow">Open ports</div>
@@ -1235,8 +1369,13 @@ function drawSpark(d) {
 	el.height = r.height * dpr;
 	const c = el.getContext("2d");
 	c.scale(dpr, dpr);
-	// half hours: the average of six buckets
-	const halves = Array.from({ length: BUCKETS / 6 }, (_, i) => d.day.slice(i * 6, i * 6 + 6).reduce((s, [a, b]) => s + a + b, 0) / 6);
+	// the shown stretch in at most 48 bars, each the average of its buckets
+	const all = TL.series.get(d.mac) ?? [];
+	const per = Math.max(1, Math.ceil(all.length / 48));
+	const halves = Array.from({ length: Math.ceil(all.length / per) }, (_, i) => {
+		const part = all.slice(i * per, i * per + per);
+		return part.reduce((t, x) => t + sum(x), 0) / Math.max(1, part.length);
+	});
 	const max = Math.max(1, ...halves);
 	const bw = r.width / halves.length;
 	halves.forEach((v, i) => {
@@ -1267,7 +1406,7 @@ function renderEvents() {
 		const d = e.device && DEVICES.find((x) => x.id === e.device);
 		if (d) return select(d);
 		playing = false;
-		seek(Math.round(((e.from ?? e.time) - dayStart) / BUCKET_MS));
+		seek(Math.round(bucketOf(e.from ?? e.time)));
 	}));
 }
 
@@ -1311,9 +1450,13 @@ function openSensor(name) {
 		<h2 class="name">${s.name}</h2>
 		<div class="where" id="sensor-ago"></div>
 
-		<div class="eyebrow">Heartbeat, last 24 hours</div>
-		<canvas class="spark" id="beat"></canvas>
-		<p class="note">${plural(s.reports, "report")}, ${s.missing} missing, ${plural(s.restarts, "restart")}</p>
+		<div class="eyebrow">Heartbeat</div>
+		<div class="beat-label"><span>last 60 minutes, a tick a minute</span><span>now</span></div>
+		<canvas class="beat" id="beat-hour"></canvas>
+		<div class="beat-label"><span>last 24 hours, a block per half hour</span></div>
+		<canvas class="beat" id="beat-day"></canvas>
+		<div class="beat-label"><span>24 h ago</span><span>12 h ago</span><span>now</span></div>
+		<p class="note" id="beat-summary"></p>
 
 		<div class="eyebrow">Newest report</div>
 		<dl class="kv">
@@ -1333,31 +1476,89 @@ function openSensor(name) {
 	wireClose();
 	showPanel("sensor");
 	updateSensorAges();
-	drawBeat(s);
+	drawHeartbeat(s);
 }
 
-// The day as a strip: a bar per 5 minutes, as tall as the reports in it (five
-// is a full one); a red tick where it was expected and nothing came.
-function drawBeat(s) {
-	const el = document.getElementById("beat");
+// A sensor's heartbeat as status bars (docs/timeline.md): the last hour a
+// tick a minute, the last day a block per half hour. Red marks a report that
+// should have come and didn't: one expected a period after the one before,
+// when the next came over half a period late (or hasn't yet). A tick is red
+// if it holds one; a block is cyan without one, amber with some reports, red
+// with none. Grey is before the sensor's first report. Reports drift a second
+// now and then, so a minute can pass without one while none is missing: that
+// tick stays cyan, unless the sensor is overdue: then every minute after its
+// last report is red. Hovering says what's behind a tick or a block.
+const BEAT_COLOR = { full: "rgba(127,231,242,0.85)", partial: "rgba(242,193,78,0.9)", none: "rgba(255,59,59,0.85)", before: "rgba(92,122,134,0.25)" };
+
+// When the missing reports were due, from report times in order.
+function missedTimes(beats, now) {
+	const P = REPORT_PERIOD_S;
+	const missed = [];
+	beats.forEach((p, i) => {
+		const next = beats[i + 1] ?? now;
+		for (let t = p + P; t < next - P / 2; t += P) missed.push(t);
+	});
+	return missed;
+}
+
+function beatSlots(s, count, slotS) {
+	const now = Date.now() / 1000;
+	const start = now - count * slotS;
+	const missed = missedTimes(s.beats, now);
+	// reports only reach back 24 hours: a first one near that start means it
+	// ran before, so nothing is "before its first report"
+	const first = s.beats[0] ?? Infinity;
+	const ranBefore = s.beats.length > 0 && first - (now - 86_400) < 180;
+	const last = s.beats.at(-1);
+	const overdue = last !== undefined && now - last > 1.5 * REPORT_PERIOD_S;
+	const inSlot = (from, to) => (t) => t >= from && t < to;
+	return Array.from({ length: count }, (_, k) => {
+		const from = start + k * slotS, to = from + slotS;
+		const n = s.beats.filter(inSlot(from, to)).length;
+		const m = missed.filter(inSlot(from, to)).length;
+		const silent = m > 0 || (overdue && n === 0 && from >= last);
+		const state = !ranBefore && to <= first ? "before" : !silent ? "full" : n > 0 ? "partial" : "none";
+		return { from, to, n, missed: m, expected: slotS / REPORT_PERIOD_S, state };
+	});
+}
+
+// The last 24 hours by the clock: the share of the reports that came, and the
+// missing ones, as the strips count them.
+function beatSummary(s) {
+	const now = Date.now() / 1000, since = now - 86_400;
+	const got = s.beats.filter((t) => t >= since).length;
+	const missing = missedTimes(s.beats, now).filter((t) => t >= since).length;
+	return { share: got + missing ? (100 * got) / (got + missing) : 0, missing };
+}
+
+function drawBeatStrip(el, slots, describe) {
 	const r = el.getBoundingClientRect();
 	el.width = r.width * dpr;
 	el.height = r.height * dpr;
 	const c = el.getContext("2d");
 	c.scale(dpr, dpr);
-	const bw = r.width / s.heartbeat.length;
-	const first = s.heartbeat.findIndex((n) => n > 0);
-	s.heartbeat.forEach((n, i) => {
-		const x = i * bw;
-		if (n > 0) {
-			const h = (Math.min(n, BUCKET_MIN) / BUCKET_MIN) * (r.height - 4);
-			c.fillStyle = n >= BUCKET_MIN - 1 ? "rgba(127,231,242,0.75)" : "rgba(242,193,78,0.85)";
-			c.fillRect(x, r.height - h, Math.max(1, bw - 0.3), h);
-		} else if (first >= 0 && i > first) {
-			c.fillStyle = "rgba(255,59,59,0.8)";
-			c.fillRect(x, r.height - 3, Math.max(1, bw - 0.3), 3);
-		}
+	const w = r.width / slots.length;
+	slots.forEach((slot, i) => {
+		c.fillStyle = BEAT_COLOR[slot.state];
+		c.fillRect(i * w + 0.5, 0, Math.max(1, w - 1.5), r.height);
 	});
+	el.onpointermove = (ev) => {
+		const i = Math.min(slots.length - 1, Math.floor((ev.clientX - el.getBoundingClientRect().left) / w));
+		el.title = describe(slots[i]);
+	};
+}
+
+function drawHeartbeat(s) {
+	const hour = beatSlots(s, 60, 60);
+	const day = beatSlots(s, 48, 1800);
+	const at = (t) => hhmm(new Date(t * 1000));
+	drawBeatStrip(document.getElementById("beat-hour"), hour, (x) =>
+		`${at(x.from)} · ${x.state === "before" ? "before its first report" : x.missed ? "no report" : x.n ? "report came in" : "on time, just over the minute"}`);
+	drawBeatStrip(document.getElementById("beat-day"), day, (x) =>
+		`${at(x.from)}–${at(x.to)} · ${x.state === "before" ? "before its first report" : `${x.n} of ${x.expected} reports` + (x.missed ? `, ${x.missed} missing` : "")}`);
+	const { share, missing } = beatSummary(s);
+	document.getElementById("beat-summary").textContent =
+		`${share.toFixed(1)}% of the expected reports in the last 24 hours · ${missing} missing · ${s.restarts} restart${s.restarts === 1 ? "" : "s"}`;
 }
 
 // The button counts the day's alerts.
@@ -1447,8 +1648,16 @@ setInterval(() => {
 }, 250);
 
 resize();
+renderControls();
 onData();
 loadOverview();
+// the page opens playing the range (not with reduced motion)
+loadTimeline().then(() => {
+	if (reduced || !buckets()) return;
+	seek(0);
+	playing = true;
+	renderControls();
+});
 requestAnimationFrame((now) => {
 	lastFrame = loopStart = ringStart = now;
 	requestAnimationFrame(step);
