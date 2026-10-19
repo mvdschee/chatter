@@ -21,8 +21,8 @@ use crate::{
 	core::{
 		models::config::{Command, Config},
 		setup::{
-			HandleDatabase, HandleImport, HandlePortScan, HandleScans, HandleServerApi,
-			HandleVendors,
+			HandleBaselines, HandleDatabase, HandleImport, HandlePortScan, HandleScans,
+			HandleServerApi, HandleVendors,
 		},
 	},
 	services::web::{HttpServerState, handlers::test_file},
@@ -45,6 +45,7 @@ async fn main() -> Result<()> {
 	}
 
 	HandleScans::new(db.clone(), &config, vendors).run();
+	HandleBaselines::new(db.clone()).run();
 
 	let state = HttpServerState {
 		db,

@@ -20,6 +20,7 @@ pub enum DbValue {
 	TextOpt(Option<String>),
 	Int(i64),
 	IntOpt(Option<i64>),
+	Real(f64),
 }
 
 type SqliteQuery<'q> = Query<'q, Sqlite, SqliteArguments>;
@@ -31,6 +32,7 @@ fn bind(mut query: SqliteQuery<'_>, params: Vec<DbValue>) -> SqliteQuery<'_> {
 			DbValue::TextOpt(value) => query.bind(value),
 			DbValue::Int(value) => query.bind(value),
 			DbValue::IntOpt(value) => query.bind(value),
+			DbValue::Real(value) => query.bind(value),
 		};
 	}
 	query
@@ -94,6 +96,18 @@ impl DatabaseRepository {
 		}
 		tx.commit().await.map_err(|e| Error::Database(format!("commit: {e}")))?;
 		Ok(id)
+	}
+
+	/// Runs the statements in one transaction: all of them or none.
+	pub async fn execute_all(&self, statements: Vec<(&'static str, Vec<DbValue>)>) -> Result<()> {
+		let mut tx = self.pool.begin().await.map_err(|e| Error::Database(format!("begin: {e}")))?;
+		for (sql, params) in statements {
+			bind(sqlx::query(sql), params)
+				.execute(&mut *tx)
+				.await
+				.map_err(|e| Error::Database(format!("execute: {e}")))?;
+		}
+		tx.commit().await.map_err(|e| Error::Database(format!("commit: {e}")))
 	}
 
 	/// Fetch one record dynamically.

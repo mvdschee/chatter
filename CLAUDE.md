@@ -26,6 +26,8 @@
 - `docs/floorplan.md`: the floor plan editor: research, data and plan.
 - `docs/timeline.md`: the timeline (ranges, playback) and the sensor
   heartbeat: research and plan.
+- `docs/outliers.md`: colouring devices by their own normal (baselines,
+  robust score): research and plan, the next thing to build.
 - `docs/setup.md`: the install log. Add every install or setup step as it is
   run.
 - `DECISIONS.md`: why things are the way they are.

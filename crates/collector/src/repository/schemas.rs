@@ -38,6 +38,10 @@ pub const REPORTS_TOTALS_BETWEEN: &str = "SELECT r.received_at, coalesce((SELECT
 	sum(d.tx_bytes + d.rx_bytes) FROM device_minutes d WHERE d.report_id = r.id), 0) AS total \
 	FROM reports r WHERE r.received_at >= ?1 AND r.received_at < ?2";
 
+/// Every report from `?1` up to `?2`: `id`, `received_at`.
+pub const REPORTS_BETWEEN: &str =
+	"SELECT id, received_at FROM reports WHERE received_at >= ?1 AND received_at < ?2";
+
 // --- device_minutes --------------------------------------------------------
 
 /// How many devices report `?1` has: `n`.
@@ -60,6 +64,12 @@ pub const DEVICE_MINUTES_PER_BUCKET_BETWEEN: &str = "SELECT mac, (received_at - 
 pub const DEVICE_MINUTES_LAST_N_REPORTS: &str = "SELECT report_id, mac, tx_bytes, rx_bytes \
 	FROM device_minutes WHERE report_id IN \
 	(SELECT id FROM reports ORDER BY received_at DESC, id DESC LIMIT ?1)";
+
+/// Each device's bytes per report from `?1` up to `?2`: `report_id`, `mac`,
+/// `bytes` (sent and received).
+pub const DEVICE_MINUTES_BYTES_BETWEEN: &str = "SELECT report_id, mac, \
+	sum(tx_bytes + rx_bytes) AS bytes FROM device_minutes \
+	WHERE received_at >= ?1 AND received_at < ?2 GROUP BY report_id, mac";
 
 /// A child of `REPORTS_INSERT`: `?1` is the report's id.
 pub const DEVICE_MINUTES_INSERT: &str = "INSERT INTO device_minutes \
@@ -157,3 +167,10 @@ pub const SCAN_CHANGES_BETWEEN: &str = "SELECT c.mac, c.kind, c.alert, c.port, c
 	FROM scan_changes c JOIN scans s ON s.id = c.scan_id \
 	LEFT JOIN scan_hosts h ON h.scan_id = c.scan_id AND h.mac = c.mac \
 	WHERE s.finished_at >= ?1 AND s.finished_at < ?2 ORDER BY s.finished_at, c.id";
+
+// --- baselines -------------------------------------------------------------
+
+pub const BASELINES_DELETE_ALL: &str = "DELETE FROM baselines";
+
+pub const BASELINES_INSERT: &str = "INSERT INTO baselines \
+	(mac, hour, median, mad, n, computed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)";

@@ -7,6 +7,7 @@ use crate::{
 	Result,
 	core::{
 		handlers::{
+			baseline::baseline_loop,
 			import::import_reports,
 			scan::{current_targets, port_scan, port_scan_loop, sweep_loop},
 			vendor::{load_vendors, vendor_loop},
@@ -127,6 +128,23 @@ impl HandleScans {
 			},
 			None => info!("CHATTER_PORT_SCAN_AT=off: no port scans"),
 		}
+	}
+}
+
+/// Each device's usual traffic, worked out again every hour.
+pub struct HandleBaselines {
+	db: DatabaseRepository,
+}
+
+impl HandleBaselines {
+	pub fn new(db: DatabaseRepository) -> Self {
+		Self {
+			db,
+		}
+	}
+
+	pub fn run(self) {
+		tokio::spawn(baseline_loop(self.db));
 	}
 }
 

@@ -203,7 +203,8 @@ One reviewable chunk each, with its check:
    ring for each new one; its panel has the day's heartbeat (reports per 5
    minutes, missing ones in red), its newest report (uptime, channel,
    networks known, devices, dropped), and its mode, where identify will go.
-7. **Outliers and email:** baselines plus the rules above.
+7. **Outliers and email:** baselines plus the rules above. The colour by a
+   device's own normal comes first: `docs/outliers.md`.
    Check: the C3 test client's download triggers exactly one email.
 8. **DNS names** in the device panel.
 
@@ -226,8 +227,8 @@ Only the owner can judge:
 ## Still unsure
 
 1. **Colour scale:** absolute traffic, or relative to each device's normal?
-   Absolute shows the big talkers; relative shows the unusual. Possibly both:
-   colour absolute, outlier glitch relative.
+   Absolute shows the big talkers; relative shows the unusual. Decided
+   2026-10-19: colour relative, size absolute (`docs/outliers.md`).
 2. The port scan's schedule and options (how deep, how often), now that the
    app runs it.
 3. How the DNS log is read.
