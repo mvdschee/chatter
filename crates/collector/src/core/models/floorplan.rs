@@ -2,9 +2,11 @@
 //! their edges. Walls are the rooms' edges. In as `FloorPlanPayload`, the
 //! JSON the page saves; checked into a `FloorPlan`, which is also how it's
 //! stored and sent back. The underlay, an image to trace over, is a file of
-//! its own; the plan keeps where it lies. See `docs/floorplan.md`.
+//! its own; the plan keeps where it lies. The places of the router, the
+//! sensors and the devices are in the plan too, so they move with it. See
+//! `docs/floorplan.md`.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +18,8 @@ pub type Point = [f64; 2];
 /// More corners than any room needs; keeps the crossing check small.
 pub const MAX_CORNERS: usize = 100;
 pub const MAX_ROOMS: usize = 100;
+/// More devices than a home has, sensors included.
+pub const MAX_PLACES: usize = 1000;
 const MAX_ID: usize = 32;
 const MAX_NAME: usize = 64;
 /// A floor plan scan or a phone photo of one fits easily.
@@ -32,6 +36,8 @@ pub struct FloorPlanPayload {
 	pub openings: Vec<Opening>,
 	#[serde(default)]
 	pub underlay: Option<Underlay>,
+	#[serde(default)]
+	pub places: Places,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -41,6 +47,33 @@ pub struct FloorPlan {
 	/// Plans saved before underlays had none.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub underlay: Option<Underlay>,
+	/// Plans saved before places had none.
+	#[serde(default)]
+	pub places: Places,
+}
+
+/// Where things stand on the plan, in metres. Kept for devices not seen
+/// lately too, so one that's off for a while keeps its spot.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Places {
+	#[serde(default)]
+	pub router: Option<Point>,
+	/// By the sensor's name.
+	#[serde(default)]
+	pub sensors: BTreeMap<String, Point>,
+	/// By MAC, lowercase with colons, as the reports have it.
+	#[serde(default)]
+	pub devices: BTreeMap<String, DevicePlace>,
+}
+
+/// A device stands somewhere, or moves around with someone: one of the two.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DevicePlace {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub at: Option<Point>,
+	/// Who it moves around with (a laptop, a phone).
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub carried_by: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -109,10 +142,12 @@ impl TryFrom<FloorPlanPayload> for FloorPlan {
 		if let Some(underlay) = &payload.underlay {
 			check_underlay(underlay)?;
 		}
+		check_places(&payload.places)?;
 		Ok(Self {
 			rooms: payload.rooms,
 			openings: payload.openings,
 			underlay: payload.underlay,
+			places: payload.places,
 		})
 	}
 }
@@ -175,6 +210,49 @@ fn check_underlay(u: &Underlay) -> Result<()> {
 		return Err(Error::Plan("underlay: an angle is between -π and π".into()));
 	}
 	Ok(())
+}
+
+fn check_places(places: &Places) -> Result<()> {
+	let bad = |why: String| Err(Error::Plan(format!("places: {why}")));
+	if places.sensors.len() + places.devices.len() > MAX_PLACES {
+		return bad(format!("more than {MAX_PLACES}"));
+	}
+	let finite = |p: &Point| p.iter().all(|v| v.is_finite());
+	if places.router.as_ref().is_some_and(|p| !finite(p)) {
+		return bad("the router's place isn't a number".into());
+	}
+	for (name, at) in &places.sensors {
+		if name.trim().is_empty() || name.chars().count() > MAX_NAME {
+			return bad(format!("a sensor's name is 1 to {MAX_NAME} characters"));
+		}
+		if !finite(at) {
+			return bad(format!("sensor {name:?}: its place isn't a number"));
+		}
+	}
+	for (mac, place) in &places.devices {
+		if !is_mac(mac) {
+			return bad(format!("{mac:?} isn't a MAC like 0a:1b:2c:3d:4e:5f"));
+		}
+		match (&place.at, &place.carried_by) {
+			(Some(at), None) if finite(at) => {},
+			(None, Some(who)) if !who.trim().is_empty() && who.chars().count() <= MAX_NAME => {},
+			(Some(_), None) => return bad(format!("{mac}: its place isn't a number")),
+			(None, Some(_)) => {
+				return bad(format!("{mac}: who carries it is 1 to {MAX_NAME} characters"));
+			},
+			_ => return bad(format!("{mac}: either a place or who carries it, one of the two")),
+		}
+	}
+	Ok(())
+}
+
+/// Six lowercase hex pairs with colons, the way the reports write a MAC.
+fn is_mac(s: &str) -> bool {
+	s.len() == 17
+		&& s.split(':').all(|pair| {
+			pair.len() == 2
+				&& pair.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+		})
 }
 
 /// The polygon's edges, the last corner back to the first included.
@@ -263,6 +341,7 @@ mod tests {
 			rooms,
 			openings,
 			underlay: None,
+			places: Places::default(),
 		})
 	}
 
@@ -361,6 +440,7 @@ mod tests {
 				rooms: vec![room("a", &SQUARE)],
 				openings: vec![],
 				underlay: Some(underlay),
+				places: Places::default(),
 			})
 		};
 		let good = Underlay {
@@ -398,6 +478,58 @@ mod tests {
 		let json =
 			r#"{"rooms":[{"id":"a","name":"A","points":[[0,0],[1,0],[1,1]]}],"openings":[]}"#;
 		assert_eq!(serde_json::from_str::<FloorPlan>(json).unwrap().underlay, None);
+	}
+
+	// made up at random; the doc's example
+	const STANDS: &str = "fa:42:31:98:3e:b5";
+	const CARRIED: &str = "c2:d7:2c:93:34:d2";
+
+	fn with_places(json: &str) -> Result<FloorPlan> {
+		let places: Places = serde_json::from_str(json).unwrap();
+		FloorPlan::try_from(FloorPlanPayload {
+			rooms: vec![room("a", &SQUARE)],
+			openings: vec![],
+			underlay: None,
+			places,
+		})
+	}
+
+	#[test]
+	fn places_are_kept_and_read_back() {
+		let json = format!(
+			r#"{{"router":[1.5,0.4],"sensors":{{"study":[3.1,2.2]}},
+			"devices":{{"{STANDS}":{{"at":[0.8,2.0]}},"{CARRIED}":{{"carried_by":"Robin"}}}}}}"#
+		);
+		let saved = with_places(&json).unwrap();
+		let back: FloorPlan =
+			serde_json::from_str(&serde_json::to_string(&saved).unwrap()).unwrap();
+		assert_eq!(back, saved);
+		assert_eq!(back.places.devices[CARRIED].carried_by.as_deref(), Some("Robin"));
+		assert_eq!(back.places.router, Some([1.5, 0.4]));
+	}
+
+	#[test]
+	fn a_plan_saved_before_places_reads_with_none() {
+		let json =
+			r#"{"rooms":[{"id":"a","name":"A","points":[[0,0],[1,0],[1,1]]}],"openings":[]}"#;
+		assert_eq!(serde_json::from_str::<FloorPlan>(json).unwrap().places, Places::default());
+	}
+
+	#[test]
+	fn bad_places_fail() {
+		for json in [
+			// a device both placed and carried, or neither
+			format!(r#"{{"devices":{{"{STANDS}":{{"at":[1,1],"carried_by":"Robin"}}}}}}"#),
+			format!(r#"{{"devices":{{"{STANDS}":{{}}}}}}"#),
+			// not a MAC the way the reports write them
+			r#"{"devices":{"FA:42:31:98:3E:B5":{"at":[1,1]}}}"#.to_string(),
+			r#"{"devices":{"fa-42-31-98-3e-b5":{"at":[1,1]}}}"#.to_string(),
+			// nobody carrying it
+			format!(r#"{{"devices":{{"{CARRIED}":{{"carried_by":"  "}}}}}}"#),
+			r#"{"sensors":{"":[1,1]}}"#.to_string(),
+		] {
+			assert!(with_places(&json).is_err(), "{json}");
+		}
 	}
 
 	#[test]

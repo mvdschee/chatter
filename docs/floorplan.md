@@ -1,6 +1,6 @@
 # The floor plan editor (research and plan)
 
-Status, 2026-10-20: research done; chunks 1 to 4 of the chunks below built.
+Status, 2026-10-20: research done; chunks 1 to 4 and the first half of 7 built.
 Plan step 3 in `docs/monitoring.md`. The view draws the saved plan, or a
 made-up example (`EXAMPLE_PLAN` in `crates/collector/ui/plan.js`) until
 one with rooms is saved.
@@ -234,7 +234,43 @@ One reviewable commit each:
 5. Edit: drag corners (a shared one moves in every room), undo and redo.
    (Renaming and deleting came with chunk 3.)
 6. Doors on edges.
-7. Place devices and sensors by dragging them; their own `positions` table.
+7. Place the router, the sensors and the devices, in two commits. The
+   owner chose (2026-10-20): placing is a step in the editor, top-down; a
+   device not placed yet waits in a marked place on the ground in front of
+   the house, not on a made-up spot inside; and a device that moves around
+   with someone (a laptop, a phone) is marked as theirs instead of placed.
+   Positions are saved in the plan, not in a table of their own as first
+   planned: turning the plan and measuring the underlay again move them with
+   the rooms, and one save keeps rooms and positions together.
+   ```json
+   "places": {
+     "router": [3.1, 2.0],
+     "sensors": { "study": [5.2, 4.4] },
+     "devices": {
+       "fa:42:31:98:3e:b5": { "at": [1.2, 0.9] },
+       "c2:d7:2c:93:34:d2": { "carried_by": "Robin" }
+     }
+   }
+   ```
+   A device is named by its MAC, a sensor by its name. Places of devices
+   not seen lately are kept, so a device that's off for a week keeps its
+   spot.
+   1. Done: storage and the editor: `places` checked and saved with the plan
+      (points are numbers, MACs look like MACs, names 1 to 64 characters,
+      at most 1000 devices); Turn and measuring again move them. A Place
+      step before saving: the router, the sensors and the devices in a list
+      with a filter (name, vendor, IP, MAC), each placed, carried by someone
+      or waiting; pick one, click where it stands, and the next one waiting
+      is picked; drag a placed one to move it; the picked one can be marked
+      as carried by a person (a name, the last one offered again) or sent
+      back to waiting. A device's panel in the view gets "Place", which
+      opens the editor on it. Going into Place picks the first one waiting;
+      a press on a placed thing picks it rather than placing the picked one
+      on top of it. The view doesn't use the places yet.
+   2. The view: placed things where they stand, every placed sensor drawn;
+      in front of the house, on the ground, a marked area of the devices
+      still waiting and one per person with the devices they carry; a
+      device's panel says its room, or who carries it, or that it waits.
 
 ## Validation
 
@@ -268,3 +304,7 @@ Only the owner can judge:
 4. **Moving a shared corner** moves both rooms. Is that always wanted, or does
    it need a way to pull rooms apart?
 5. **Phone editing:** how much of the drawing works with fingers.
+6. **Private MACs:** a phone that makes up a new MAC per network, or now
+   and then, comes back as a new device, waiting again, and its old place
+   is kept under a MAC that's gone. Carried devices are the ones that do
+   this most; matching them up needs more than the MAC.

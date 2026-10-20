@@ -9,8 +9,11 @@
 // the length of, type it. The image goes to PUT /v1/plan/underlay on save,
 // where it lies goes in the plan. Turn: the whole plan a quarter round. The
 // panel lists the steps, the next one lit.
+// Placing (chunk 7): the router, the sensors and the devices, each placed,
+// carried by someone, or waiting; saved in the plan as `places`.
 
 import { atLength, box, canAdd, crossesItself, dist, followImage, fromImage, inside, labelAt, measure, mm, roomWidth, snap, turnPlan } from "./geometry.js";
+import { DEVICES, SENSORS } from "./data.js";
 import { closePanel } from "./panel.js";
 import { loadPlan, saved } from "./plan.js";
 import { resize as resizeView } from "./view.js";
@@ -29,6 +32,11 @@ const showBtn = document.getElementById("underlay-show");
 const removeBtn = document.getElementById("underlay-remove");
 const turnBtns = [document.getElementById("turn-left"), document.getElementById("turn-right")];
 const stepEls = document.querySelectorAll("#edit-steps [data-step]");
+const thingsEl = document.getElementById("edit-things");
+const thingsList = document.getElementById("things-list");
+const thingDetail = document.getElementById("thing-detail");
+const filterEl = document.getElementById("things-filter");
+const carriersEl = document.getElementById("carriers");
 
 // The collector's limit on corners per room.
 const MAX_CORNERS = 100;
@@ -63,6 +71,11 @@ const HELP = {
 		["type 4.2, Enter", "its length: the image scales to it, and turns square if the wall leans a little"],
 		["Esc", "start again"],
 	],
+	place: [
+		["click", "put the picked one there; the next one waiting is picked"],
+		["drag a placed one", "move it"],
+		["Esc", "pick nothing"],
+	],
 	both: [
 		["Alt", "no snapping"],
 		["drag", "move the plan"],
@@ -83,6 +96,10 @@ let rooms = [], openings = [], chain = [], next = null, typed = "", dirty = fals
 // last showed.
 let underlay = null, ghost = null, imageFile = null, shown = true, loads = 0;
 let measured = false, turned = false, stepsKey = "";
+// Where things stand ({ router, sensors, devices }, devices not seen lately
+// kept), the one picked in the list (a key from things()), the name last
+// given as who carries a device.
+let places = noPlaces(), picked = null, carrier = "";
 // The last pointer position, to snap again when Alt or the corners change;
 // when the last corner was put (a double-click that can't close takes it back).
 let pointer = null, addedAt = 0;
@@ -128,6 +145,8 @@ function openEditor() {
 	[chain, next, typed, dirty, pointer, lit] = [[], null, "", false, null, null];
 	[underlay, ghost, imageFile, shown] = [structuredClone(saved?.underlay ?? null), null, null, true];
 	[measured, turned] = [Boolean(underlay), false];
+	places = { ...noPlaces(), ...structuredClone(saved?.places ?? {}) };
+	[picked, filterEl.value] = [null, ""];
 	if (underlay) {
 		const n = ++loads;
 		loadImage(`/v1/plan/underlay?${Date.now()}`)
@@ -147,6 +166,7 @@ function openEditor() {
 	fitView();
 	setTool(tool);
 	renderRooms();
+	renderThings();
 	canvas.focus();
 	say("");
 }
@@ -163,6 +183,9 @@ function setTool(t) {
 	if (t !== "scale") drawTool = t;
 	[tool, chain, typed] = [t, [], ""];
 	toolBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.tool === t)));
+	thingsEl.hidden = t !== "place";
+	// into Place with nothing picked: the first one waiting
+	if (t === "place" && !picked) pick(things().find((x) => !placeOf(x.key))?.key ?? null);
 	helpEl.replaceChildren(...[...HELP[t], ...HELP.both].flatMap(([key, what]) => [el("dt", key), el("dd", what)]));
 	aim();
 }
@@ -224,7 +247,7 @@ function deleteRoom(i) {
 function aim() {
 	if (!pointer) return (next = null);
 	const p = [(pointer.x - cam.ox) / cam.ppm, (pointer.y - cam.oy) / cam.ppm];
-	if (pointer.alt || tool === "scale") return (next = { at: p.map(mm), how: "free" });
+	if (pointer.alt || tool === "scale" || tool === "place") return (next = { at: p.map(mm), how: "free" });
 	const walls = rooms.flatMap((r) => r.points);
 	const reach = REACH_PX / cam.ppm;
 	if (tool === "box") return (next = snap(p, { corners: walls, reach }));
@@ -250,6 +273,7 @@ function addRoom(points) {
 }
 
 function click(p) {
+	if (tool === "place") return placePicked(p);
 	if (tool === "scale") {
 		chain = chain.length === 1 ? [chain[0], p] : [p];
 		typed = "";
@@ -309,7 +333,7 @@ function measureWall() {
 	underlay = measure(underlay, chain[0], chain[1], len);
 	// measured before: what's traced is on the image, and goes with it
 	const carried = measured && rooms.length > 0;
-	if (carried) ({ rooms, openings } = followImage({ rooms, openings }, before, underlay));
+	if (carried) ({ rooms, openings, places } = followImage({ rooms, openings, places }, before, underlay));
 	[measured, dirty] = [true, true];
 	setTool(drawTool);
 	// the whole plan in sight, to see which way round it should go
@@ -377,11 +401,11 @@ function removeUnderlay() {
 	say("Underlay removed.");
 }
 
-// The whole plan a quarter round, clockwise for 1: rooms, doorways and the
-// image together, so what's traced stays on it.
+// The whole plan a quarter round, clockwise for 1: rooms, doorways, places
+// and the image together, so what's traced stays on it.
 function turn(dir) {
 	if (chain.length && tool !== "scale") return say("Finish the room being drawn first, or drop it (Esc).", true);
-	({ rooms, openings, underlay } = turnPlan({ rooms, openings, underlay }, dir));
+	({ rooms, openings, underlay, places } = turnPlan({ rooms, openings, underlay, places }, dir));
 	[chain, typed, turned, dirty] = [[], "", true, true];
 	fitView();
 	aim();
@@ -396,8 +420,9 @@ function updateSteps() {
 		: underlay && !measured ? "scale"
 		: !turned && !rooms.length ? "turn"
 		: !rooms.length ? "rooms"
+		: !anyPlaced() ? "place"
 		: "save";
-	const done = { image: Boolean(underlay), scale: Boolean(underlay) && measured, turn: turned, rooms: rooms.length > 0, save: false };
+	const done = { image: Boolean(underlay), scale: Boolean(underlay) && measured, turn: turned, rooms: rooms.length > 0, place: anyPlaced(), save: false };
 	const key = JSON.stringify([now, done, shown]);
 	if (key === stepsKey) return;
 	stepsKey = key;
@@ -410,6 +435,188 @@ function updateSteps() {
 	scaleBtn.disabled = showBtn.disabled = removeBtn.disabled = !underlay;
 	showBtn.setAttribute("aria-pressed", String(shown));
 	turnBtns.forEach((b) => (b.disabled = !underlay && !rooms.length));
+}
+
+// --- placing ---
+
+function noPlaces() {
+	return { router: null, sensors: {}, devices: {} };
+}
+
+const anyPlaced = () => Boolean(places.router) || Object.keys(places.sensors).length > 0 || Object.keys(places.devices).length > 0;
+
+// What can be placed: the router, the sensors and the devices seen lately,
+// each with a key: "router", "sensor:<name>" or the device's MAC. Devices
+// with a name first.
+function things() {
+	const devices = [...DEVICES].sort((a, b) => (a.hostname ? 0 : 1) - (b.hostname ? 0 : 1) || a.name.localeCompare(b.name));
+	return [
+		{ key: "router", name: "Router", sub: "where the traffic goes" },
+		...SENSORS.map((x) => ({ key: `sensor:${x.name}`, name: x.name, sub: "sensor" })),
+		...devices.map((d) => ({ key: d.mac, name: d.name, sub: [d.vendor, d.ip, d.name === d.mac ? null : d.mac].filter(Boolean).join(" · "), device: true })),
+	];
+}
+
+// Where a thing is: { at } or { carried_by }, or null while it waits.
+function placeOf(key) {
+	if (key === "router") return places.router && { at: places.router };
+	if (key.startsWith("sensor:")) {
+		const at = places.sensors[key.slice(7)];
+		return at ? { at } : null;
+	}
+	return places.devices[key] ?? null;
+}
+
+// Puts a thing at { at }, with { carried_by }, or back to waiting (null).
+function setPlace(key, place) {
+	if (key === "router") places.router = place?.at ?? null;
+	else if (key.startsWith("sensor:")) {
+		if (place?.at) places.sensors[key.slice(7)] = place.at;
+		else delete places.sensors[key.slice(7)];
+	} else if (place) places.devices[key] = place;
+	else delete places.devices[key];
+	dirty = true;
+}
+
+const roomAt = (p) => rooms.find((r) => inside(p, r.points))?.name;
+
+function pick(key) {
+	picked = key;
+	renderThings();
+	thingsList.querySelector('[aria-pressed="true"]')?.scrollIntoView({ block: "nearest" });
+}
+
+// Click in Place: the picked thing goes there.
+function placePicked(p) {
+	const t = things().find((x) => x.key === picked);
+	if (!t) return say("Pick something in the list first.", true);
+	const waited = !placeOf(picked);
+	setPlace(picked, { at: p });
+	const room = roomAt(p);
+	say(`${t.name} placed${room ? ` in ${room}` : ""}.`);
+	handOn(waited);
+}
+
+// After placing the picked thing or saying who carries it: one that was
+// waiting hands over to the next one waiting, so a run of devices goes click
+// by click.
+function handOn(waited) {
+	if (!waited) return renderThings();
+	const all = things();
+	const i = all.findIndex((t) => t.key === picked);
+	pick([...all.slice(i + 1), ...all.slice(0, i)].find((t) => !placeOf(t.key))?.key ?? null);
+}
+
+// The placed thing nearest the pointer on screen, within reach, or null.
+function thingNear(x, y) {
+	let best = null, bestD = REACH_PX + 4;
+	for (const t of things()) {
+		const at = placeOf(t.key)?.at;
+		if (!at) continue;
+		const [sx, sy] = toScreen(at);
+		const d = Math.hypot(sx - x, sy - y);
+		if (d < bestD) [best, bestD] = [t.key, d];
+	}
+	return best;
+}
+
+const carriers = () => [...new Set(Object.values(places.devices).map((d) => d.carried_by).filter(Boolean))].sort();
+
+// The list (filtered), each thing with where it is, and the picked one's
+// details and what can be done with it.
+function renderThings() {
+	const all = things();
+	const q = filterEl.value.trim().toLowerCase();
+	const shown = q ? all.filter((t) => `${t.name} ${t.sub} ${t.key}`.toLowerCase().includes(q)) : all;
+	thingsList.replaceChildren(
+		...shown.map((t) => {
+			const place = placeOf(t.key);
+			const b = el("button");
+			b.setAttribute("aria-pressed", String(t.key === picked));
+			const state = el("span", place?.at ? roomAt(place.at) ?? "placed" : place?.carried_by ?? "waiting");
+			state.className = `state${place?.at ? " placed" : place?.carried_by ? " carried" : ""}`;
+			b.append(el("span", t.name), state, el("small", t.sub));
+			b.addEventListener("click", () => pick(t.key === picked ? null : t.key));
+			const li = el("li");
+			li.append(b);
+			return li;
+		}),
+	);
+	if (!shown.length) thingsList.append(el("li", "Nothing found."));
+	carriersEl.replaceChildren(...carriers().map((name) => Object.assign(el("option"), { value: name })));
+	renderDetail(all.find((t) => t.key === picked));
+}
+
+function renderDetail(t) {
+	if (!t) return thingDetail.replaceChildren();
+	const place = placeOf(t.key);
+	const room = place?.at && roomAt(place.at);
+	const where = place?.at ? `Stands ${room ? `in ${room}` : "outside the rooms"}: click a new spot, or drag it on the plan.`
+		: place?.carried_by ? `Moves around with ${place.carried_by}.`
+		: "Waiting: click where it stands.";
+	const parts = [el("b", t.name), el("small", t.sub), el("p", where)];
+	if (t.device) {
+		const row = el("div");
+		row.className = "row";
+		const who = Object.assign(el("input"), { value: place?.carried_by ?? carrier, placeholder: "who carries it", maxLength: 64 });
+		who.setAttribute("list", "carriers");
+		who.setAttribute("aria-label", "Who carries it");
+		const set = el("button", "Moves with");
+		set.className = "tl-btn";
+		const go = () => {
+			const name = who.value.trim();
+			if (!name) return say("Type who carries it.", true);
+			carrier = name;
+			const waited = !place;
+			setPlace(t.key, { carried_by: name });
+			say(`${t.name} moves around with ${name}.`);
+			handOn(waited);
+		};
+		set.addEventListener("click", go);
+		who.addEventListener("keydown", (ev) => ev.key === "Enter" && go());
+		row.append(who, set);
+		parts.push(row);
+	}
+	if (place) {
+		const back = el("button", t.device ? "Back to waiting" : "Not placed");
+		back.className = "tl-btn";
+		back.addEventListener("click", () => {
+			setPlace(t.key, null);
+			renderThings();
+			say(`${t.name} ${t.device ? "waits in front of the house" : "isn't placed"}.`);
+		});
+		parts.push(back);
+	}
+	thingDetail.replaceChildren(...parts);
+}
+
+// Everything placed, on the plan: the router and sensors as squares, devices
+// as dots; names while placing; the picked one ringed, and where it would go.
+function drawPlaces() {
+	const placing = tool === "place";
+	ctx.font = "11px ui-monospace, Menlo, monospace";
+	for (const t of things()) {
+		const at = placeOf(t.key)?.at;
+		if (!at) continue;
+		const [x, y] = toScreen(at);
+		const lit = t.key === picked;
+		ctx.fillStyle = lit ? "#e8f4f6" : t.device ? "rgba(232,244,246,0.75)" : "#7fe7f2";
+		if (t.device) {
+			ctx.beginPath();
+			ctx.arc(x, y, 4, 0, Math.PI * 2);
+			ctx.fill();
+		} else ctx.fillRect(x - 5, y - 5, 10, 10);
+		if (lit) ring([x, y], 9, "#7fe7f2");
+		if (placing || lit) {
+			ctx.fillStyle = lit ? "#e8f4f6" : "rgba(232,244,246,0.6)";
+			ctx.fillText(t.name, x + 9, y + 4);
+		}
+	}
+	if (!placing || !picked || !next || drag) return;
+	const [x, y] = toScreen(next.at);
+	ctx.setLineDash([3, 3]);
+	ring([x, y], 6, "rgba(232,244,246,0.7)");
+	ctx.setLineDash([]);
 }
 
 async function save() {
@@ -430,7 +637,7 @@ async function save() {
 		const res = await fetch("/v1/plan", {
 			method: "PUT",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ rooms, openings, underlay }),
+			body: JSON.stringify({ rooms, openings, underlay, places }),
 		});
 		if (!res.ok) return say(`Not saved: ${(await res.text()) || `HTTP ${res.status}`}`, true);
 	} catch (e) {
@@ -481,7 +688,7 @@ export function drawEditor() {
 
 	ctx.font = '600 12px "Avenir Next Condensed", "Arial Narrow", sans-serif';
 	// the room pointed at, or lit from the list, shows its walls' lengths
-	const at = pointer && !chain.length && [(pointer.x - cam.ox) / cam.ppm, (pointer.y - cam.oy) / cam.ppm];
+	const at = pointer && !chain.length && tool !== "place" && [(pointer.x - cam.ox) / cam.ppm, (pointer.y - cam.oy) / cam.ppm];
 	const sized = lit ?? (at ? rooms.findIndex((r) => inside(at, r.points)) : -1);
 	rooms.forEach((r, i) => {
 		const pts = r.points.map(toScreen);
@@ -498,12 +705,13 @@ export function drawEditor() {
 		ctx.fillText(r.name.toUpperCase().split("").join(" "), lx, ly);
 	});
 	if (sized >= 0) wallLengths(rooms[sized].points);
+	drawPlaces();
 
 	const last = chain.at(-1);
 	if (tool === "box") drawBox(last);
 	else if (tool === "scale") drawScale();
-	else drawLines(last);
-	if (!next) return;
+	else if (tool === "lines") drawLines(last);
+	if (!next || tool === "place") return;
 	const [nx, ny] = toScreen(next.at);
 	if (next.how === "corner") ring([nx, ny], 7, "#7fe7f2");
 	else {
@@ -628,11 +836,15 @@ function ring([x, y], r, color) {
 	ctx.stroke();
 }
 
-// Click to put a corner, drag to move the plan, scroll to zoom.
+// Click to put a corner, drag to move the plan, scroll to zoom. In Place, a
+// press on a placed thing picks it, and dragging moves it instead.
 let drag = null;
 canvas.addEventListener("pointerdown", (ev) => {
 	canvas.focus();
-	drag = { x: ev.clientX, y: ev.clientY, moved: false };
+	const r = canvas.getBoundingClientRect();
+	const thing = tool === "place" ? thingNear(ev.clientX - r.left, ev.clientY - r.top) : null;
+	drag = { x: ev.clientX, y: ev.clientY, moved: false, thing };
+	if (thing) pick(thing);
 	canvas.setPointerCapture(ev.pointerId);
 });
 canvas.addEventListener("pointermove", (ev) => {
@@ -642,8 +854,14 @@ canvas.addEventListener("pointermove", (ev) => {
 		const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
 		if (drag.moved || Math.hypot(dx, dy) >= 4) {
 			drag.moved = true;
-			cam.ox += dx;
-			cam.oy += dy;
+			if (drag.thing) {
+				// no rendering of the list while dragging; it catches up on release
+				const at = [(pointer.x - cam.ox) / cam.ppm, (pointer.y - cam.oy) / cam.ppm].map(mm);
+				setPlace(drag.thing, { at });
+			} else {
+				cam.ox += dx;
+				cam.oy += dy;
+			}
 			[drag.x, drag.y] = [ev.clientX, ev.clientY];
 		}
 	}
@@ -651,7 +869,14 @@ canvas.addEventListener("pointermove", (ev) => {
 });
 canvas.addEventListener("pointerup", (ev) => {
 	const isClick = drag && !drag.moved && ev.button === 0;
+	const { thing, moved } = drag ?? {};
 	drag = null;
+	// a placed thing pressed: picked, or dragged to its new spot
+	if (thing) {
+		const room = moved && roomAt(placeOf(thing).at);
+		if (moved) say(`${things().find((t) => t.key === thing)?.name} moved${room ? ` to ${room}` : ""}.`);
+		return renderThings();
+	}
 	if (!isClick) return;
 	const r = canvas.getBoundingClientRect();
 	pointer = { x: ev.clientX - r.left, y: ev.clientY - r.top, alt: ev.altKey };
@@ -690,7 +915,7 @@ document.addEventListener("keydown", (ev) => {
 		if (tool === "scale" ? chain.length === 2 : chain.length) typed += key;
 	} else if (key === "Enter") enter();
 	else if (key === "Backspace") typed ? (typed = typed.slice(0, -1)) : chain.pop();
-	else if (key === "Escape") typed ? (typed = "") : (chain = []);
+	else if (key === "Escape") typed ? (typed = "") : tool === "place" ? pick(null) : (chain = []);
 	else if (key === "Alt") pointer && (pointer.alt = true);
 	else return;
 	ev.preventDefault();
@@ -716,6 +941,13 @@ fileInput.addEventListener("change", () => {
 showBtn.addEventListener("click", () => {
 	shown = !shown;
 	canvas.focus();
+});
+filterEl.addEventListener("input", renderThings);
+// "Place" in a device's panel: the editor, on that device
+document.addEventListener("place", (ev) => {
+	openEditor();
+	setTool("place");
+	pick(ev.detail);
 });
 turnBtns.forEach((b, i) => b.addEventListener("click", () => {
 	turn(i ? 1 : -1);

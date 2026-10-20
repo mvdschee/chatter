@@ -120,6 +120,7 @@ export function select(d) {
 		${alert}
 		<h2 class="name">${d.name}</h2>
 		<div class="where">${d.room}${d.locationOnly ? " · location only: its data is multi-stream, the sensors can't count it" : ""}</div>
+		<button class="top-btn place-btn" id="place-btn">Place</button>
 
 		<div class="eyebrow" id="p-when"></div>
 		<dl class="kv">
@@ -150,6 +151,8 @@ export function select(d) {
 		</dl>`;
 	document.getElementById("back").addEventListener("click", openList);
 	wireClose();
+	// the editor's Place step, on this device (edit.js)
+	document.getElementById("place-btn").addEventListener("click", () => document.dispatchEvent(new CustomEvent("place", { detail: d.mac })));
 	showPanel("device");
 	drawSpark(d);
 	updateMoment(performance.now());

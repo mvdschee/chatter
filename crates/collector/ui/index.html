@@ -67,12 +67,26 @@
 							<button class="tl-btn" data-tool="lines" aria-pressed="false">Lines</button>
 						</div>
 					</li>
+					<li data-step="place">
+						<b>Place things</b>
+						<p>Put the router, the sensors and the devices where they stand: pick one in the list, click its spot. A laptop or phone that moves around: say who carries it. What you don't place waits in front of the house.</p>
+						<div class="edit-tools">
+							<button class="tl-btn" data-tool="place" aria-pressed="false">Place</button>
+						</div>
+					</li>
 					<li data-step="save">
 						<b>Name them and save</b>
 						<p>Draw the rest of the rooms, give each its name in the list below, then press Save.</p>
 					</li>
 				</ol>
 				<input type="file" id="underlay-file" accept="image/png,image/jpeg,image/webp" hidden>
+				<section class="edit-things" id="edit-things" hidden aria-label="Things to place">
+					<h2 class="eyebrow">Things</h2>
+					<div class="thing-detail" id="thing-detail"></div>
+					<input class="edit-filter" id="things-filter" type="search" placeholder="Find: name, vendor, IP or MAC" aria-label="Find a thing">
+					<ul class="edit-list" id="things-list"></ul>
+					<datalist id="carriers"></datalist>
+				</section>
 				<h2 class="eyebrow">Keys</h2>
 				<dl class="edit-help" id="edit-help"></dl>
 				<h2 class="eyebrow">Rooms</h2>

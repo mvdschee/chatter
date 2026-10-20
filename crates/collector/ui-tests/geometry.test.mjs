@@ -162,8 +162,15 @@ test("measuring a diagonal keeps the image's angle", () => {
 	assert.ok(Math.abs(u.pixels_per_m - Math.hypot(300, 300) / 4) < 1e-9);
 });
 
+// Made up at random, as in docs/floorplan.md.
+const PLACES = {
+	router: [1.5, 0.4],
+	sensors: { study: [3.1, 2.2] },
+	devices: { "fa:42:31:98:3e:b5": { at: [0.8, 2] }, "c2:d7:2c:93:34:d2": { carried_by: "Robin" } },
+};
+
 test("turning the plan takes rooms, openings and the image round together", () => {
-	const plan = { ...TWO_ROWS, underlay: { pixels_per_m: 41.3, offset: [-0.7, 0.4], angle: 2.9 } };
+	const plan = { ...TWO_ROWS, underlay: { pixels_per_m: 41.3, offset: [-0.7, 0.4], angle: 2.9 }, places: PLACES };
 	const right = turnPlan(plan, 1);
 	// (1, 0) goes to (0, 1): clockwise on screen, y down
 	assert.deepEqual(right.rooms[0].points[1], [0, 5]);
@@ -182,6 +189,9 @@ test("turning the plan takes rooms, openings and the image round together", () =
 	let back = plan;
 	for (let i = 0; i < 4; i++) back = turnPlan(back, 1);
 	assert.deepEqual(back.rooms, plan.rooms);
+	assert.deepEqual(back.places, plan.places, "and the places");
+	assert.deepEqual(right.places.router, [-0.4, 1.5]);
+	assert.deepEqual(right.places.devices["c2:d7:2c:93:34:d2"], { carried_by: "Robin" });
 	assert.deepEqual(turnPlan(right, -1).rooms, plan.rooms);
 	assert.ok(dist(turnPlan(right, -1).underlay.offset, plan.underlay.offset) < 1e-12);
 	assert.equal(turnPlan({ rooms: [], openings: [] }, 1).underlay, null);
@@ -190,7 +200,7 @@ test("turning the plan takes rooms, openings and the image round together", () =
 test("measuring again carries the traced rooms along with the image", () => {
 	// measured from the wrong edge: 11% too big
 	const wrong = { pixels_per_m: 50, offset: [0.3, -0.2], angle: 0 };
-	const traced = { rooms: TWO_ROWS.rooms, openings: TWO_ROWS.openings };
+	const traced = { rooms: TWO_ROWS.rooms, openings: TWO_ROWS.openings, places: PLACES };
 	const pixel = (p) => toImage(wrong, p);
 	const right = measure(wrong, fromImage(wrong, [100, 100]), fromImage(wrong, [656, 100]), 10);
 	const moved = followImage(traced, wrong, right);
@@ -205,4 +215,10 @@ test("measuring again carries the traced rooms along with the image", () => {
 	const key = (p) => corner(p);
 	assert.ok(moved.rooms[0].points.filter((p) => moved.rooms[1].points.some((q) => key(p) === key(q))).length === 2);
 	assert.ok(Math.abs(moved.openings[0].width - 0.8 * (50 / right.pixels_per_m)) < 1e-9);
+	// the places stay on their pixels too
+	const near = (p, q) => dist(toImage(right, p), pixel(q)) < 0.001 * right.pixels_per_m;
+	assert.ok(near(moved.places.router, PLACES.router));
+	assert.ok(near(moved.places.sensors.study, PLACES.sensors.study));
+	assert.ok(near(moved.places.devices["fa:42:31:98:3e:b5"].at, PLACES.devices["fa:42:31:98:3e:b5"].at));
+	assert.equal(moved.places.devices["c2:d7:2c:93:34:d2"].carried_by, "Robin");
 });

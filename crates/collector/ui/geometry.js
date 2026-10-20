@@ -257,11 +257,20 @@ export function measure(underlay, a, b, metres) {
 	return { ...turned, offset: [a[0] - at[0], a[1] - at[1]] };
 }
 
+// The places (router, sensors, devices standing somewhere) with each point
+// moved by f; who carries what stays as it is.
+export function movePlaces(places, f) {
+	if (!places) return places;
+	const devices = Object.fromEntries(Object.entries(places.devices ?? {}).map(([mac, d]) => [mac, d.at ? { ...d, at: f(d.at) } : d]));
+	const sensors = Object.fromEntries(Object.entries(places.sensors ?? {}).map(([name, at]) => [name, f(at)]));
+	return { ...places, router: places.router && f(places.router), sensors, devices };
+}
+
 // The plan a quarter turn round the origin, clockwise on screen (y is down)
-// for dir 1, the other way for -1: rooms, openings and underlay together, so
-// what's traced stays on the image. Corners stay exact (a swap and a sign),
-// so shared ones stay the same numbers.
-export function turnPlan({ rooms, openings, underlay }, dir) {
+// for dir 1, the other way for -1: rooms, openings, places and underlay
+// together, so what's traced stays on the image. Corners stay exact (a swap
+// and a sign), so shared ones stay the same numbers.
+export function turnPlan({ rooms, openings, underlay, places }, dir) {
 	const quarter = ([x, y]) => (dir > 0 ? [-y, x] : [y, -x]);
 	const turn = (p) => quarter(p).map(mm);
 	let turned = null;
@@ -275,18 +284,20 @@ export function turnPlan({ rooms, openings, underlay }, dir) {
 		rooms: rooms.map((r) => ({ ...r, points: r.points.map(turn) })),
 		openings: openings.map((o) => ({ ...o, from: turn(o.from), to: turn(o.to) })),
 		underlay: turned,
+		places: movePlaces(places, turn),
 	};
 }
 
-// Rooms and openings traced over the underlay `from`, moved to where the
+// Rooms, openings and places traced over the underlay `from`, moved to where the
 // same image pixels are under `to`: measuring again carries what's traced
 // along. Corners are rounded to the millimetre again, the same way for every
 // room, so shared ones stay shared.
-export function followImage({ rooms, openings }, from, to) {
+export function followImage({ rooms, openings, places }, from, to) {
 	const move = (p) => fromImage(to, toImage(from, p)).map(mm);
 	const ratio = from.pixels_per_m / to.pixels_per_m;
 	return {
 		rooms: rooms.map((r) => ({ ...r, points: r.points.map(move) })),
 		openings: openings.map((o) => ({ ...o, from: move(o.from), to: move(o.to), width: o.width * ratio })),
+		places: movePlaces(places, move),
 	};
 }
