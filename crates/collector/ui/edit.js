@@ -10,7 +10,7 @@
 // where it lies goes in the plan. Turn: the whole plan a quarter round. The
 // panel lists the steps, the next one lit.
 
-import { atLength, box, canAdd, crossesItself, dist, fromImage, labelAt, measure, mm, roomWidth, snap, turnPlan } from "./geometry.js";
+import { atLength, box, canAdd, crossesItself, dist, followImage, fromImage, inside, labelAt, measure, mm, roomWidth, snap, turnPlan } from "./geometry.js";
 import { closePanel } from "./panel.js";
 import { loadPlan, saved } from "./plan.js";
 import { resize as resizeView } from "./view.js";
@@ -59,7 +59,7 @@ const HELP = {
 		["Esc", "drop the room"],
 	],
 	scale: [
-		["click", "both ends of a wall whose length the plan gives"],
+		["click", "the scale bar's ends, or the inside faces of two walls a size runs between"],
 		["type 4.2, Enter", "its length: the image scales to it, and turns square if the wall leans a little"],
 		["Esc", "start again"],
 	],
@@ -305,13 +305,17 @@ function measureWall() {
 	const len = parseFloat(typed);
 	if (chain.length < 2 || !(len > 0)) return say("Click both ends of a wall, then type its length.", true);
 	if (same(chain[0], chain[1])) return say("Those are the same point: click the wall's other end.", true);
+	const before = underlay;
 	underlay = measure(underlay, chain[0], chain[1], len);
+	// measured before: what's traced is on the image, and goes with it
+	const carried = measured && rooms.length > 0;
+	if (carried) ({ rooms, openings } = followImage({ rooms, openings }, before, underlay));
 	[measured, dirty] = [true, true];
 	setTool(drawTool);
 	// the whole plan in sight, to see which way round it should go
 	fitView();
 	aim();
-	say("Measured. Measuring a longer wall makes it more exact.");
+	say(carried ? "Measured again: the rooms moved with the image. Point at a room to check its walls." : "Measured. Measuring a longer wall makes it more exact.");
 }
 
 // The image as light lines on nothing, for the dark canvas: white paper goes
@@ -476,6 +480,9 @@ export function drawEditor() {
 	ctx.stroke();
 
 	ctx.font = '600 12px "Avenir Next Condensed", "Arial Narrow", sans-serif';
+	// the room pointed at, or lit from the list, shows its walls' lengths
+	const at = pointer && !chain.length && [(pointer.x - cam.ox) / cam.ppm, (pointer.y - cam.oy) / cam.ppm];
+	const sized = lit ?? (at ? rooms.findIndex((r) => inside(at, r.points)) : -1);
 	rooms.forEach((r, i) => {
 		const pts = r.points.map(toScreen);
 		polygon(pts, true);
@@ -490,6 +497,7 @@ export function drawEditor() {
 		ctx.fillStyle = i === lit ? "#e8f4f6" : "rgba(92,122,134,0.95)";
 		ctx.fillText(r.name.toUpperCase().split("").join(" "), lx, ly);
 	});
+	if (sized >= 0) wallLengths(rooms[sized].points);
 
 	const last = chain.at(-1);
 	if (tool === "box") drawBox(last);
@@ -543,6 +551,28 @@ function drawLines(last) {
 	ctx.lineTo(nx, ny);
 	dashed(ok);
 	label(typed ? `${typed}▏ m` : `${dist(last, next.at).toFixed(2)} m`, (lx + nx) / 2 + 10, (ly + ny) / 2 - 10);
+}
+
+// Each wall's length at its middle, on a dark patch so it reads over the
+// image.
+function wallLengths(points) {
+	ctx.font = "12px ui-monospace, Menlo, monospace";
+	ctx.textAlign = "center";
+	ctx.textBaseline = "middle";
+	points.forEach((a, i) => {
+		const b = points[(i + 1) % points.length];
+		const [ax, ay] = toScreen(a), [bx, by] = toScreen(b);
+		if (Math.hypot(bx - ax, by - ay) < 40) return;
+		const text = dist(a, b).toFixed(2);
+		const [x, y] = [(ax + bx) / 2, (ay + by) / 2];
+		const w = ctx.measureText(text).width + 8;
+		ctx.fillStyle = "rgba(4,7,10,0.85)";
+		ctx.fillRect(x - w / 2, y - 9, w, 18);
+		ctx.fillStyle = "#e8f4f6";
+		ctx.fillText(text, x, y);
+	});
+	ctx.textAlign = "start";
+	ctx.textBaseline = "alphabetic";
 }
 
 // The wall being measured, from its first end to the pointer or its second.

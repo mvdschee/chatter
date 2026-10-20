@@ -220,6 +220,17 @@ One reviewable commit each:
    round, rooms, doorways and image together, so what's traced stays on the
    image and the view shows the plan the way round the owner wants (the long
    side across); turning only the image would leave traced rooms behind.
+   Then the owner's traced rooms came out about 11% too big: on a plan that
+   writes each size between two walls, with no ticks at its ends, the first
+   measurement had been clicked to the front of a kitchen counter instead of
+   the wall behind it. So measuring again, once the image has been measured,
+   carries the traced rooms and doorways along with the image (each corner
+   stays on its image pixel, to the millimetre), step 2 says to use the
+   scale bar if there is one and otherwise the inside faces of the walls a
+   size runs between, and the room pointed at, or lit from the list, shows
+   its walls' lengths, to check against the plan's sizes. The first
+   measurement after picking an image leaves rooms alone: they weren't
+   traced on it.
 5. Edit: drag corners (a shared one moves in every room), undo and redo.
    (Renaming and deleting came with chunk 3.)
 6. Doors on edges.

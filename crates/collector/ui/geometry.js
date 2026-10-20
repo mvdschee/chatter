@@ -277,3 +277,16 @@ export function turnPlan({ rooms, openings, underlay }, dir) {
 		underlay: turned,
 	};
 }
+
+// Rooms and openings traced over the underlay `from`, moved to where the
+// same image pixels are under `to`: measuring again carries what's traced
+// along. Corners are rounded to the millimetre again, the same way for every
+// room, so shared ones stay shared.
+export function followImage({ rooms, openings }, from, to) {
+	const move = (p) => fromImage(to, toImage(from, p)).map(mm);
+	const ratio = from.pixels_per_m / to.pixels_per_m;
+	return {
+		rooms: rooms.map((r) => ({ ...r, points: r.points.map(move) })),
+		openings: openings.map((o) => ({ ...o, from: move(o.from), to: move(o.to), width: o.width * ratio })),
+	};
+}

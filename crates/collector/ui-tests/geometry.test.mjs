@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-	atLength, box, canAdd, corner, crossesItself, fromImage, inOpening, inside, labelAt, measure, middleOf, mm, roomWidth, snap, toImage, toUnits, turnPlan, wallPieces,
+	atLength, box, canAdd, corner, crossesItself, followImage, fromImage, inOpening, inside, labelAt, measure, middleOf, mm, roomWidth, snap, toImage, toUnits, turnPlan, wallPieces,
 } from "../ui/geometry.js";
 
 // Made-up plans: a row of two rooms over a row of three, and an L.
@@ -185,4 +185,24 @@ test("turning the plan takes rooms, openings and the image round together", () =
 	assert.deepEqual(turnPlan(right, -1).rooms, plan.rooms);
 	assert.ok(dist(turnPlan(right, -1).underlay.offset, plan.underlay.offset) < 1e-12);
 	assert.equal(turnPlan({ rooms: [], openings: [] }, 1).underlay, null);
+});
+
+test("measuring again carries the traced rooms along with the image", () => {
+	// measured from the wrong edge: 11% too big
+	const wrong = { pixels_per_m: 50, offset: [0.3, -0.2], angle: 0 };
+	const traced = { rooms: TWO_ROWS.rooms, openings: TWO_ROWS.openings };
+	const pixel = (p) => toImage(wrong, p);
+	const right = measure(wrong, fromImage(wrong, [100, 100]), fromImage(wrong, [656, 100]), 10);
+	const moved = followImage(traced, wrong, right);
+	// every corner is still on the same image pixel, to the millimetre
+	moved.rooms.forEach((r, i) => r.points.forEach((p, k) => {
+		assert.ok(dist(toImage(right, p), pixel(traced.rooms[i].points[k])) < 0.001 * right.pixels_per_m);
+	}));
+	// lengths shrink with the scale: A's top wall was 5 m
+	const [a0, a1] = moved.rooms[0].points;
+	assert.ok(Math.abs(dist(a0, a1) - 5 * (50 / right.pixels_per_m)) < 0.002);
+	// shared corners are still the same numbers
+	const key = (p) => corner(p);
+	assert.ok(moved.rooms[0].points.filter((p) => moved.rooms[1].points.some((q) => key(p) === key(q))).length === 2);
+	assert.ok(Math.abs(moved.openings[0].width - 0.8 * (50 / right.pixels_per_m)) < 1e-9);
 });
