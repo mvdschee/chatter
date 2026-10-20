@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use axum::{Router, body::Bytes};
 use tokio::{net::TcpListener, signal};
 
@@ -17,6 +19,8 @@ pub struct HttpServerState {
 	pub test_file: Option<Bytes>,
 	/// Development: serve the page from this directory instead of the binary.
 	pub ui_dir: Option<String>,
+	/// Where the collector keeps its files (the plan's underlay image).
+	pub data_dir: PathBuf,
 }
 
 pub struct HttpServer {

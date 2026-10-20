@@ -1,6 +1,6 @@
 # The floor plan editor (research and plan)
 
-Status, 2026-10-19: research done; chunks 1 to 3 of the chunks below built.
+Status, 2026-10-20: research done; chunks 1 to 4 of the chunks below built.
 Plan step 3 in `docs/monitoring.md`. The view draws the saved plan, or a
 made-up example (`EXAMPLE_PLAN` in `crates/collector/ui/plan.js`) until
 one with rooms is saved.
@@ -110,7 +110,7 @@ view rotates as it likes).
   "openings": [
     { "from": [4.2, 0], "to": [4.2, 3.1], "at": 0.4, "width": 0.9 }
   ],
-  "underlay": { "image": "plan.png", "pixels_per_m": 41.7, "offset": [0, 0] }
+  "underlay": { "pixels_per_m": 41.7, "offset": [-0.3, 0.8], "angle": 0.021 }
 }
 ```
 
@@ -123,7 +123,10 @@ view rotates as it likes).
 - Positions of devices and sensors are their own table (MAC or sensor name,
   x, y), apart from the plan: they change on their own, and they join with
   devices by MAC.
-- The underlay image is a file in the data directory, not in the database.
+- The underlay image is one file in the data directory (`plan-underlay`, next
+  to the database), not in the database: a new image replaces it. The plan
+  keeps where it lies: image pixel (u, v) is at
+  `offset + turn(angle) * (u, v) / pixels_per_m`.
 
 ### Editing
 
@@ -140,8 +143,8 @@ no tilt, no animation, plain lines.
 - **Select:** drag a corner (it moves in every room that has it), drag a
   room, rename it, delete it.
 - **Door:** click an edge, drag the opening's width.
-- **Underlay:** load an image, put two points, type the distance; then draw
-  over it.
+- **Underlay:** load an image, click both ends of a wall, type its length;
+  then draw over it.
 - **Place:** drag devices and sensors from the list onto the plan.
 - **Undo/redo:** snapshots of the plan, like react-planner.
 
@@ -190,11 +193,37 @@ One reviewable commit each:
    past a corner, with no way to remove it. A double-click that can't close
    the room takes back the corner its first click put. Save sends the whole
    plan. The first chunk for the owner to try by hand.
-4. Edit: drag corners (a shared one moves in every room), undo and redo.
+4. Done: the underlay, moved up from last: drawing a real home's rooms by
+   hand from guessed sizes was the slow part of the owner's first try, and
+   an original floor plan was at hand. "Image" in the panel loads a PNG, JPEG
+   or WebP (a PDF page exported as PNG first) and lays it over the middle of
+   the screen; **Scale**, which it switches to, takes two clicks on the ends
+   of a wall and its typed length. The image scales about the first click,
+   which stays put, and a wall leaning under 10° from level or upright in
+   the image turns square, so a crooked scan lines up with the grid and the
+   snapping; measuring the same wall again changes nothing. It's drawn as
+   light lines on nothing (white paper clear, a photo's off-white too), at
+   most 4096 px on its longer side, 55% opaque, and can be hidden or
+   removed. The image goes to `PUT /v1/plan/underlay` on save, before the
+   plan, so cancelling leaves the stored one alone; the collector takes PNG,
+   JPEG or WebP only, by their first bytes (SVG can carry script), up to
+   20 MB, and serves it with `nosniff`. Reopening the editor loads it and
+   fits the view to it and the rooms. A plan may be saved with an underlay
+   and no rooms yet. Perspective in a photo isn't corrected: a flat scan or
+   a straight-on photo. Nothing moves the image onto rooms drawn before it:
+   trace them again.
+   After the owner's first try, where it wasn't clear that measuring came
+   next, the panel became a list of steps, the next one lit and the others
+   ticked when done: load the floor plan, measure a wall, turn it, trace the
+   rooms, name them and save. Without an image but with rooms, the image
+   steps are skipped. **Turn** (Left, Right) turns the whole plan a quarter
+   round, rooms, doorways and image together, so what's traced stays on the
+   image and the view shows the plan the way round the owner wants (the long
+   side across); turning only the image would leave traced rooms behind.
+5. Edit: drag corners (a shared one moves in every room), undo and redo.
    (Renaming and deleting came with chunk 3.)
-5. Doors on edges.
-6. Place devices and sensors by dragging them; their own `positions` table.
-7. Underlay image, scaled from two points and a distance.
+6. Doors on edges.
+7. Place devices and sensors by dragging them; their own `positions` table.
 
 ## Validation
 
@@ -212,6 +241,8 @@ Only the owner can judge:
 - whether drawing the real home takes "a few minutes", and how it feels;
 - whether snapping helps or gets in the way;
 - whether the walls and doorways look right in the view;
+- whether tracing over the underlay is fast, and the image clear enough to
+  trace yet faint enough to see the rooms;
 - placing devices on a phone.
 
 ## Still unsure

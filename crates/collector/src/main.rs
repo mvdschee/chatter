@@ -51,6 +51,7 @@ async fn main() -> Result<()> {
 		db,
 		test_file: config.test_file_bytes.map(test_file::generate),
 		ui_dir: config.ui_dir.clone(),
+		data_dir: config.data_dir(),
 	};
 	HandleServerApi::new(&config, state).await?.run().await?;
 

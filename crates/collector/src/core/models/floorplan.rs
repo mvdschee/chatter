@@ -1,7 +1,8 @@
 //! The floor plan: rooms as polygons in metres, the openings (doorways) on
 //! their edges. Walls are the rooms' edges. In as `FloorPlanPayload`, the
 //! JSON the page saves; checked into a `FloorPlan`, which is also how it's
-//! stored and sent back. See `docs/floorplan.md`.
+//! stored and sent back. The underlay, an image to trace over, is a file of
+//! its own; the plan keeps where it lies. See `docs/floorplan.md`.
 
 use std::collections::HashSet;
 
@@ -17,6 +18,8 @@ pub const MAX_CORNERS: usize = 100;
 pub const MAX_ROOMS: usize = 100;
 const MAX_ID: usize = 32;
 const MAX_NAME: usize = 64;
+/// A floor plan scan or a phone photo of one fits easily.
+pub const MAX_UNDERLAY_BYTES: usize = 20 * 1024 * 1024;
 
 /// Cross products this close to 0 (in m²) count as collinear: corners on a
 /// 10 cm grid don't multiply out exactly in floats.
@@ -27,12 +30,17 @@ pub struct FloorPlanPayload {
 	pub rooms: Vec<Room>,
 	#[serde(default)]
 	pub openings: Vec<Opening>,
+	#[serde(default)]
+	pub underlay: Option<Underlay>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FloorPlan {
 	pub rooms: Vec<Room>,
 	pub openings: Vec<Opening>,
+	/// Plans saved before underlays had none.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub underlay: Option<Underlay>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -56,6 +64,31 @@ pub struct Opening {
 	pub width: f64,
 }
 
+/// Where the underlay image lies on the plan: its pixel (u, v) is at
+/// `offset + turn(angle) * (u, v) / pixels_per_m`, in metres.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Underlay {
+	/// Image pixels per metre, from two points and the distance between them.
+	pub pixels_per_m: f64,
+	/// Where the image's top left corner is.
+	pub offset: Point,
+	/// In radians, clockwise on screen (y is down): a scan that came out a
+	/// little crooked, turned square.
+	pub angle: f64,
+}
+
+/// The content type of an underlay image, from its first bytes: PNG, JPEG or
+/// WebP. Nothing else, SVG above all: it can carry script, and the route
+/// that stores it has no login.
+pub fn underlay_type(bytes: &[u8]) -> Result<&'static str> {
+	match bytes {
+		[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, ..] => Ok("image/png"),
+		[0xff, 0xd8, 0xff, ..] => Ok("image/jpeg"),
+		[b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P', ..] => Ok("image/webp"),
+		_ => Err(Error::Plan("an underlay is a PNG, JPEG or WebP image".into())),
+	}
+}
+
 impl TryFrom<FloorPlanPayload> for FloorPlan {
 	type Error = Error;
 
@@ -73,9 +106,13 @@ impl TryFrom<FloorPlanPayload> for FloorPlan {
 		for opening in &payload.openings {
 			check_opening(opening, &payload.rooms)?;
 		}
+		if let Some(underlay) = &payload.underlay {
+			check_underlay(underlay)?;
+		}
 		Ok(Self {
 			rooms: payload.rooms,
 			openings: payload.openings,
+			underlay: payload.underlay,
 		})
 	}
 }
@@ -123,6 +160,19 @@ fn check_opening(opening: &Opening, rooms: &[Room]) -> Result<()> {
 	let len = (to[0] - from[0]).hypot(to[1] - from[1]);
 	if !(width > 0.0 && at * len - width / 2.0 >= -EPS && at * len + width / 2.0 <= len + EPS) {
 		return bad("doesn't fit on its edge");
+	}
+	Ok(())
+}
+
+fn check_underlay(u: &Underlay) -> Result<()> {
+	let finite = u.offset.iter().all(|v| v.is_finite()) && u.angle.is_finite();
+	if !(u.pixels_per_m.is_finite() && u.pixels_per_m > 0.0 && finite) {
+		return Err(Error::Plan(
+			"underlay: its scale, offset and angle are numbers, the scale above 0".into(),
+		));
+	}
+	if u.angle.abs() > std::f64::consts::PI {
+		return Err(Error::Plan("underlay: an angle is between -π and π".into()));
 	}
 	Ok(())
 }
@@ -212,6 +262,7 @@ mod tests {
 		FloorPlan::try_from(FloorPlanPayload {
 			rooms,
 			openings,
+			underlay: None,
 		})
 	}
 
@@ -301,5 +352,61 @@ mod tests {
 		let saved = plan(vec![room("a", &SQUARE)], vec![]).unwrap();
 		let json = serde_json::to_string(&saved).unwrap();
 		assert_eq!(serde_json::from_str::<FloorPlan>(&json).unwrap(), saved);
+	}
+
+	#[test]
+	fn an_underlay_is_kept_and_checked() {
+		let with = |underlay| {
+			FloorPlan::try_from(FloorPlanPayload {
+				rooms: vec![room("a", &SQUARE)],
+				openings: vec![],
+				underlay: Some(underlay),
+			})
+		};
+		let good = Underlay {
+			pixels_per_m: 47.3,
+			offset: [-0.6, 1.2],
+			angle: 0.013,
+		};
+		let saved = with(good.clone()).unwrap();
+		let json = serde_json::to_string(&saved).unwrap();
+		assert_eq!(serde_json::from_str::<FloorPlan>(&json).unwrap().underlay, Some(good.clone()));
+		for bad in [
+			Underlay {
+				pixels_per_m: 0.0,
+				..good.clone()
+			},
+			Underlay {
+				pixels_per_m: f64::INFINITY,
+				..good.clone()
+			},
+			Underlay {
+				offset: [f64::NAN, 0.0],
+				..good.clone()
+			},
+			Underlay {
+				angle: 4.0,
+				..good.clone()
+			},
+		] {
+			assert!(with(bad).is_err());
+		}
+	}
+
+	#[test]
+	fn a_plan_saved_before_underlays_still_reads() {
+		let json =
+			r#"{"rooms":[{"id":"a","name":"A","points":[[0,0],[1,0],[1,1]]}],"openings":[]}"#;
+		assert_eq!(serde_json::from_str::<FloorPlan>(json).unwrap().underlay, None);
+	}
+
+	#[test]
+	fn only_png_jpeg_and_webp_are_underlays() {
+		assert_eq!(underlay_type(b"\x89PNG\r\n\x1a\n rest").unwrap(), "image/png");
+		assert_eq!(underlay_type(b"\xff\xd8\xff\xe0 rest").unwrap(), "image/jpeg");
+		assert_eq!(underlay_type(b"RIFF\x10\0\0\0WEBPVP8 ").unwrap(), "image/webp");
+		assert!(underlay_type(b"<svg xmlns=\"http://www.w3.org/2000/svg\">").is_err());
+		assert!(underlay_type(b"GIF89a").is_err());
+		assert!(underlay_type(b"").is_err());
 	}
 }

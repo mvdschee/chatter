@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-	atLength, box, canAdd, corner, crossesItself, inOpening, inside, labelAt, middleOf, mm, roomWidth, snap, toUnits, wallPieces,
+	atLength, box, canAdd, corner, crossesItself, fromImage, inOpening, inside, labelAt, measure, middleOf, mm, roomWidth, snap, toImage, toUnits, turnPlan, wallPieces,
 } from "../ui/geometry.js";
 
 // Made-up plans: a row of two rooms over a row of three, and an L.
@@ -20,6 +20,7 @@ const TWO_ROWS = {
 	openings: [{ from: [0, 4], to: [3, 4], at: 0.5, width: 0.8 }],
 };
 const L = { rooms: [{ id: "l", name: "L", points: [[0, 0], [2, 0], [2, 4], [6, 4], [6, 6], [0, 6]] }] };
+const dist = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]);
 const length = (pieces) => pieces.reduce((s, [a, b]) => s + Math.hypot(b[0] - a[0], b[1] - a[1]), 0);
 
 test("a plan fills its frame, whatever its shape", () => {
@@ -123,4 +124,65 @@ test("a room's width: a strip's is its width, a sliver's is near 0", () => {
 	assert.ok(roomWidth([[0, 0], [8, 0], [8, 0.28]]) < 0.2, "the sliver a double-click made");
 	assert.deepEqual(box([1, 2], [0, 5]), [[1, 2], [0, 2], [0, 5], [1, 5]]);
 	assert.ok(!crossesItself(box([1, 2], [0, 5])));
+});
+
+test("the underlay: image and plan points map both ways", () => {
+	const u = { pixels_per_m: 38.6, offset: [-1.3, 0.7], angle: 0.21 };
+	for (const p of [[0, 0], [412, 97], [-15, 803]]) {
+		const back = toImage(u, fromImage(u, p));
+		assert.ok(dist(back, p) < 1e-9, `${p} came back as ${back}`);
+	}
+	assert.deepEqual(fromImage({ pixels_per_m: 50, offset: [2, 3], angle: 0 }, [100, 50]), [4, 4]);
+});
+
+test("measuring scales the image about the first point and squares a leaning wall", () => {
+	const start = { pixels_per_m: 20, offset: [0.4, -0.2], angle: 0 };
+	// the ends of a wall in the image, 3° off level, measured as 6.35 m
+	const [ua, ub] = [[120, 300], [120 + 500 * Math.cos(0.052), 300 + 500 * Math.sin(0.052)]];
+	const [a, b] = [fromImage(start, ua), fromImage(start, ub)];
+	const u = measure(start, a, b, 6.35);
+	const [na, nb] = [fromImage(u, ua), fromImage(u, ub)];
+	assert.ok(dist(na, a) < 1e-9, "the first point stays");
+	assert.ok(Math.abs(dist(na, nb) - 6.35) < 1e-9, "the wall is as long as typed");
+	assert.ok(Math.abs(nb[1] - na[1]) < 1e-9, "and level");
+	assert.ok(Math.abs(u.pixels_per_m - 500 / 6.35) < 1e-9);
+	// measuring the same wall again changes nothing
+	const again = measure(u, na, nb, 6.35);
+	for (const k of ["pixels_per_m", "angle"]) assert.ok(Math.abs(again[k] - u[k]) < 1e-9, k);
+	// an upright wall 4° off turns upright
+	const up = measure(start, fromImage(start, [0, 0]), fromImage(start, [-400 * Math.sin(0.07), 400 * Math.cos(0.07)]), 5);
+	const [p, q] = [fromImage(up, [0, 0]), fromImage(up, [-400 * Math.sin(0.07), 400 * Math.cos(0.07)])];
+	assert.ok(Math.abs(q[0] - p[0]) < 1e-9 && q[1] > p[1]);
+});
+
+test("measuring a diagonal keeps the image's angle", () => {
+	const start = { pixels_per_m: 20, offset: [0, 0], angle: 0.03 };
+	const u = measure(start, fromImage(start, [0, 0]), fromImage(start, [300, 300]), 4);
+	assert.equal(u.angle, 0.03);
+	assert.ok(Math.abs(u.pixels_per_m - Math.hypot(300, 300) / 4) < 1e-9);
+});
+
+test("turning the plan takes rooms, openings and the image round together", () => {
+	const plan = { ...TWO_ROWS, underlay: { pixels_per_m: 41.3, offset: [-0.7, 0.4], angle: 2.9 } };
+	const right = turnPlan(plan, 1);
+	// (1, 0) goes to (0, 1): clockwise on screen, y down
+	assert.deepEqual(right.rooms[0].points[1], [0, 5]);
+	// the image's pixels land where the turned plan says
+	for (const p of [[0, 0], [530, 210]]) {
+		const [x, y] = fromImage(plan.underlay, p);
+		assert.ok(dist(fromImage(right.underlay, p), [-y, x]) < 1e-9);
+	}
+	assert.ok(Math.abs(right.underlay.angle) <= Math.PI, "the angle stays in what the collector takes");
+	// a shared corner is still the same numbers in both rooms, and the doorway on its edge
+	const [a, b] = right.rooms;
+	assert.ok(a.points.some((p) => b.points.some((q) => corner(p) === corner(q))));
+	// the doorway's middle, (1.5, 4), turned
+	assert.ok(inOpening([-4, 1.5], right.openings));
+	// four turns either way are no turn, and left undoes right
+	let back = plan;
+	for (let i = 0; i < 4; i++) back = turnPlan(back, 1);
+	assert.deepEqual(back.rooms, plan.rooms);
+	assert.deepEqual(turnPlan(right, -1).rooms, plan.rooms);
+	assert.ok(dist(turnPlan(right, -1).underlay.offset, plan.underlay.offset) < 1e-12);
+	assert.equal(turnPlan({ rooms: [], openings: [] }, 1).underlay, null);
 });

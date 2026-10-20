@@ -4,8 +4,13 @@
 // Lines: click the corners; click the first one, double-click or press Enter
 // to close the room. Snapping and the checks are in geometry.js. The plan is
 // saved whole through PUT /v1/plan.
+// The underlay (chunk 4): an image of the floor plan to trace over, light
+// lines on the dark canvas. Scale: click both ends of a wall the image gives
+// the length of, type it. The image goes to PUT /v1/plan/underlay on save,
+// where it lies goes in the plan. Turn: the whole plan a quarter round. The
+// panel lists the steps, the next one lit.
 
-import { atLength, box, canAdd, crossesItself, dist, labelAt, mm, roomWidth, snap } from "./geometry.js";
+import { atLength, box, canAdd, crossesItself, dist, fromImage, labelAt, measure, mm, roomWidth, snap, turnPlan } from "./geometry.js";
 import { closePanel } from "./panel.js";
 import { loadPlan, saved } from "./plan.js";
 import { resize as resizeView } from "./view.js";
@@ -17,7 +22,13 @@ const ctx = canvas.getContext("2d");
 const statusEl = document.getElementById("edit-status");
 const roomsEl = document.getElementById("edit-rooms");
 const helpEl = document.getElementById("edit-help");
-const toolBtns = document.querySelectorAll("#edit-tools button");
+const toolBtns = document.querySelectorAll("#editor [data-tool]");
+const fileInput = document.getElementById("underlay-file");
+const scaleBtn = document.querySelector('#editor [data-tool="scale"]');
+const showBtn = document.getElementById("underlay-show");
+const removeBtn = document.getElementById("underlay-remove");
+const turnBtns = [document.getElementById("turn-left"), document.getElementById("turn-right")];
+const stepEls = document.querySelectorAll("#edit-steps [data-step]");
 
 // The collector's limit on corners per room.
 const MAX_CORNERS = 100;
@@ -26,6 +37,13 @@ const REACH_PX = 10;
 // Narrower than this (roomWidth, metres) isn't a room but a slip of the
 // mouse, like a double-click on a corner just past the last one.
 const MIN_WIDTH = 0.2;
+// The collector's limit on an underlay image, and the types it takes.
+const MAX_IMAGE = 20 * 1024 * 1024;
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+// The underlay is drawn from a copy at most this many pixels on its longer
+// side, and this see-through.
+const GHOST_PX = 4096;
+const GHOST_ALPHA = 0.55;
 
 const HELP = {
 	box: [
@@ -40,6 +58,11 @@ const HELP = {
 		["Backspace", "take back a corner"],
 		["Esc", "drop the room"],
 	],
+	scale: [
+		["click", "both ends of a wall whose length the plan gives"],
+		["type 4.2, Enter", "its length: the image scales to it, and turns square if the wall leans a little"],
+		["Esc", "start again"],
+	],
 	both: [
 		["Alt", "no snapping"],
 		["drag", "move the plan"],
@@ -51,8 +74,15 @@ export let editing = false;
 // The tool, the rooms and openings so far, the corners of the room being
 // drawn, where the next corner would go ({ at, how } from snap, or null), a
 // typed size, unsaved changes, the room lit from the list.
-let tool = "box";
+let tool = "box", drawTool = "box";
 let rooms = [], openings = [], chain = [], next = null, typed = "", dirty = false, lit = null;
+// Where the underlay lies ({ pixels_per_m, offset, angle }, or null), the
+// image to draw (from ghostOf), a new image not saved yet, whether it shows;
+// loads counts image loads, so only the latest one lands. Whether the image
+// was measured and the plan turned, for the steps; stepsKey is what they
+// last showed.
+let underlay = null, ghost = null, imageFile = null, shown = true, loads = 0;
+let measured = false, turned = false, stepsKey = "";
 // The last pointer position, to snap again when Alt or the corners change;
 // when the last corner was put (a double-click that can't close takes it back).
 let pointer = null, addedAt = 0;
@@ -77,9 +107,12 @@ function resize() {
 }
 window.addEventListener("resize", () => editing && resize());
 
-// The rooms fitted to the screen, or 12 by 8 metres before there are any.
+// The rooms and the underlay fitted to the screen, or 12 by 8 metres before
+// there are any.
 function fitView() {
-	const pts = rooms.flatMap((r) => r.points);
+	const { w, h } = ghost ?? {};
+	const image = ghost && underlay ? [[0, 0], [w, 0], [w, h], [0, h]].map((p) => fromImage(underlay, p)) : [];
+	const pts = [...rooms.flatMap((r) => r.points), ...image];
 	const xs = pts.length ? pts.map((p) => p[0]) : [0, 12];
 	const ys = pts.length ? pts.map((p) => p[1]) : [0, 8];
 	const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
@@ -93,6 +126,19 @@ function openEditor() {
 	rooms = structuredClone(saved?.rooms ?? []);
 	openings = structuredClone(saved?.openings ?? []);
 	[chain, next, typed, dirty, pointer, lit] = [[], null, "", false, null, null];
+	[underlay, ghost, imageFile, shown] = [structuredClone(saved?.underlay ?? null), null, null, true];
+	[measured, turned] = [Boolean(underlay), false];
+	if (underlay) {
+		const n = ++loads;
+		loadImage(`/v1/plan/underlay?${Date.now()}`)
+			.then((g) => {
+				if (n !== loads) return;
+				ghost = g;
+				fitView();
+				aim();
+			})
+			.catch(() => n === loads && say("The underlay image didn't load: pick it again, or remove it.", true));
+	}
 	editing = true;
 	editor.hidden = false;
 	// the timeline makes room for the editor
@@ -102,7 +148,7 @@ function openEditor() {
 	setTool(tool);
 	renderRooms();
 	canvas.focus();
-	say(rooms.length ? "" : "No plan saved yet: draw your first room.");
+	say("");
 }
 
 function closeEditor() {
@@ -113,6 +159,8 @@ function closeEditor() {
 }
 
 function setTool(t) {
+	if (t === "scale" && !underlay) t = drawTool;
+	if (t !== "scale") drawTool = t;
 	[tool, chain, typed] = [t, [], ""];
 	toolBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.tool === t)));
 	helpEl.replaceChildren(...[...HELP[t], ...HELP.both].flatMap(([key, what]) => [el("dt", key), el("dd", what)]));
@@ -176,7 +224,7 @@ function deleteRoom(i) {
 function aim() {
 	if (!pointer) return (next = null);
 	const p = [(pointer.x - cam.ox) / cam.ppm, (pointer.y - cam.oy) / cam.ppm];
-	if (pointer.alt) return (next = { at: p.map(mm), how: "free" });
+	if (pointer.alt || tool === "scale") return (next = { at: p.map(mm), how: "free" });
 	const walls = rooms.flatMap((r) => r.points);
 	const reach = REACH_PX / cam.ppm;
 	if (tool === "box") return (next = snap(p, { corners: walls, reach }));
@@ -202,6 +250,12 @@ function addRoom(points) {
 }
 
 function click(p) {
+	if (tool === "scale") {
+		chain = chain.length === 1 ? [chain[0], p] : [p];
+		typed = "";
+		if (chain.length === 2) say("How long is that wall? Type it in metres, then Enter.");
+		return;
+	}
 	if (tool === "box") {
 		if (!chain.length) return void (chain = [p]);
 		const points = box(chain[0], p);
@@ -228,6 +282,7 @@ function closeRoom() {
 // Enter: the typed size towards the pointer; in Lines with nothing typed,
 // close the room.
 function enter() {
+	if (tool === "scale") return measureWall();
 	const last = chain.at(-1);
 	if (tool === "lines" && !typed) return closeRoom();
 	if (!typed || !last) return;
@@ -245,16 +300,133 @@ function enter() {
 	click([mm(last[0] + sx * w), mm(last[1] + sy * hh)]);
 }
 
+// Scale: the two points are the ends of a wall as long as typed.
+function measureWall() {
+	const len = parseFloat(typed);
+	if (chain.length < 2 || !(len > 0)) return say("Click both ends of a wall, then type its length.", true);
+	if (same(chain[0], chain[1])) return say("Those are the same point: click the wall's other end.", true);
+	underlay = measure(underlay, chain[0], chain[1], len);
+	[measured, dirty] = [true, true];
+	setTool(drawTool);
+	// the whole plan in sight, to see which way round it should go
+	fitView();
+	aim();
+	say("Measured. Measuring a longer wall makes it more exact.");
+}
+
+// The image as light lines on nothing, for the dark canvas: white paper goes
+// clear, dark lines light. { canvas, w, h }: w and h are the image's own
+// size, which the underlay's pixels count in.
+function ghostOf(img) {
+	const [w, h] = [img.naturalWidth, img.naturalHeight];
+	const s = Math.min(1, GHOST_PX / Math.max(w, h));
+	const c = document.createElement("canvas");
+	[c.width, c.height] = [Math.round(w * s), Math.round(h * s)];
+	const g = c.getContext("2d");
+	g.drawImage(img, 0, 0, c.width, c.height);
+	const data = g.getImageData(0, 0, c.width, c.height);
+	const d = data.data;
+	for (let i = 0; i < d.length; i += 4) {
+		// paper a little off white (a photo) goes clear too
+		const ink = Math.max(0, 215 - (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2])) / 215;
+		[d[i], d[i + 1], d[i + 2], d[i + 3]] = [232, 244, 246, ink * d[i + 3]];
+	}
+	g.putImageData(data, 0, 0);
+	return { canvas: c, w, h };
+}
+
+async function loadImage(src) {
+	const img = new Image();
+	img.src = src;
+	await img.decode();
+	return ghostOf(img);
+}
+
+// A new image, laid over the middle of the screen until it's measured.
+async function pickImage(file) {
+	if (!file) return;
+	if (!IMAGE_TYPES.includes(file.type)) return say("Use a PNG, JPEG or WebP image: export a PDF page as PNG first.", true);
+	if (file.size > MAX_IMAGE) return say("That image is over 20 MB: save it smaller first.", true);
+	const url = URL.createObjectURL(file);
+	const n = ++loads;
+	let g;
+	try {
+		g = await loadImage(url);
+	} catch {
+		return say("This browser can't read that image.", true);
+	} finally {
+		URL.revokeObjectURL(url);
+	}
+	if (n !== loads) return;
+	const k = Math.max(g.w / ((W * 0.8) / cam.ppm), g.h / ((H * 0.8) / cam.ppm));
+	const mid = [(W / 2 - cam.ox) / cam.ppm, (H / 2 - cam.oy) / cam.ppm];
+	underlay = { pixels_per_m: k, offset: [mm(mid[0] - g.w / k / 2), mm(mid[1] - g.h / k / 2)], angle: 0 };
+	[ghost, imageFile, shown, dirty, measured] = [g, file, true, true, false];
+	setTool("scale");
+	say("");
+}
+
+function removeUnderlay() {
+	[underlay, ghost, imageFile, dirty, measured] = [null, null, null, true, false];
+	loads++;
+	if (tool === "scale") setTool(drawTool);
+	say("Underlay removed.");
+}
+
+// The whole plan a quarter round, clockwise for 1: rooms, doorways and the
+// image together, so what's traced stays on it.
+function turn(dir) {
+	if (chain.length && tool !== "scale") return say("Finish the room being drawn first, or drop it (Esc).", true);
+	({ rooms, openings, underlay } = turnPlan({ rooms, openings, underlay }, dir));
+	[chain, typed, turned, dirty] = [[], "", true, true];
+	fitView();
+	aim();
+	say("");
+}
+
+// The steps in the panel: each done or not, the next one lit, and the
+// buttons that can't do anything yet off. The next step is the first not
+// done; with rooms and no image, the image steps are skipped.
+function updateSteps() {
+	const now = !underlay && !rooms.length ? "image"
+		: underlay && !measured ? "scale"
+		: !turned && !rooms.length ? "turn"
+		: !rooms.length ? "rooms"
+		: "save";
+	const done = { image: Boolean(underlay), scale: Boolean(underlay) && measured, turn: turned, rooms: rooms.length > 0, save: false };
+	const key = JSON.stringify([now, done, shown]);
+	if (key === stepsKey) return;
+	stepsKey = key;
+	stepEls.forEach((li) => {
+		li.classList.toggle("now", li.dataset.step === now);
+		li.classList.toggle("done", li.dataset.step !== now && done[li.dataset.step]);
+		if (li.dataset.step === now) li.setAttribute("aria-current", "step");
+		else li.removeAttribute("aria-current");
+	});
+	scaleBtn.disabled = showBtn.disabled = removeBtn.disabled = !underlay;
+	showBtn.setAttribute("aria-pressed", String(shown));
+	turnBtns.forEach((b) => (b.disabled = !underlay && !rooms.length));
+}
+
 async function save() {
-	if (chain.length) return say("Finish the room being drawn first, or drop it (Esc).", true);
-	if (!rooms.length) return say("Draw a room first.", true);
+	if (chain.length && tool !== "scale") return say("Finish the room being drawn first, or drop it (Esc).", true);
+	if (!rooms.length && !underlay) return say("Draw a room first.", true);
 	if (rooms.some((r) => !r.name.trim())) return say("Every room needs a name.", true);
 	say("Saving…");
 	try {
+		if (imageFile) {
+			const res = await fetch("/v1/plan/underlay", {
+				method: "PUT",
+				headers: { "content-type": imageFile.type },
+				body: imageFile,
+			});
+			if (!res.ok) return say(`Image not saved: ${(await res.text()) || `HTTP ${res.status}`}`, true);
+			imageFile = null;
+		}
 		const res = await fetch("/v1/plan", {
 			method: "PUT",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ rooms, openings }),
+			body: JSON.stringify({ rooms, openings, underlay }),
 		});
 		if (!res.ok) return say(`Not saved: ${(await res.text()) || `HTTP ${res.status}`}`, true);
 	} catch (e) {
@@ -270,8 +442,21 @@ function cancel() {
 }
 
 export function drawEditor() {
+	updateSteps();
 	ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 	ctx.clearRect(0, 0, W, H);
+
+	if (ghost && underlay && shown) {
+		const [x, y] = toScreen(underlay.offset);
+		const s = cam.ppm / underlay.pixels_per_m;
+		ctx.save();
+		ctx.translate(x, y);
+		ctx.rotate(underlay.angle);
+		ctx.scale(s, s);
+		ctx.globalAlpha = GHOST_ALPHA;
+		ctx.drawImage(ghost.canvas, 0, 0, ghost.w, ghost.h);
+		ctx.restore();
+	}
 
 	// a line every metre, every 5 when zoomed far out
 	const step = cam.ppm < 12 ? 5 : 1;
@@ -308,6 +493,7 @@ export function drawEditor() {
 
 	const last = chain.at(-1);
 	if (tool === "box") drawBox(last);
+	else if (tool === "scale") drawScale();
 	else drawLines(last);
 	if (!next) return;
 	const [nx, ny] = toScreen(next.at);
@@ -357,6 +543,30 @@ function drawLines(last) {
 	ctx.lineTo(nx, ny);
 	dashed(ok);
 	label(typed ? `${typed}▏ m` : `${dist(last, next.at).toFixed(2)} m`, (lx + nx) / 2 + 10, (ly + ny) / 2 - 10);
+}
+
+// The wall being measured, from its first end to the pointer or its second.
+function drawScale() {
+	const pts = [...chain, ...(chain.length === 1 && next ? [next.at] : [])];
+	if (!pts.length) return;
+	const [a, b] = pts.map(toScreen);
+	ctx.strokeStyle = "#7fe7f2";
+	ctx.lineWidth = 1.5;
+	for (const [x, y] of b ? [a, b] : [a]) {
+		ctx.beginPath();
+		ctx.moveTo(x - 6, y);
+		ctx.lineTo(x + 6, y);
+		ctx.moveTo(x, y - 6);
+		ctx.lineTo(x, y + 6);
+		ctx.stroke();
+	}
+	if (!b) return;
+	ctx.beginPath();
+	ctx.moveTo(...a);
+	ctx.lineTo(...b);
+	dashed(true);
+	const text = typed ? `${typed}▏ m` : chain.length === 2 ? "type its length" : `${dist(pts[0], pts[1]).toFixed(2)} m now`;
+	label(text, (a[0] + b[0]) / 2 + 10, (a[1] + b[1]) / 2 - 10);
 }
 
 function polygon(pts, closed) {
@@ -447,7 +657,7 @@ document.addEventListener("keydown", (ev) => {
 	const key = ev.key === "," ? "." : ev.key === "*" || ev.key === "X" ? "x" : ev.key;
 	const part = typed.split("x").at(-1);
 	if (/^[0-9]$/.test(key) || (key === "." && !part.includes(".")) || (key === "x" && tool === "box" && typed && !typed.includes("x"))) {
-		if (chain.length) typed += key;
+		if (tool === "scale" ? chain.length === 2 : chain.length) typed += key;
 	} else if (key === "Enter") enter();
 	else if (key === "Backspace") typed ? (typed = typed.slice(0, -1)) : chain.pop();
 	else if (key === "Escape") typed ? (typed = "") : (chain = []);
@@ -466,6 +676,25 @@ document.addEventListener("keyup", (ev) => {
 document.getElementById("edit-btn").addEventListener("click", openEditor);
 document.getElementById("edit-save").addEventListener("click", save);
 document.getElementById("edit-cancel").addEventListener("click", cancel);
+document.getElementById("underlay-load").addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => {
+	pickImage(fileInput.files[0]);
+	// the same file again is a change too
+	fileInput.value = "";
+	canvas.focus();
+});
+showBtn.addEventListener("click", () => {
+	shown = !shown;
+	canvas.focus();
+});
+turnBtns.forEach((b, i) => b.addEventListener("click", () => {
+	turn(i ? 1 : -1);
+	canvas.focus();
+}));
+removeBtn.addEventListener("click", () => {
+	removeUnderlay();
+	canvas.focus();
+});
 toolBtns.forEach((b) => b.addEventListener("click", () => {
 	setTool(b.dataset.tool);
 	canvas.focus();

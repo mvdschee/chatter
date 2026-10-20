@@ -1,3 +1,5 @@
 target/
 .env
 .local/
+# the floor plan's underlay image, beside a database in the repo root
+plan-underlay*

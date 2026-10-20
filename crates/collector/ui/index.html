@@ -33,11 +33,47 @@
 		<div class="editor" id="editor" hidden>
 			<canvas id="edit-plan" tabindex="0" aria-label="The floor plan from above, for drawing rooms. The panel beside it says how."></canvas>
 			<aside class="edit-side" aria-label="Edit plan">
-				<h2 class="eyebrow">Draw</h2>
-				<div class="edit-tools" id="edit-tools">
-					<button class="tl-btn" data-tool="box" aria-pressed="true">Box</button>
-					<button class="tl-btn" data-tool="lines" aria-pressed="false">Lines</button>
-				</div>
+				<h2 class="eyebrow">Steps</h2>
+				<ol class="edit-steps" id="edit-steps">
+					<li data-step="image">
+						<b>Load the floor plan</b>
+						<p>An image of it to trace over: PNG, JPEG or WebP (export a PDF page as PNG). No floor plan? Skip to step 4.</p>
+						<div class="edit-tools">
+							<button class="tl-btn" id="underlay-load">Image</button>
+							<button class="tl-btn" id="underlay-show" aria-pressed="true" disabled>Show</button>
+							<button class="tl-btn" id="underlay-remove" disabled>Remove</button>
+						</div>
+					</li>
+					<li data-step="scale">
+						<b>Measure a wall</b>
+						<p>Zoom in and click both ends of a long wall whose length the plan gives. Type it in metres (4200 mm is 4.2) and press Enter.</p>
+						<div class="edit-tools">
+							<button class="tl-btn" data-tool="scale" aria-pressed="false" disabled>Scale</button>
+						</div>
+					</li>
+					<li data-step="turn">
+						<b>Turn it</b>
+						<p>If you like: turn the plan a quarter at a time until it's the way round you want to see it, the long side across. The app shows it this way. Or go on to step 4.</p>
+						<div class="edit-tools">
+							<button class="tl-btn" id="turn-left" disabled title="A quarter turn anticlockwise">Left</button>
+							<button class="tl-btn" id="turn-right" disabled title="A quarter turn clockwise">Right</button>
+						</div>
+					</li>
+					<li data-step="rooms">
+						<b>Trace the rooms</b>
+						<p>Box for rectangular rooms, Lines for the rest, along the middle of the walls. Rooms that touch share their corners.</p>
+						<div class="edit-tools">
+							<button class="tl-btn" data-tool="box" aria-pressed="true">Box</button>
+							<button class="tl-btn" data-tool="lines" aria-pressed="false">Lines</button>
+						</div>
+					</li>
+					<li data-step="save">
+						<b>Name them and save</b>
+						<p>Draw the rest of the rooms, give each its name in the list below, then press Save.</p>
+					</li>
+				</ol>
+				<input type="file" id="underlay-file" accept="image/png,image/jpeg,image/webp" hidden>
+				<h2 class="eyebrow">Keys</h2>
 				<dl class="edit-help" id="edit-help"></dl>
 				<h2 class="eyebrow">Rooms</h2>
 				<ul class="edit-rooms" id="edit-rooms"></ul>
