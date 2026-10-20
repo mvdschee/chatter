@@ -187,3 +187,8 @@
 **Why:** A name is about the device, not where it stands: a device still waiting needs one most, while it's being identified, and the plan's places only hold placed or carried devices. Kept apart, re-importing an old plan can't wipe names.
 **Alternatives:** A `name` in the plan's device places (it would need entries with no place, and would go with every plan save and import); names in the page's local storage (lost on another browser, and the collector couldn't use them).
 
+## 2026-10-20 - Stacks in the 3D view are grouped once the camera settles
+
+**Decision:** The view works out which things stack only when the camera comes to rest somewhere new (zoom, pan, a turn by the user), the device set or names change; while the camera drifts by itself or eases, the last grouping holds and only the fanned rows follow the nodes. A folded stack's ring takes the colour of its most unusual device. Details in `docs/floorplan.md`, chunk 8.
+**Why:** The view's yaw drifts all the time, so grouping every frame would make names near the overlap threshold stack and unstack every few seconds. A stack hides its devices' labels, so its ring has to carry their outlier colour or an outlier disappears into a cupboard.
+**Alternatives:** Grouping every frame (flickers); hysteresis on the boxes (unclear through chains of overlaps); grouping at a fixed yaw (wrong once the user turns the view).

@@ -1,7 +1,7 @@
 // The 3D view: plan units in, screen pixels out; the camera, and moving it
 // with the mouse, the keys and the buttons.
 
-import { DEVICES, SENSORS } from "./data.js";
+import { fold, openStack, thingAt } from "./draw.js";
 import { select } from "./panel.js";
 import { PLAN, WALL_H } from "./plan.js";
 import { play } from "./playback.js";
@@ -73,6 +73,16 @@ export function moveCamera(now) {
 	const a = reduced ? 1 : 1 - Math.exp(-((now - play.lastFrame) / 1000) * 12);
 	yaw += (camT.yaw - yaw) * a;
 	for (const k of ["zoom", "panX", "panY"]) cam[k] += (camT[k] - cam[k]) * a;
+}
+
+// Where the camera is headed, once it's there: stacks are worked out again
+// when this changes, not while the yaw drifts by itself or the camera eases,
+// or names at the edge of overlapping would stack and unstack. Null while
+// it's moving.
+export function cameraKey() {
+	const there = Math.abs(cam.zoom - camT.zoom) < 0.005 && Math.hypot(cam.panX - camT.panX, cam.panY - camT.panY) < 1
+		&& (!touched || Math.abs(yaw - camT.yaw) < 0.002);
+	return there ? [camT.zoom, camT.panX, camT.panY, touched ? camT.yaw : "drift", W, H, fit].join() : null;
 }
 
 function takeControl() {
@@ -148,21 +158,23 @@ document.getElementById("zoom-in").addEventListener("click", () => zoomAt(W / 2,
 document.getElementById("zoom-out").addEventListener("click", () => zoomAt(W / 2, H / 2, 0.8));
 document.getElementById("view-reset").addEventListener("click", resetView);
 
-// pick a device by clicking near its node, or a sensor
+// pick a device by clicking near its node, or a sensor; a click on a stack
+// fans it, and one on a fanned row picks that thing
 canvas.addEventListener("click", (ev) => {
 	if (dragged) {
 		dragged = false;
 		return;
 	}
 	const r = canvas.getBoundingClientRect();
-	const x = ev.clientX - r.left, y = ev.clientY - r.top;
-	const sensor = SENSORS.find((s) => s.screen && Math.hypot(s.screen[0] - x, s.screen[1] - y) < 16);
-	if (sensor) return openSensor(sensor.name);
-	let best = null, bestDist = 24;
-	for (const d of DEVICES) {
-		const dist = Math.hypot(d.screen[0] - x, d.screen[1] - y);
-		if (dist < bestDist) [best, bestDist] = [d, dist];
+	const hit = thingAt(ev.clientX - r.left, ev.clientY - r.top);
+	if (hit?.stack) return openStack(hit.stack);
+	if (hit?.router) return;
+	if (hit?.sensor) {
+		openSensor(hit.sensor.name);
+		return openStack(hit.key);
 	}
-	// a click on an empty spot closes the panel
-	select(best);
+	// a click on an empty spot closes the panel and folds the fan
+	fold();
+	select(hit?.device ?? null);
 });
+document.addEventListener("keydown", (ev) => ev.key === "Escape" && fold());

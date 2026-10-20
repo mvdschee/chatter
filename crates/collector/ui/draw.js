@@ -1,16 +1,19 @@
 // Drawing the plan, each frame: the floor, walls and rooms, the areas in
 // front of the house, the traffic as glows and packets on arcs to the router,
-// the devices, the sensors, the selected device's box and the HUD.
+// the devices, the sensors, the selected device's box and the HUD. Things
+// whose names would overlap stack, as in the editor (chunk 8 of
+// docs/floorplan.md).
 
 import { heat, redness, score, scoreColor } from "./colour.js";
 import { DEVICES, SENSORS, STATUS } from "./data.js";
 import { fmtBytes } from "./format.js";
+import { fanColumn, stacks } from "./geometry.js";
 import { panel, selected } from "./panel.js";
 import { ROUTER, WALL_H, areas, floorDots, rooms, sensorAt, wallDots } from "./plan.js";
 import { current, outlierNow, play, scoreNow } from "./playback.js";
 import { rand } from "./random.js";
 import { STATE_COLOR, sensorState } from "./sensors.js";
-import { H, TILT, W, cam, canvas, ctx, dpr, fit, project, reduced, yaw } from "./view.js";
+import { H, TILT, W, cam, cameraKey, canvas, ctx, dpr, fit, project, reduced, yaw } from "./view.js";
 
 export function draw(now) {
 	const dt = Math.min(0.05, (now - play.lastFrame) / 1000);
@@ -28,9 +31,12 @@ export function draw(now) {
 	for (const d of DEVICES) drawFlow(d, now, dt);
 	ctx.globalCompositeOperation = "source-over";
 
-	drawStation(ROUTER, "#7fe7f2", 9);
+	layOut();
+	if (folded.has(ROUTER)) floorMark(ROUTER);
+	else drawStation(ROUTER, "#7fe7f2", 9, !stacked.has(ROUTER));
 	for (const s of SENSORS) drawSensor(s, now);
 	for (const d of DEVICES) drawNode(d, now);
+	drawStacks();
 	drawCallouts(now);
 	drawHud(now);
 	if (!reduced && now < play.glitchUntil) glitch(now);
@@ -239,7 +245,8 @@ function drawFlow(d, now, dt) {
 function drawSensor(s, now) {
 	const at = sensorAt.get(s.name);
 	if (!at) return;
-	const [x, yTop] = drawStation({ ...at, name: s.name }, STATE_COLOR[sensorState(s)], 6);
+	if (folded.has(s)) return floorMark(at);
+	const [x, yTop] = drawStation({ ...at, name: s.name }, STATE_COLOR[sensorState(s)], 6, !stacked.has(s));
 	s.screen = [x, yTop];
 	const t = (now - s.beatAt) / 1400;
 	if (t >= 0 && t < 1 && !reduced) {
@@ -251,9 +258,9 @@ function drawSensor(s, now) {
 	}
 }
 
-function drawStation(s, color, size) {
+function drawStation(s, color, size, named) {
 	const [x, y] = project(s.x, s.y);
-	const [, yTop] = project(s.x, s.y, 26);
+	const [, yTop] = project(s.x, s.y, STATION_LIFT);
 	ctx.strokeStyle = color;
 	ctx.lineWidth = 1;
 	ctx.beginPath();
@@ -263,18 +270,22 @@ function drawStation(s, color, size) {
 	ctx.fillStyle = "rgba(127,231,242,0.15)";
 	ctx.fillRect(x - size, yTop - size, size * 2, size * 2);
 	ctx.strokeRect(x - size, yTop - size, size * 2, size * 2);
-	label(s.name.toUpperCase(), x + size + 6, yTop + 4, color, "display");
+	if (named) label(s.name.toUpperCase(), x + size + 6, yTop + 4, color, "display");
 	return [x, yTop];
 }
 
 function drawNode(d, now) {
-	const lift = 14;
-	let [x, y, k] = project(d.x, d.y, lift);
+	let [x, y, k] = project(d.x, d.y, NODE_LIFT);
 	const [fx, fy] = project(d.x, d.y, 0);
 	d.screen = [x, y];
 	const [tx, rx] = current(d, now);
 	const t = heat(tx + rx);
 	const glitching = outlierNow(d, now);
+	const s = scoreNow(d, now);
+	const color = glitching ? "#ff3b3b" : d.locationOnly ? "#5c7a86" : scoreColor(s);
+	// kept for its stack, if it's in one
+	Object.assign(d, { tint: color, hot: glitching, s, sub: d.locationOnly ? "location only" : `${fmtBytes(tx + rx)}/min` });
+	if (folded.has(d)) return floorMark(d);
 
 	// a stem down to the floor, and its footprint
 	ctx.strokeStyle = "rgba(127,231,242,0.25)";
@@ -296,8 +307,6 @@ function drawNode(d, now) {
 		ctx.fillRect(x - 10 + Math.random() * 6, y + 3, 22, 1);
 	}
 
-	const s = scoreNow(d, now);
-	const color = glitching ? "#ff3b3b" : d.locationOnly ? "#5c7a86" : scoreColor(s);
 	// the pulse's phase adds up, so a change in traffic changes its speed
 	// without making it jump
 	d.pulsePhase = (d.pulsePhase ?? 0) + (now - (d.pulseAt ?? now)) / (500 - 300 * t);
@@ -322,10 +331,212 @@ function drawNode(d, now) {
 	if (selected === d) brackets(x, y, 17 * k, "#7fe7f2");
 
 	// a device waiting to be placed is a dot in a crowd: named only when picked
-	if (d.waiting && selected !== d) return;
-	const sub = d.locationOnly ? "location only" : `${fmtBytes(tx + rx)}/min`;
+	if ((d.waiting && selected !== d) || stacked.has(d)) return;
 	label(d.short ?? d.name, x + 12, y - 3, glitching ? "#ff3b3b" : "rgba(232,244,246,0.8)");
-	label(sub, x + 12, y + 10, "#5c7a86", "mono");
+	label(d.sub, x + 12, y + 10, "#5c7a86", "mono");
+}
+
+// A thing in a folded stack is only a faint mark on the floor where it
+// stands; its stack's disc stands for it.
+function floorMark(p) {
+	const [x, y] = project(p.x, p.y, 0);
+	ctx.fillStyle = "rgba(127,231,242,0.5)";
+	ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
+}
+
+const NODE_LIFT = 14, STATION_LIFT = 26;
+const NAME_FONT = "500 12px system-ui, sans-serif", SUB_FONT = "10px ui-monospace, Menlo, monospace";
+const STATION_FONT = `600 11px "Avenir Next Condensed", "Arial Narrow", sans-serif`;
+
+// The router, the sensors and the devices that are named on the plan, each
+// { key, name, at (on screen), foot (below it, on the floor), and router,
+// sensor or device }. Devices
+// waiting in front of the house are dots without names: they don't stack.
+function namedThings() {
+	const spot = (p, lift) => ({ at: project(p.x, p.y, lift).slice(0, 2), foot: project(p.x, p.y, 0).slice(0, 2) });
+	return [
+		{ key: "router", name: ROUTER.name.toUpperCase(), ...spot(ROUTER, STATION_LIFT), router: ROUTER },
+		...SENSORS.filter((s) => sensorAt.has(s.name)).map((s) =>
+			({ key: `sensor ${s.name}`, name: s.name.toUpperCase(), ...spot(sensorAt.get(s.name), STATION_LIFT), sensor: s })),
+		...DEVICES.filter((d) => !d.waiting).map((d) =>
+			({ key: d.mac, name: d.short ?? d.name, ...spot(d, NODE_LIFT), device: d })),
+	];
+}
+
+// A thing's name box on screen, its dot or square included. A device's has
+// room for any rate under its name, so a changing rate doesn't restack.
+function nameBox({ at: [x, y], name, device, router }) {
+	if (!device) {
+		const size = router ? 9 : 6;
+		ctx.font = STATION_FONT;
+		return [x - size, y - size, x + size + 6 + ctx.measureText(name).width, y + size];
+	}
+	ctx.font = SUB_FONT;
+	const rate = ctx.measureText("999.9 KiB/min").width;
+	ctx.font = NAME_FONT;
+	return [x - 6, y - 12, x + 12 + Math.max(ctx.measureText(name).width, rate), y + 10];
+}
+
+const stackName = (ts) => `${ts[0].name} +${ts.length - 1}`;
+
+// Which things stack, as lists of keys, from when the camera last settled.
+let grouping = { key: null, groups: [] };
+// This frame's stacks of two or more, each { things, and rows and left when
+// fanned }, and the router, sensors and devices in them.
+export let layout = [];
+const stacked = new Set(), folded = new Set();
+// A stack opened by a click on it stays open while the selection is what
+// it was then; otherwise the selected device's stack is the one fanned.
+const opened = { key: null, with: null };
+
+export function openStack(key) {
+	Object.assign(opened, { key, with: selected });
+}
+
+export function fold() {
+	opened.key = null;
+}
+
+function layOut() {
+	const things = namedThings();
+	const cam = cameraKey();
+	const key = cam && `${cam}|${things.map((t) => `${t.key}=${t.name}`).join()}|${things.map((t) => (t.device ?? t.router ?? sensorAt.get(t.sensor.name))).map((p) => `${p.x},${p.y}`).join()}`;
+	if (key && key !== grouping.key) {
+		const boxes = things.map(nameBox);
+		const mark = (g) => {
+			const [x, y] = things[g[0]].at;
+			ctx.font = NAME_FONT;
+			return [x - 10, y - 10, x + 14 + ctx.measureText(stackName(g.map((i) => things[i]))).width, y + 10];
+		};
+		grouping = { key, groups: stacks(boxes, mark).filter((g) => g.length > 1).map((g) => g.map((i) => things[i].key)) };
+	}
+	const byKey = new Map(things.map((t) => [t.key, t]));
+	const fan = opened.key && opened.with === selected ? opened.key : selected?.mac;
+	layout = grouping.groups.map((g) => ({ things: g.map((k) => byKey.get(k)).filter(Boolean) })).filter((s) => s.things.length > 1);
+	stacked.clear();
+	folded.clear();
+	for (const s of layout) {
+		for (const t of s.things) stacked.add(t.device ?? t.sensor ?? t.router);
+		if (s.things.some((t) => t.key === fan)) {
+			Object.assign(s, fanColumn(s.things.map((t) => t.at), { row: FAN_ROW, nameW: rowWidth(s) + 9, w: panel ? W - 370 : W, top: 64, h: H - 64 }));
+		} else for (const t of s.things) folded.add(t.device ?? t.sensor ?? t.router);
+	}
+}
+
+const FAN_ROW = 20;
+
+// How wide a fanned row's text is: the name, and a device's rate after it.
+function rowWidth(s) {
+	return Math.max(...s.things.map((t) => {
+		ctx.font = NAME_FONT;
+		const name = ctx.measureText(t.name).width;
+		ctx.font = SUB_FONT;
+		return name + (t.device ? 8 + ctx.measureText("999.9 KiB/min").width : 0);
+	}));
+}
+
+// A folded stack is a disc with the count on a stem above its first thing's
+// spot, the things in it only marks on the floor (floorMark), named
+// after it with "+2", ringed in the colour of its most unusual device (red
+// while one is sending far more than usual), so an outlier can't hide in
+// a cupboard. A fanned one draws its things in a column, each joined to
+// its own spot.
+function drawStacks() {
+	for (const s of layout) {
+		if (s.rows) drawFan(s);
+		else drawFolded(s);
+	}
+}
+
+function drawFolded({ things: ts }) {
+	const devices = ts.map((t) => t.device).filter(Boolean);
+	// devices still learning their usual have no score
+	const scored = devices.filter((d) => d.s != null && !d.locationOnly);
+	const worst = devices.find((d) => d.hot) ?? scored.reduce((a, d) => (d.s > a.s ? d : a), scored[0]);
+	const color = worst?.hot ? "#ff3b3b" : worst ? worst.tint : "#7fe7f2";
+	const [x, y] = ts[0].at, [fx, fy] = ts[0].foot;
+	ctx.strokeStyle = "rgba(127,231,242,0.35)";
+	ctx.lineWidth = 1;
+	ctx.beginPath();
+	ctx.moveTo(fx, fy);
+	ctx.lineTo(x, y + 9);
+	ctx.stroke();
+	ctx.fillStyle = "rgba(4,10,14,0.9)";
+	ctx.beginPath();
+	ctx.arc(x, y, 9, 0, Math.PI * 2);
+	ctx.fill();
+	ctx.strokeStyle = color;
+	ctx.lineWidth = 1.4;
+	ctx.stroke();
+	ctx.font = SUB_FONT;
+	ctx.fillStyle = "#e8f4f6";
+	ctx.textAlign = "center";
+	ctx.fillText(String(ts.length), x, y + 3.5);
+	ctx.textAlign = "left";
+	label(stackName(ts), x + 14, y + 4, worst?.hot ? "#ff3b3b" : "rgba(232,244,246,0.8)");
+}
+
+function drawFan(s) {
+	const { things: ts, rows, left } = s;
+	const box = fanBox(s);
+	ctx.fillStyle = "rgba(4,10,14,0.82)";
+	ctx.fillRect(box.x, box.y, box.w, box.h);
+	ctx.lineWidth = 1;
+	ts.forEach((t, i) => {
+		const [x, y] = t.at, [rx, ry] = rows[i];
+		ctx.strokeStyle = "rgba(127,231,242,0.35)";
+		ctx.beginPath();
+		ctx.moveTo(x, y);
+		ctx.lineTo(rx + (left ? 6 : -6), ry);
+		ctx.stroke();
+		const d = t.device;
+		const color = d ? (d.hot ? "#ff3b3b" : d.tint) : t.router ? "#7fe7f2" : STATE_COLOR[sensorState(t.sensor)];
+		ctx.fillStyle = ctx.strokeStyle = color;
+		ctx.beginPath();
+		if (d) {
+			ctx.arc(rx, ry, 4, 0, Math.PI * 2);
+			if (!d.locationOnly) ctx.fill();
+			ctx.stroke();
+		} else ctx.strokeRect(rx - 4, ry - 4, 8, 8);
+		// the name, then a device's rate; left of the stack, ending at the dot
+		ctx.font = NAME_FONT;
+		const nameW = ctx.measureText(t.name).width;
+		ctx.font = SUB_FONT;
+		const subW = d ? 8 + ctx.measureText(d.sub).width : 0;
+		const nx = left ? rx - 10 - subW - nameW : rx + 10;
+		if (d) label(d.sub, nx + nameW + 8, ry + 4, "#5c7a86", "mono");
+		label(t.name, nx, ry + 4, d === selected && d ? "#7fe7f2" : d?.hot ? "#ff3b3b" : "rgba(232,244,246,0.8)");
+	});
+}
+
+// The box a fanned column's rows take, dots and names.
+function fanBox({ rows, left, ...s }) {
+	const w = rowWidth(s) + 18, ys = rows.map((r) => r[1]);
+	return { x: left ? rows[0][0] - w + 8 : rows[0][0] - 8, y: Math.min(...ys) - FAN_ROW / 2, w, h: Math.max(...ys) - Math.min(...ys) + FAN_ROW };
+}
+
+// What a click at (x, y) lands on: { device }, { sensor, key } or
+// { router } for a thing alone or a fanned row (its dot or its name);
+// { stack: key } for a folded stack, its disc or any of its things; or null.
+export function thingAt(x, y) {
+	for (const s of layout) {
+		if (!s.rows) continue;
+		const w = rowWidth(s) + 10;
+		const i = s.rows.findIndex(([rx, ry]) => Math.abs(y - ry) < FAN_ROW / 2 && (s.left ? x >= rx - w && x <= rx + 8 : x >= rx - 8 && x <= rx + w));
+		if (i >= 0) return s.things[i];
+	}
+	const near = (p, r) => p && Math.hypot(p[0] - x, p[1] - y) < r;
+	const sensor = SENSORS.find((s) => !stacked.has(s) && near(s.screen, 16));
+	if (sensor) return { sensor, key: `sensor ${sensor.name}` };
+	const folded = layout.find((s) => !s.rows && s.things.some((t) => near(t.at, 14)));
+	if (folded) return { stack: folded.things[0].key };
+	let best = null, bestDist = 24;
+	for (const d of DEVICES) {
+		if (stacked.has(d)) continue;
+		const dist = Math.hypot(d.screen[0] - x, d.screen[1] - y);
+		if (dist < bestDist) [best, bestDist] = [d, dist];
+	}
+	return best && { device: best };
 }
 
 function brackets(x, y, s, color) {
@@ -351,6 +562,8 @@ function drawCallouts(now) {
 	const taken = [{ x: 0, y: 0, w: 290, h: 235 }];
 	taken.push(panel ? { x: W - 370, y: 0, w: 370, h: H } : { x: W - 320, y: 0, w: 320, h: 64 });
 	taken.push({ x: W - 520, y: H - 64, w: 520, h: 64 });
+	// and a fanned stack's column
+	for (const s of layout.filter((s) => s.rows)) taken.push(fanBox(s));
 	const overlaps = (a) => taken.some((b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h);
 
 	show.forEach((d) => {

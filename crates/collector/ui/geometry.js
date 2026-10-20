@@ -375,12 +375,12 @@ function overlapping(boxes) {
 // Where a fanned stack's rows go: a column `gap` right of its rightmost
 // spot, `row` apart, centred on their middle height; names `nameW` wide
 // that would run past `w` put it left of the leftmost spot instead (`left`:
-// names go left of their dots), and it shifts to stay within 0 to `h`.
-export function fanColumn(spots, { gap = 40, row = 18, nameW = 0, w = Infinity, h = Infinity } = {}) {
+// names go left of their dots), and it shifts to stay within `top` to `h`.
+export function fanColumn(spots, { gap = 40, row = 18, nameW = 0, w = Infinity, top = 0, h = Infinity } = {}) {
 	const xs = spots.map((p) => p[0]);
 	const left = Math.max(...xs) + gap + nameW > w && Math.min(...xs) - gap - nameW >= 0;
 	const x = left ? Math.min(...xs) - gap : Math.max(...xs) + gap;
 	const half = ((spots.length - 1) / 2) * row;
-	const mid = Math.min(Math.max(spots.reduce((s, p) => s + p[1], 0) / spots.length, half + row), h - half - row);
+	const mid = Math.min(Math.max(spots.reduce((s, p) => s + p[1], 0) / spots.length, top + half + row), h - half - row);
 	return { left, rows: spots.map((_, i) => [x, mid - half + i * row]) };
 }

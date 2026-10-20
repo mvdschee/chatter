@@ -301,4 +301,6 @@ test("a fanned stack's rows: right of its spots, apart, centred on them", () => 
 	const edge = fanColumn([[900, 5], [920, 8], [910, 12]], { nameW: 150, w: 1000, h: 600 });
 	assert.ok(edge.left && edge.rows.every(([x]) => x === 860 && x - 150 >= 0));
 	assert.ok(edge.rows.every(([, y]) => y - 9 >= 0));
+	// below a bar along the top
+	assert.ok(fanColumn([[900, 5], [920, 8], [910, 12]], { top: 64, h: 600 }).rows.every(([, y]) => y - 9 >= 64));
 });

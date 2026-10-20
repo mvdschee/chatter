@@ -1,6 +1,6 @@
 # The floor plan editor (research and plan)
 
-Status, 2026-10-20: research done; chunks 1 to 4 and the first half of 7 built.
+Status, 2026-10-20: research done; chunks 1 to 4 and 7 to 9 built.
 Plan step 3 in `docs/monitoring.md`. The view draws the saved plan, or a
 made-up example (`EXAMPLE_PLAN` in `crates/collector/ui/plan.js`) until
 one with rooms is saved.
@@ -315,8 +315,30 @@ One reviewable commit each:
       merge too, until nothing overlaps. Near the canvas's right edge the
       column goes left of the stack, names right-aligned, and it shifts
       to stay on screen. Stacking is only in Place, where names show.
-   2. The view: the same stacks in 3D, a click fans them; the floor glow
-      and arcs still start at each device's own spot.
+   2. Done: the view: the same stacks in 3D, the router and sensors in
+      them as in the editor; a device waiting in front of the house is an
+      unnamed dot and doesn't stack. A folded stack is a disc with the
+      count at its first thing's spot, named "+11", ringed in the colour
+      of its most unusual device (red while one is far over its usual),
+      so an outlier can't hide in a cupboard. The things in it are only
+      faint marks on the floor where they stand: a first try still drew
+      every node and station in full under the disc, and the owner read
+      it as five things and a count rather than one stack. A click on the
+      disc, or on any of its things, fans
+      it as a column on a dark backing, each row a dot in the device's
+      colour, its name and rate, joined to its node; a click on a row
+      picks that device (or opens the sensor), a click elsewhere or Esc
+      folds it. The selected device's stack is fanned, so picking from
+      the list shows which node it is. The floor glow and the arcs start
+      at each device's own spot. The column stays clear of the open panel
+      and the top bar, and the callout keeps off the column. The camera
+      drifts by itself, so names at the edge of overlapping would stack
+      and unstack every few seconds: the grouping is worked out again
+      only once the camera settles somewhere new (a zoom, a pan, a turn),
+      not while it drifts or eases; the rows follow the nodes every
+      frame. A first try counted a device's name box as tall as its two
+      lines plus a margin, and the people's areas, whose rows are just
+      clear of each other, stacked too.
 9. Names: a device can be given a name of its own, shown instead of the
    sweep's hostname or the MAC everywhere on the page. The owner's first
    try had a row of identical smart plugs that all sweep as the same
@@ -342,7 +364,8 @@ the page's geometry, `cargo test` for the save checks):
 - snapping: a corner near an existing one becomes that one; 90° holds;
 - the scale from two points and a distance;
 - stacks: names that overlap, directly or through others, stack, and so do
-  stacks whose marks would overlap; a fanned column's names don't overlap.
+  stacks whose marks would overlap; a fanned column's names don't overlap,
+  and it keeps below a bar along the top.
 
 Only the owner can judge:
 
@@ -351,7 +374,10 @@ Only the owner can judge:
 - whether the walls and doorways look right in the view;
 - whether tracing over the underlay is fast, and the image clear enough to
   trace yet faint enough to see the rooms;
-- placing devices on a phone.
+- placing devices on a phone;
+- whether a folded stack in the 3D view reads as "these stand here", and
+  whether its ring shows an outlier inside it clearly enough (not seen on
+  real outliers yet).
 
 ## Still unsure
 
