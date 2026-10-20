@@ -8,7 +8,7 @@ use sqlx::Row;
 use crate::{
 	Result,
 	core::{
-		handlers::baseline::load_usual_traffic,
+		handlers::{baseline::load_usual_traffic, device::device_names},
 		models::{
 			baseline::{ScoreScale, hour_of},
 			overview::{
@@ -58,6 +58,7 @@ pub async fn overview(db: &DatabaseRepository) -> Result<Overview> {
 		loop_reports.iter().enumerate().map(|(i, (id, _))| (*id, i)).collect();
 
 	let mut usual = load_usual_traffic(db).await?;
+	let mut names = device_names(db).await?;
 	let mut devices: Vec<DeviceOverview> = db
 		.get_records(DEVICE_MINUTES_DEVICES, vec![DbValue::Int(since)])
 		.await?
@@ -66,6 +67,7 @@ pub async fn overview(db: &DatabaseRepository) -> Result<Overview> {
 			let mac: String = row.try_get("mac")?;
 			Ok(DeviceOverview {
 				usual: usual.remove(&mac),
+				name: names.remove(&mac),
 				mac,
 				first_seen: row.try_get("first_seen")?,
 				last_seen: row.try_get("last_seen")?,

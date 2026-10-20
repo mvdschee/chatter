@@ -97,11 +97,12 @@ function applyOverview(o) {
 	DEVICES.length = 0;
 	seen.forEach((x) => {
 		const d = old.get(x.mac) ?? newDevice(x.mac);
-		// the name the host sweep found (without the local domain), else the MAC
+		// the name given, else the one the host sweep found (without the local
+		// domain), else the MAC
 		const host = x.hostname?.split(".")[0];
 		Object.assign(d, {
-			minutes: pad(x.minutes), rssi: x.rssi_max, firstSeen: x.first_seen,
-			name: host ?? x.mac, short: host ?? x.mac.slice(9), vendor: x.vendor ?? vendorless(x.mac),
+			minutes: pad(x.minutes), rssi: x.rssi_max, firstSeen: x.first_seen, given: x.name,
+			name: x.name ?? host ?? x.mac, short: x.name ?? host ?? x.mac.slice(9), vendor: x.vendor ?? vendorless(x.mac),
 			ip: x.ip, hostname: x.hostname, ports: x.ports, portScannedAt: x.port_scanned_at, usual: x.usual,
 		});
 		DEVICES.push(d);
@@ -168,4 +169,21 @@ export async function loadOverview() {
 	} catch (e) {
 		console.error("overview:", e);
 	}
+}
+
+// Gives a device a name, or takes it away with an empty one, then fetches the
+// overview so it shows everywhere. Returns why it failed, or null.
+export async function renameDevice(mac, name) {
+	try {
+		const res = await fetch(`/v1/devices/${encodeURIComponent(mac)}/name`, {
+			method: "PUT",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ name }),
+		});
+		if (!res.ok) return (await res.text()) || `HTTP ${res.status}`;
+	} catch (e) {
+		return e.message;
+	}
+	await loadOverview();
+	return null;
 }

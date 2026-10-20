@@ -31,6 +31,9 @@ pub enum Error {
 	#[error("floor plan: {0}")]
 	Plan(String),
 
+	#[error("device: {0}")]
+	Device(String),
+
 	#[error("HTTP error: {0}")]
 	Http(String),
 }

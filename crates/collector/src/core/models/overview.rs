@@ -85,6 +85,8 @@ pub struct DeviceOverview {
 	pub ip: Option<String>,
 	pub hostname: Option<String>,
 	pub vendor: Option<String>,
+	/// The name the owner gave it; `None` if none.
+	pub name: Option<String>,
 	/// Open ports from its newest port scan that wasn't cut short; `None`
 	/// before one has finished for it.
 	pub ports: Option<Vec<PortOverview>>,

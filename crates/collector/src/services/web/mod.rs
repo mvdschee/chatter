@@ -40,6 +40,7 @@ impl HttpServer {
 			.nest(
 				"/v1",
 				handlers::overview::routes()
+					.merge(handlers::device::routes())
 					.merge(handlers::plan::routes())
 					.merge(handlers::timeline::routes()),
 			)

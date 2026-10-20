@@ -1,5 +1,6 @@
 pub mod baseline;
 pub mod config;
+pub mod device;
 pub mod floorplan;
 pub mod overview;
 pub mod report;

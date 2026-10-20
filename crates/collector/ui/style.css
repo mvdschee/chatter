@@ -126,6 +126,9 @@ canvas#edit-plan:focus-visible { outline: 1px solid var(--signal); outline-offse
 .thing-detail .row input { flex: 1; }
 .thing-detail .tl-btn { text-align: center; padding: 8px 10px; font-size: 11px; }
 .place-btn { margin-top: 8px; }
+.rename { display: flex; gap: 6px; margin-top: 8px; }
+.rename input { flex: 1; min-width: 0; font: 14px/1 var(--body); color: var(--phosphor); background: transparent; border: 1px solid var(--line); padding: 8px 9px; }
+.rename input:focus { border-color: var(--signal); outline: none; }
 .edit-help { display: grid; grid-template-columns: minmax(0, 42%) 1fr; gap: 7px 12px; margin: 0; font-size: 14px; line-height: 1.35; }
 .edit-help dt { font: 13px/1.35 var(--mono); color: var(--signal); }
 .edit-help dd { margin: 0; color: var(--phosphor); }

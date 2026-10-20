@@ -14,7 +14,7 @@
 // names would overlap stack, and a stack fans out as a column (chunk 8).
 
 import { atLength, box, canAdd, crossesItself, dist, fanColumn, followImage, fromImage, inside, labelAt, measure, mm, roomAt as roomIn, roomWidth, snap, stacks, turnPlan } from "./geometry.js";
-import { DEVICES, SENSORS } from "./data.js";
+import { DEVICES, SENSORS, renameDevice } from "./data.js";
 import { closePanel } from "./panel.js";
 import { loadPlan, saved } from "./plan.js";
 import { resize as resizeView } from "./view.js";
@@ -455,7 +455,7 @@ function things() {
 	return [
 		{ key: "router", name: "Router", sub: "where the traffic goes" },
 		...SENSORS.map((x) => ({ key: `sensor:${x.name}`, name: x.name, sub: "sensor" })),
-		...devices.map((d) => ({ key: d.mac, name: d.name, sub: [d.vendor, d.ip, d.name === d.mac ? null : d.mac].filter(Boolean).join(" · "), device: true })),
+		...devices.map((d) => ({ key: d.mac, name: d.name, sub: [d.given && d.hostname?.split(".")[0], d.vendor, d.ip, d.name === d.mac ? null : d.mac].filter(Boolean).join(" · "), device: true })),
 	];
 }
 
@@ -599,6 +599,26 @@ function renderDetail(t) {
 		: place?.carried_by ? `Moves around with ${place.carried_by}.`
 		: "Waiting: click where it stands.";
 	const parts = [el("b", t.name), el("small", t.sub), el("p", where)];
+	if (t.device) {
+		// a name of its own, saved at once (not with the plan), shown everywhere
+		const d = DEVICES.find((x) => x.mac === t.key);
+		const named = el("div");
+		named.className = "row";
+		const name = Object.assign(el("input"), { value: d?.given ?? "", placeholder: "give it a name", maxLength: 64 });
+		name.setAttribute("aria-label", "Name");
+		const rename = el("button", "Rename");
+		rename.className = "tl-btn";
+		const go = async () => {
+			const why = await renameDevice(t.key, name.value);
+			if (why) return say(`Not renamed: ${why}`, true);
+			say(name.value.trim() ? `Named ${name.value.trim()}.` : "Name taken away.");
+			renderThings();
+		};
+		rename.addEventListener("click", go);
+		name.addEventListener("keydown", (ev) => ev.key === "Enter" && go());
+		named.append(name, rename);
+		parts.push(named);
+	}
 	if (t.device) {
 		const row = el("div");
 		row.className = "row";

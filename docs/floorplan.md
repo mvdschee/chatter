@@ -317,6 +317,19 @@ One reviewable commit each:
       to stay on screen. Stacking is only in Place, where names show.
    2. The view: the same stacks in 3D, a click fans them; the floor glow
       and arcs still start at each device's own spot.
+9. Names: a device can be given a name of its own, shown instead of the
+   sweep's hostname or the MAC everywhere on the page. The owner's first
+   try had a row of identical smart plugs that all sweep as the same
+   hostname, which stacks and the list couldn't tell apart. Done: the
+   device panel and the editor's Place step each have a name field;
+   Rename saves at once through `PUT /v1/devices/{mac}/name` (an empty
+   name goes back to the hostname or the MAC), not with the plan, so
+   Cancel in the editor doesn't undo it. Names are a table of their own,
+   by MAC, not part of the plan: a device waiting to be placed can be
+   named too, and importing an older plan can't wipe them. Renamed, a
+   device's hostname stays in the editor's list under its name, so the
+   filter still finds it. The Timeline's events still say the sweep's
+   name.
 
 ## Validation
 

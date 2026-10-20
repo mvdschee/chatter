@@ -186,3 +186,13 @@ pub const FLOORPLANS_INSERT: &str =
 
 /// The newest plan: `plan`, as JSON.
 pub const FLOORPLANS_LATEST: &str = "SELECT plan FROM floorplans ORDER BY id DESC LIMIT 1";
+
+// --- device_names ----------------------------------------------------------
+
+/// Every name given: `mac`, `name`.
+pub const DEVICE_NAMES_ALL: &str = "SELECT mac, name FROM device_names";
+
+pub const DEVICE_NAMES_UPSERT: &str = "INSERT INTO device_names (mac, name, named_at) \
+	VALUES (?1, ?2, ?3) ON CONFLICT (mac) DO UPDATE SET name = ?2, named_at = ?3";
+
+pub const DEVICE_NAMES_DELETE: &str = "DELETE FROM device_names WHERE mac = ?1";

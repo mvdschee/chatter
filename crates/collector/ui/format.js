@@ -39,3 +39,7 @@ export function whenLabel(date) {
 	const day = days === 0 ? "today" : days === 1 ? "yesterday" : DAY_MONTH.format(date);
 	return `${day} ${hhmm(date)}`;
 }
+
+// Text for innerHTML: a device's name is typed by someone, or sweeps in from
+// the network.
+export const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);

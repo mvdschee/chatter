@@ -247,7 +247,7 @@ fn check_places(places: &Places) -> Result<()> {
 }
 
 /// Six lowercase hex pairs with colons, the way the reports write a MAC.
-fn is_mac(s: &str) -> bool {
+pub fn is_mac(s: &str) -> bool {
 	s.len() == 17
 		&& s.split(':').all(|pair| {
 			pair.len() == 2

@@ -2,8 +2,8 @@
 // panel is in sensors.js), and what they show refreshed when the data changes.
 
 import { score, scoreColor } from "./colour.js";
-import { DEVICES, EVENTS, LOOP, TL, bucketOf, loopHours, sum } from "./data.js";
-import { DATE_TIME, fmtBytes, hhmm } from "./format.js";
+import { DEVICES, EVENTS, LOOP, TL, bucketOf, loopHours, renameDevice, sum } from "./data.js";
+import { DATE_TIME, esc, fmtBytes, hhmm } from "./format.js";
 import { hourNow, play, shownMoment } from "./playback.js";
 import { openSensor, openSensorName } from "./sensors.js";
 import { RANGES, range, redrawGraph, seek, zoomed } from "./timeline.js";
@@ -96,7 +96,7 @@ function renderList() {
 		.map(({ d, total }) => {
 			const color = d.outlier ? "#ff3b3b" : d.locationOnly ? "#5c7a86" : scoreColor(score(d, total, loopHours[LOOP - 1]));
 			const rate = d.locationOnly ? "location only" : fmtBytes(total);
-			return `<li><button data-id="${d.id}"><span class="swatch" style="background:${color}"></span><span>${d.name}</span><span class="rate">${rate}</span></button></li>`;
+			return `<li><button data-id="${d.id}"><span class="swatch" style="background:${color}"></span><span>${esc(d.name)}</span><span class="rate">${rate}</span></button></li>`;
 		})
 		.join("")}</ul><p class="note">Or click a device on the plan.</p>`;
 	wireClose();
@@ -118,9 +118,14 @@ export function select(d) {
 		${CLOSE}
 		<button class="back" id="back">← All devices</button>
 		${alert}
-		<h2 class="name">${d.name}</h2>
-		<div class="where">${d.room}${d.locationOnly ? " · location only: its data is multi-stream, the sensors can't count it" : ""}</div>
+		<h2 class="name">${esc(d.name)}</h2>
+		<div class="where">${esc(d.room)}${d.locationOnly ? " · location only: its data is multi-stream, the sensors can't count it" : ""}</div>
 		<button class="top-btn place-btn" id="place-btn">Place</button>
+		<div class="rename">
+			<input id="rename" value="${esc(d.given ?? "")}" placeholder="give it a name" maxlength="64" aria-label="Name">
+			<button class="top-btn" id="rename-btn">Rename</button>
+		</div>
+		<p class="note" id="rename-note"></p>
 
 		<div class="eyebrow" id="p-when"></div>
 		<dl class="kv">
@@ -153,6 +158,15 @@ export function select(d) {
 	wireClose();
 	// the editor's Place step, on this device (edit.js)
 	document.getElementById("place-btn").addEventListener("click", () => document.dispatchEvent(new CustomEvent("place", { detail: d.mac })));
+	// a name of its own, shown everywhere; an empty one goes back to the
+	// hostname or the MAC
+	const rename = async () => {
+		const why = await renameDevice(d.mac, document.getElementById("rename").value);
+		if (why) document.getElementById("rename-note").textContent = `Not renamed: ${why}`;
+		else if (selected === d) select(d);
+	};
+	document.getElementById("rename-btn").addEventListener("click", rename);
+	document.getElementById("rename").addEventListener("keydown", (ev) => ev.key === "Enter" && rename());
 	showPanel("device");
 	drawSpark(d);
 	updateMoment(performance.now());

@@ -181,3 +181,9 @@
 **Why:** A cupboard full of devices made a knot of names no one could read or click. Grouping on screen, like map pin clustering, lets zooming in pull things apart by itself; names are what collide, so names decide. A column keeps names apart where Leaflet's circle and spiral fan would overlap them past a handful.
 **Alternatives:** A fixed pixel or metre radius (names longer than the radius still collide); moving labels apart with leader lines (a tangle in a small room); only zooming (doesn't help the 3D view).
 
+## 2026-10-20 - Device names in a table of their own, saved at once
+
+**Decision:** A name the owner gives a device lives in a `device_names` table by MAC, set through `PUT /v1/devices/{mac}/name`, and comes back in the overview; the page shows it instead of the hostname or the MAC. Renaming saves at once, outside the editor's Save. Details in `docs/floorplan.md`, chunk 9.
+**Why:** A name is about the device, not where it stands: a device still waiting needs one most, while it's being identified, and the plan's places only hold placed or carried devices. Kept apart, re-importing an old plan can't wipe names.
+**Alternatives:** A `name` in the plan's device places (it would need entries with no place, and would go with every plan save and import); names in the page's local storage (lost on another browser, and the collector couldn't use them).
+
