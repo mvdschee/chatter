@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-	atLength, box, canAdd, corner, crossesItself, followImage, fromImage, frontAreas, inOpening, inside, labelAt, measure, middleOf, mm, roomAt, roomWidth, snap, toImage, toUnits, turnPlan, wallPieces,
+	atLength, box, canAdd, corner, crossesItself, fanColumn, followImage, fromImage, frontAreas, inOpening, inside, labelAt, measure, middleOf, mm, roomAt, roomWidth, snap, stacks, toImage, toUnits, turnPlan, wallPieces,
 } from "../ui/geometry.js";
 
 // Made-up plans: a row of two rooms over a row of three, and an L.
@@ -271,4 +271,34 @@ test("the areas in front of the house: below it, apart, a slot each, in order", 
 	assert.ok(crowd.at(-1).x + crowd.at(-1).w <= frame.left + frame.width);
 	// the same groups, the same slots: nothing reshuffles between overviews
 	assert.deepEqual(frontAreas([{ count: 7, compact: true }, { count: 2 }], frame), frontAreas([{ count: 7, compact: true }, { count: 2 }], frame));
+});
+
+test("things stack when their names would overlap, through a chain too", () => {
+	// a and b overlap, b and c overlap, d stands apart, e overlaps a
+	const boxes = [[0, 0, 100, 16], [90, 5, 190, 21], [180, 10, 280, 26], [0, 200, 100, 216], [50, -10, 150, 6]];
+	assert.deepEqual(stacks(boxes), [[0, 1, 2, 4], [3]]);
+	// boxes that only touch don't stack
+	assert.deepEqual(stacks([[0, 0, 10, 10], [10, 0, 20, 10]]), [[0], [1]]);
+	assert.deepEqual(stacks([]), []);
+	// two stacks apart, whose marks would overlap, become one
+	const four = [[0, 0, 50, 16], [40, 0, 90, 16], [0, 30, 50, 46], [40, 30, 90, 46]];
+	assert.deepEqual(stacks(four), [[0, 1], [2, 3]]);
+	assert.deepEqual(stacks(four, (g) => [0, four[g[0]][1], 120, four[g[0]][1] + 35]), [[0, 1, 2, 3]]);
+});
+
+test("a fanned stack's rows: right of its spots, apart, centred on them", () => {
+	const spots = [[100, 50], [140, 60], [120, 40], [110, 58]];
+	const { rows, left } = fanColumn(spots, { gap: 40, row: 18 });
+	assert.equal(left, false);
+	assert.equal(rows.length, spots.length);
+	for (const [x] of rows) assert.equal(x, 180);
+	rows.forEach((r, i) => i && assert.equal(r[1] - rows[i - 1][1], 18));
+	const mid = (ps) => ps.reduce((s, p) => s + p[1], 0) / ps.length;
+	assert.ok(Math.abs(mid(rows) - mid(spots)) < 1e-9);
+	// rows as name boxes don't stack with each other
+	assert.equal(stacks(rows.map(([x, y]) => [x - 6, y - 8, x + 200, y + 8])).length, rows.length);
+	// near the right edge it goes left, its names too; near the top it shifts down
+	const edge = fanColumn([[900, 5], [920, 8], [910, 12]], { nameW: 150, w: 1000, h: 600 });
+	assert.ok(edge.left && edge.rows.every(([x]) => x === 860 && x - 150 >= 0));
+	assert.ok(edge.rows.every(([, y]) => y - 9 >= 0));
 });

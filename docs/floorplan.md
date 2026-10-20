@@ -285,6 +285,38 @@ One reviewable commit each:
       width the people's areas leave; a person's devices keep their labels,
       up to three rows deep. With no saved plan every device waits in front
       of the example: it isn't anyone's home, so nothing stands in it.
+8. Stacks: things standing close together, in two commits. The owner's
+   first try put a cupboard full of devices in one small room: their names
+   ran over each other and no one could be told apart or picked. Maps have
+   the same trouble with pins, and the standard answer is Leaflet's
+   markercluster: pins within a pixel radius on screen become one marker
+   with a count, and clicking it fans them out ("spiderfy": on a circle up
+   to about 9, a spiral past that), each joined to the real spot by a line.
+   Grouping on screen rather than in metres means zooming in pulls them
+   apart by itself. Here every marker carries a name, and names are what
+   collide, so:
+   - Things stack when their name boxes (dot and name, on screen) would
+     overlap, directly or through a chain of others. The stack is drawn at
+     its first thing's spot as a dot with the count, named after that
+     thing with "+2".
+   - A stack fans out as a column beside it, a row each, with a line from
+     each row to the stack, rather than a circle: names in a column can't
+     overlap, on a circle they do past a handful. Picking one from the
+     list fans its stack too, so the list finds a device and the plan
+     shows which dot it is.
+   - The sensors can't tell 30 cm apart anyway, so a stack shows what the
+     plan really knows: these stand in the cupboard.
+   1. Done: the editor, in Place: a press on a stack fans it; a press on a
+      row (its dot or its name) picks that thing and dragging moves it out,
+      the rest staying fanned; a click elsewhere places the picked thing as
+      before and folds the fan; Esc folds it, a second Esc picks nothing.
+      The first try made two stacks whose numbers and names sat on top of
+      each other, so stacks whose drawn mark would overlap another stack
+      merge too, until nothing overlaps. Near the canvas's right edge the
+      column goes left of the stack, names right-aligned, and it shifts
+      to stay on screen. Stacking is only in Place, where names show.
+   2. The view: the same stacks in 3D, a click fans them; the floor glow
+      and arcs still start at each device's own spot.
 
 ## Validation
 
@@ -295,7 +327,9 @@ the page's geometry, `cargo test` for the save checks):
 - point-in-polygon: a device's room, including points on an edge;
 - shared edges are drawn once; an opening cuts the right stretch of its edge;
 - snapping: a corner near an existing one becomes that one; 90° holds;
-- the scale from two points and a distance.
+- the scale from two points and a distance;
+- stacks: names that overlap, directly or through others, stack, and so do
+  stacks whose marks would overlap; a fanned column's names don't overlap.
 
 Only the owner can judge:
 

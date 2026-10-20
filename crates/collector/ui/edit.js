@@ -10,9 +10,10 @@
 // where it lies goes in the plan. Turn: the whole plan a quarter round. The
 // panel lists the steps, the next one lit.
 // Placing (chunk 7): the router, the sensors and the devices, each placed,
-// carried by someone, or waiting; saved in the plan as `places`.
+// carried by someone, or waiting; saved in the plan as `places`. Things whose
+// names would overlap stack, and a stack fans out as a column (chunk 8).
 
-import { atLength, box, canAdd, crossesItself, dist, followImage, fromImage, inside, labelAt, measure, mm, roomAt as roomIn, roomWidth, snap, turnPlan } from "./geometry.js";
+import { atLength, box, canAdd, crossesItself, dist, fanColumn, followImage, fromImage, inside, labelAt, measure, mm, roomAt as roomIn, roomWidth, snap, stacks, turnPlan } from "./geometry.js";
 import { DEVICES, SENSORS } from "./data.js";
 import { closePanel } from "./panel.js";
 import { loadPlan, saved } from "./plan.js";
@@ -74,7 +75,8 @@ const HELP = {
 	place: [
 		["click", "put the picked one there; the next one waiting is picked"],
 		["drag a placed one", "move it"],
-		["Esc", "pick nothing"],
+		["click a number", "spread out the things standing there"],
+		["Esc", "fold them again, or pick nothing"],
 	],
 	both: [
 		["Alt", "no snapping"],
@@ -98,8 +100,8 @@ let underlay = null, ghost = null, imageFile = null, shown = true, loads = 0;
 let measured = false, turned = false, stepsKey = "";
 // Where things stand ({ router, sensors, devices }, devices not seen lately
 // kept), the one picked in the list (a key from things()), the name last
-// given as who carries a device.
-let places = noPlaces(), picked = null, carrier = "";
+// given as who carries a device; a thing whose stack was clicked open.
+let places = noPlaces(), picked = null, carrier = "", opened = null;
 // The last pointer position, to snap again when Alt or the corners change;
 // when the last corner was put (a double-click that can't close takes it back).
 let pointer = null, addedAt = 0;
@@ -146,7 +148,7 @@ function openEditor() {
 	[underlay, ghost, imageFile, shown] = [structuredClone(saved?.underlay ?? null), null, null, true];
 	[measured, turned] = [Boolean(underlay), false];
 	places = { ...noPlaces(), ...structuredClone(saved?.places ?? {}) };
-	[picked, filterEl.value] = [null, ""];
+	[picked, opened, filterEl.value] = [null, null, ""];
 	if (underlay) {
 		const n = ++loads;
 		loadImage(`/v1/plan/underlay?${Date.now()}`)
@@ -507,15 +509,57 @@ function handOn(waited) {
 	pick([...all.slice(i + 1), ...all.slice(0, i)].find((t) => !placeOf(t.key))?.key ?? null);
 }
 
-// The placed thing nearest the pointer on screen, within reach, or null.
-function thingNear(x, y) {
-	let best = null, bestD = REACH_PX + 4;
-	for (const t of things()) {
+const NAME_FONT = "11px ui-monospace, Menlo, monospace";
+
+// The placed things on screen as stacks, each { things, spots } (screen
+// points). In Place, things whose names would overlap stack (stacks), and a
+// stack holding the opened or the picked thing fans out: `rows`, where its
+// things are drawn instead. The thing being dragged stands alone.
+function onScreen() {
+	const placed = things().flatMap((t) => {
 		const at = placeOf(t.key)?.at;
-		if (!at) continue;
-		const [sx, sy] = toScreen(at);
-		const d = Math.hypot(sx - x, sy - y);
-		if (d < bestD) [best, bestD] = [t.key, d];
+		return at ? [{ t, at: toScreen(at) }] : [];
+	});
+	const alone = (p) => ({ things: [p.t], spots: [p.at] });
+	if (tool !== "place") return placed.map(alone);
+	const still = placed.filter((p) => p.t.key !== drag?.thing);
+	ctx.font = NAME_FONT;
+	const nameW = (t) => ctx.measureText(t.name).width;
+	const boxes = still.map(({ t, at: [x, y] }) => [x - 6, y - 8, x + 9 + nameW(t), y + 8]);
+	const mark = (g) => {
+		const [x, y] = still[g[0]].at;
+		return [x - 10, y - 10, x + 14 + ctx.measureText(stackName(g.map((i) => still[i].t))).width, y + 10];
+	};
+	const out = stacks(boxes, mark).map((group) => {
+		const s = { things: group.map((i) => still[i].t), spots: group.map((i) => still[i].at) };
+		if (s.things.length > 1 && s.things.some((t) => t.key === opened || t.key === picked)) {
+			Object.assign(s, fanColumn(s.spots, { nameW: Math.max(...s.things.map(nameW)) + 9, w: W, h: H }));
+		}
+		return s;
+	});
+	return [...out, ...placed.filter((p) => p.t.key === drag?.thing).map(alone)];
+}
+
+const stackName = (ts) => `${ts[0].name} +${ts.length - 1}`;
+
+// What a press at (x, y) lands on in Place: a thing's key, standing alone or
+// a row of a fanned stack (its dot or its name), or { stack: key } for a
+// folded stack's number, or null.
+function hitAt(x, y) {
+	let best = null, bestD = REACH_PX + 4;
+	ctx.font = NAME_FONT;
+	for (const s of onScreen()) {
+		if (s.rows) {
+			s.rows.forEach(([rx, ry], i) => {
+				const w = ctx.measureText(s.things[i].name).width + 9;
+				const onName = (s.left ? x >= rx - w && x <= rx + 8 : x >= rx - 8 && x <= rx + w) && Math.abs(y - ry) < 9;
+				const d = onName ? 0 : Math.hypot(rx - x, ry - y);
+				if (d < bestD) [best, bestD] = [s.things[i].key, d];
+			});
+			continue;
+		}
+		const d = Math.hypot(s.spots[0][0] - x, s.spots[0][1] - y);
+		if (d < bestD) [best, bestD] = [s.things.length > 1 ? { stack: s.things[0].key } : s.things[0].key, d];
 	}
 	return best;
 }
@@ -592,31 +636,66 @@ function renderDetail(t) {
 
 // Everything placed, on the plan: the router and sensors as squares, devices
 // as dots; names while placing; the picked one ringed, and where it would go.
+// A folded stack is its first thing's spot with the count, the others' spots
+// faint; a fanned one draws its things in its rows, each joined to its spot.
 function drawPlaces() {
 	const placing = tool === "place";
-	ctx.font = "11px ui-monospace, Menlo, monospace";
-	for (const t of things()) {
-		const at = placeOf(t.key)?.at;
-		if (!at) continue;
-		const [x, y] = toScreen(at);
-		const lit = t.key === picked;
-		ctx.fillStyle = lit ? "#e8f4f6" : t.device ? "rgba(232,244,246,0.75)" : "#7fe7f2";
-		if (t.device) {
-			ctx.beginPath();
-			ctx.arc(x, y, 4, 0, Math.PI * 2);
-			ctx.fill();
-		} else ctx.fillRect(x - 5, y - 5, 10, 10);
-		if (lit) ring([x, y], 9, "#7fe7f2");
-		if (placing || lit) {
-			ctx.fillStyle = lit ? "#e8f4f6" : "rgba(232,244,246,0.6)";
-			ctx.fillText(t.name, x + 9, y + 4);
-		}
+	ctx.font = NAME_FONT;
+	for (const s of onScreen()) {
+		if (s.things.length === 1) drawThing(s.things[0], s.spots[0], placing);
+		else if (s.rows) {
+			ctx.strokeStyle = "rgba(127,231,242,0.45)";
+			ctx.lineWidth = 1;
+			s.spots.forEach(([x, y], i) => {
+				ctx.beginPath();
+				ctx.moveTo(x, y);
+				ctx.lineTo(s.rows[i][0] + (s.left ? 6 : -6), s.rows[i][1]);
+				ctx.stroke();
+				ctx.fillStyle = "rgba(127,231,242,0.7)";
+				ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
+			});
+			s.things.forEach((t, i) => drawThing(t, s.rows[i], true, s.left));
+		} else drawStack(s);
 	}
 	if (!placing || !picked || !next || drag) return;
 	const [x, y] = toScreen(next.at);
 	ctx.setLineDash([3, 3]);
 	ring([x, y], 6, "rgba(232,244,246,0.7)");
 	ctx.setLineDash([]);
+}
+
+function drawThing(t, [x, y], named, left = false) {
+	const lit = t.key === picked;
+	ctx.fillStyle = lit ? "#e8f4f6" : t.device ? "rgba(232,244,246,0.75)" : "#7fe7f2";
+	if (t.device) {
+		ctx.beginPath();
+		ctx.arc(x, y, 4, 0, Math.PI * 2);
+		ctx.fill();
+	} else ctx.fillRect(x - 5, y - 5, 10, 10);
+	if (lit) ring([x, y], 9, "#7fe7f2");
+	if (named || lit) {
+		ctx.fillStyle = lit ? "#e8f4f6" : "rgba(232,244,246,0.6)";
+		ctx.textAlign = left ? "right" : "left";
+		ctx.fillText(t.name, x + (left ? -9 : 9), y + 4);
+		ctx.textAlign = "left";
+	}
+}
+
+function drawStack({ things: ts, spots }) {
+	ctx.fillStyle = "rgba(127,231,242,0.5)";
+	for (const [x, y] of spots.slice(1)) ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
+	const [x, y] = spots[0];
+	ctx.fillStyle = "#04090c";
+	ctx.beginPath();
+	ctx.arc(x, y, 9, 0, Math.PI * 2);
+	ctx.fill();
+	ring([x, y], 9, "#7fe7f2");
+	ctx.fillStyle = "#e8f4f6";
+	ctx.textAlign = "center";
+	ctx.fillText(String(ts.length), x, y + 4);
+	ctx.textAlign = "left";
+	ctx.fillStyle = "rgba(232,244,246,0.6)";
+	ctx.fillText(stackName(ts), x + 14, y + 4);
 }
 
 async function save() {
@@ -842,8 +921,11 @@ let drag = null;
 canvas.addEventListener("pointerdown", (ev) => {
 	canvas.focus();
 	const r = canvas.getBoundingClientRect();
-	const thing = tool === "place" ? thingNear(ev.clientX - r.left, ev.clientY - r.top) : null;
-	drag = { x: ev.clientX, y: ev.clientY, moved: false, thing };
+	const hit = tool === "place" ? hitAt(ev.clientX - r.left, ev.clientY - r.top) : null;
+	const thing = typeof hit === "string" ? hit : null;
+	// a folded stack pressed: it fans out
+	if (hit?.stack) opened = hit.stack;
+	drag = { x: ev.clientX, y: ev.clientY, moved: false, thing, opening: Boolean(hit?.stack) };
 	if (thing) pick(thing);
 	canvas.setPointerCapture(ev.pointerId);
 });
@@ -869,8 +951,9 @@ canvas.addEventListener("pointermove", (ev) => {
 });
 canvas.addEventListener("pointerup", (ev) => {
 	const isClick = drag && !drag.moved && ev.button === 0;
-	const { thing, moved } = drag ?? {};
+	const { thing, moved, opening } = drag ?? {};
 	drag = null;
+	if (opening) return;
 	// a placed thing pressed: picked, or dragged to its new spot
 	if (thing) {
 		const room = moved && roomAt(placeOf(thing).at);
@@ -878,6 +961,11 @@ canvas.addEventListener("pointerup", (ev) => {
 		return renderThings();
 	}
 	if (!isClick) return;
+	// a click beside a fanned stack folds it, and places the picked thing if any
+	if (tool === "place" && opened) {
+		opened = null;
+		if (!picked) return;
+	}
 	const r = canvas.getBoundingClientRect();
 	pointer = { x: ev.clientX - r.left, y: ev.clientY - r.top, alt: ev.altKey };
 	aim();
@@ -915,7 +1003,7 @@ document.addEventListener("keydown", (ev) => {
 		if (tool === "scale" ? chain.length === 2 : chain.length) typed += key;
 	} else if (key === "Enter") enter();
 	else if (key === "Backspace") typed ? (typed = typed.slice(0, -1)) : chain.pop();
-	else if (key === "Escape") typed ? (typed = "") : tool === "place" ? pick(null) : (chain = []);
+	else if (key === "Escape") typed ? (typed = "") : tool === "place" ? (opened ? (opened = null) : pick(null)) : (chain = []);
 	else if (key === "Alt") pointer && (pointer.alt = true);
 	else return;
 	ev.preventDefault();

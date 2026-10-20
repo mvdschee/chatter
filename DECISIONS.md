@@ -174,3 +174,10 @@
 **Decision:** In the view, a device not placed yet stands in a dashed area on the ground past the house's front wall, in a compact block of dots without labels (named when picked), and a device someone carries stands in that person's area, labelled. The frame grows to take the areas in. Details in `docs/floorplan.md`, chunk 7.
 **Why:** A made-up spot inside would read as a real place. With a labelled slot each, a home's worth of unplaced devices made the strip twice as deep as the house; as dots the house stays the main thing while most devices still wait, and the editor's list names them.
 **Alternatives:** A labelled slot per waiting device (the strip outgrows the house); a count instead of dots (loses each device's traffic and its click); a tray beside the 3D view (the owner chose a place on the ground).
+
+## 2026-10-20 - Things close together stack by their names, and fan out as a column
+
+**Decision:** On the plan, things whose names would overlap on screen become one stack: a number at the first thing's spot, fanned out on click as a column of names beside it, each joined to its own spot. Stacks whose marks would overlap merge too. Details in `docs/floorplan.md`, chunk 8.
+**Why:** A cupboard full of devices made a knot of names no one could read or click. Grouping on screen, like map pin clustering, lets zooming in pull things apart by itself; names are what collide, so names decide. A column keeps names apart where Leaflet's circle and spiral fan would overlap them past a handful.
+**Alternatives:** A fixed pixel or metre radius (names longer than the radius still collide); moving labels apart with leader lines (a tangle in a small room); only zooming (doesn't help the 3D view).
+

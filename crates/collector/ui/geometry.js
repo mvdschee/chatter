@@ -334,3 +334,53 @@ export function followImage({ rooms, openings, places }, from, to) {
 		places: movePlaces(places, move),
 	};
 }
+
+// --- stacks: things close together on screen (docs/floorplan.md, chunk 8) ---
+
+// Which things stack: `boxes` are their [x0, y0, x1, y1] on screen, dot and
+// name; two stack when their boxes overlap, directly or through others.
+// `mark(group)` is the box of what's drawn for a stack (its number and name);
+// stacks whose boxes, things and mark together, still overlap merge too,
+// until none do. Groups of indexes, each in order, in the order of their
+// first.
+export function stacks(boxes, mark = () => null) {
+	let groups = boxes.map((_, i) => [i]);
+	for (;;) {
+		const around = groups.map((g) => [...g.map((i) => boxes[i]), g.length > 1 ? mark(g) : null].filter(Boolean)).map((bs) => [
+			Math.min(...bs.map((b) => b[0])), Math.min(...bs.map((b) => b[1])), Math.max(...bs.map((b) => b[2])), Math.max(...bs.map((b) => b[3])),
+		]);
+		const merged = overlapping(around).map((ks) => ks.flatMap((k) => groups[k]).sort((x, y) => x - y));
+		if (merged.length === groups.length) return groups;
+		groups = merged;
+	}
+}
+
+// Boxes that overlap, directly or through others: groups of indexes.
+function overlapping(boxes) {
+	const top = boxes.map((_, i) => i);
+	const root = (i) => (top[i] === i ? i : (top[i] = root(top[i])));
+	const meet = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+	for (let i = 0; i < boxes.length; i++) {
+		for (let j = i + 1; j < boxes.length; j++) {
+			if (!meet(boxes[i], boxes[j])) continue;
+			const [a, b] = [root(i), root(j)];
+			top[Math.max(a, b)] = Math.min(a, b);
+		}
+	}
+	const groups = new Map();
+	boxes.forEach((_, i) => groups.set(root(i), [...(groups.get(root(i)) ?? []), i]));
+	return [...groups.values()];
+}
+
+// Where a fanned stack's rows go: a column `gap` right of its rightmost
+// spot, `row` apart, centred on their middle height; names `nameW` wide
+// that would run past `w` put it left of the leftmost spot instead (`left`:
+// names go left of their dots), and it shifts to stay within 0 to `h`.
+export function fanColumn(spots, { gap = 40, row = 18, nameW = 0, w = Infinity, h = Infinity } = {}) {
+	const xs = spots.map((p) => p[0]);
+	const left = Math.max(...xs) + gap + nameW > w && Math.min(...xs) - gap - nameW >= 0;
+	const x = left ? Math.min(...xs) - gap : Math.max(...xs) + gap;
+	const half = ((spots.length - 1) / 2) * row;
+	const mid = Math.min(Math.max(spots.reduce((s, p) => s + p[1], 0) / spots.length, half + row), h - half - row);
+	return { left, rows: spots.map((_, i) => [x, mid - half + i * row]) };
+}
