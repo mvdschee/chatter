@@ -109,10 +109,10 @@ export function select(d) {
 	const ports = !d.ports
 		? `<span class="note">not port-scanned yet</span>`
 		: d.ports.length
-			? d.ports.map((p) => `<span class="chip" title="${p.product ?? ""}">${p.port}/${p.protocol}${p.service ? ` ${p.service}` : ""}</span>`).join("")
+			? d.ports.map((p) => `<span class="chip" title="${esc(p.product ?? "")}">${p.port}/${esc(p.protocol)}${p.service ? ` ${esc(p.service)}` : ""}</span>`).join("")
 			: `<span class="note">none open</span>`;
 	const scanned = d.portScannedAt ? `<p class="note">port scan of ${DATE_TIME.format(new Date(d.portScannedAt * 1000))}</p>` : "";
-	const dns = d.dns.length ? d.dns.map((n) => `<span class="chip">${n}</span>`).join("") : `<span class="note">no lookups seen</span>`;
+	const dns = d.dns.length ? d.dns.map((n) => `<span class="chip">${esc(n)}</span>`).join("") : `<span class="note">no lookups seen</span>`;
 	const alert = d.outlier ? `<div class="alert">Sent ${fmtBytes(d.outlier.bytes)} in one minute, about ${d.outlier.times}× its usual for this hour. Email sent.</div>` : "";
 	side.innerHTML = `
 		${CLOSE}
@@ -148,9 +148,9 @@ export function select(d) {
 		<div class="eyebrow">Device</div>
 		<dl class="kv">
 			<dt>MAC</dt><dd>${d.mac}</dd>
-			<dt>IP</dt><dd>${d.ip ?? "not in a sweep yet"}</dd>
-			<dt>hostname</dt><dd>${d.hostname ?? "-"}</dd>
-			<dt>vendor</dt><dd>${d.vendor}</dd>
+			<dt>IP</dt><dd>${esc(d.ip ?? "not in a sweep yet")}</dd>
+			<dt>hostname</dt><dd>${esc(d.hostname ?? "-")}</dd>
+			<dt>vendor</dt><dd>${esc(d.vendor)}</dd>
 			<dt>signal</dt><dd>${d.rssi ?? "-"} dBm, best in 24 h</dd>
 			<dt>first seen</dt><dd>${DATE_TIME.format(new Date(d.firstSeen * 1000))}</dd>
 		</dl>`;
@@ -244,7 +244,7 @@ function drawSpark(d) {
 function renderEvents() {
 	const sorted = [...EVENTS].sort((a, b) => b.time - a.time);
 	const rows = sorted.map((e, i) =>
-		`<li><button data-event="${i}"><time>${hhmm(e.time)}</time><span class="${e.hot ? "hot" : ""}">${e.text}</span></button></li>`);
+		`<li><button data-event="${i}"><time>${hhmm(e.time)}</time><span class="${e.hot ? "hot" : ""}">${esc(e.text)}</span></button></li>`);
 	const empty = rows.length ? "" : `<p class="note">No events yet.</p>`;
 	side.innerHTML = `${CLOSE}<div class="eyebrow">Timeline</div><ul class="list events">${rows.join("")}</ul>${empty}`;
 	wireClose();
