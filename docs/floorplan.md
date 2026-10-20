@@ -1,6 +1,6 @@
 # The floor plan editor (research and plan)
 
-Status, 2026-10-19: research done; chunks 1 and 2 of the chunks below built.
+Status, 2026-10-19: research done; chunks 1 to 3 of the chunks below built.
 Plan step 3 in `docs/monitoring.md`. The view draws the saved plan, or a
 made-up example (`EXAMPLE_PLAN` in `crates/collector/ui/plan.js`) until
 one with rooms is saved.
@@ -135,6 +135,8 @@ no tilt, no animation, plain lines.
   else a 10 cm grid; Alt turns it off. The length of the line being drawn is
   shown, and typing a number sets it (how most people will draw: "this wall is
   4.20").
+- **Box:** two opposite corners, or a typed size (`4.2x3.1`): a rectangular
+  room in two clicks.
 - **Select:** drag a corner (it moves in every room that has it), drag a
   room, rename it, delete it.
 - **Door:** click an edge, drag the opening's width.
@@ -165,18 +167,39 @@ One reviewable commit each:
    in a room, else go to the middle of the first room, until chunk 6. Until a
    plan with rooms is saved the page shows the example, now a plan in metres
    like any other.
-3. Draw rooms: the edit mode, snapping (corner, 90°, 10 cm grid), the length
-   of the line being drawn, a typed length. The first chunk for the owner to
-   try by hand.
-4. Edit: drag corners (a shared one moves in every room), rename and delete
-   rooms, undo and redo.
+3. Done: draw rooms. "Edit plan" opens `edit.js` over the view, the
+   timeline hidden: the plan from above in metres, its own zoom and pan, the
+   saved rooms to draw against (none before the first save; the example
+   isn't anyone's home), and a panel on the right with the tool, what the
+   keys do, and the rooms, each renamed or deleted there (a doorway goes with
+   the last room that has its edge). Two tools, as the owner asked after a
+   first try: **Box**, two opposite corners or a typed `4.2x3.1`, for the
+   rectangular rooms most homes are; **Lines**, corner by corner with typed
+   wall lengths, for the rest.
+   Snapping in `geometry.js`: a corner within 10 px; else square to the last
+   line (the axes for the first) within 8°, lined up with any corner within
+   10 px, else in 10 cm steps; else the 10 cm grid, x and y each in line
+   with a corner within 10 px; Alt for none. Lining up was added after a test
+   run: at the starting zoom 10 cm is about 4 px, so a rectangle's first
+   corner often lands a step off and its last wall closed slanted, and a new
+   room started beside a wall off the grid missed it by 5 cm. Corners are
+   rounded to the millimetre, so shared ones are the same numbers. A corner
+   that would cross the room drawn so far is refused, and so is a room that
+   crosses itself or is under 20 cm wide (twice its area over its
+   perimeter): the owner's first try made a sliver by double-clicking just
+   past a corner, with no way to remove it. A double-click that can't close
+   the room takes back the corner its first click put. Save sends the whole
+   plan. The first chunk for the owner to try by hand.
+4. Edit: drag corners (a shared one moves in every room), undo and redo.
+   (Renaming and deleting came with chunk 3.)
 5. Doors on edges.
 6. Place devices and sensors by dragging them; their own `positions` table.
 7. Underlay image, scaled from two points and a distance.
 
 ## Validation
 
-Checked automatically:
+Checked automatically (`node --test crates/collector/ui-tests/*.test.mjs` for
+the page's geometry, `cargo test` for the save checks):
 
 - a room is at least three corners and doesn't cross itself (rejected on save);
 - point-in-polygon: a device's room, including points on an edge;

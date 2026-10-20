@@ -162,14 +162,16 @@ One reviewable chunk each, with its check:
    collector is axum with the usual layout (`core`, `repository`,
    `services/web`).
    Check: a day of reports, queried per device and hour.
-3. **Floor plan editor:** draw walls and rooms, saved in SQLite.
+3. **Floor plan editor:** draw walls and rooms, saved in SQLite. _(In
+   progress: rooms can be drawn and saved, chunks 1 to 3 of
+   `docs/floorplan.md`.)_
    Check: draw the real floor plan in a few minutes.
 4. **Live view:** the page on real data over server-sent events,
    with the loop, and the day timeline from storage. Devices are placed by
    hand. _(First part built: the collector serves the page on `/` and its
    data on `/v1/overview`; the page polls it every loop instead of SSE, names
    devices by their sweep hostname or MAC, and puts them on a grid. The
-   floor plan is still the drawn example.)_
+   floor plan is the saved one, or the example until one is saved.)_
    Check: the owner's judgement, plus "a busy device turns red" with the C3
    test client.
 5. **Scans:** the app sweeps the network with nmap (hostnames, vendors and IPs

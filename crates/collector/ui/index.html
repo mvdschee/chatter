@@ -7,7 +7,7 @@
 <!--
   The monitoring page (docs/monitoring.md). The collector serves it with
   style.css and the scripts, ES modules from main.js on; they load the data
-  from /v1/overview, /v1/timeline and /v1/plan.
+  from /v1/overview, /v1/timeline and /v1/plan, and save the plan there.
 -->
 <link rel="stylesheet" href="style.css">
 </head>
@@ -18,6 +18,7 @@
 			<span id="sensor-pills"></span>
 			<button class="top-btn" id="devices-btn" aria-expanded="false" aria-controls="side">Devices</button>
 			<button class="top-btn" id="events-btn" aria-expanded="false" aria-controls="side">Timeline</button>
+			<button class="top-btn" id="edit-btn">Edit plan</button>
 			<div class="clock" id="clock">--:--:--</div>
 		</header>
 		<canvas id="plan" tabindex="0" aria-label="Floor plan with devices and their traffic. Drag to move, shift-drag to rotate, scroll to zoom; or the arrow keys, + and -. Use the device list to pick one."></canvas>
@@ -28,6 +29,24 @@
 			<button class="top-btn" id="zoom-out" aria-label="Zoom out">−</button>
 			<button class="top-btn" id="zoom-in" aria-label="Zoom in">+</button>
 			<button class="top-btn" id="view-reset">Reset</button>
+		</div>
+		<div class="editor" id="editor" hidden>
+			<canvas id="edit-plan" tabindex="0" aria-label="The floor plan from above, for drawing rooms. The panel beside it says how."></canvas>
+			<aside class="edit-side" aria-label="Edit plan">
+				<h2 class="eyebrow">Draw</h2>
+				<div class="edit-tools" id="edit-tools">
+					<button class="tl-btn" data-tool="box" aria-pressed="true">Box</button>
+					<button class="tl-btn" data-tool="lines" aria-pressed="false">Lines</button>
+				</div>
+				<dl class="edit-help" id="edit-help"></dl>
+				<h2 class="eyebrow">Rooms</h2>
+				<ul class="edit-rooms" id="edit-rooms"></ul>
+				<p id="edit-status" role="status"></p>
+				<div class="edit-actions">
+					<button class="top-btn" id="edit-cancel">Cancel</button>
+					<button class="top-btn" id="edit-save">Save</button>
+				</div>
+			</aside>
 		</div>
 	</main>
 

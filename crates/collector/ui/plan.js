@@ -56,6 +56,9 @@ export let rooms = [];
 export let wallDots = [];
 export let floorDots = [];
 
+// The plan as saved, in metres, or null before the first save (edit.js).
+export let saved = null;
+
 // Draws this plan from now on: a saved one or the example.
 function setPlan(plan) {
 	const p = toUnits(plan);
@@ -118,5 +121,6 @@ export async function loadPlan() {
 	} catch (e) {
 		console.error("plan:", e);
 	}
+	saved = plan;
 	setPlan(plan?.rooms.length ? plan : EXAMPLE_PLAN);
 }
