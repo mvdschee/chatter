@@ -192,3 +192,9 @@
 **Decision:** The view works out which things stack only when the camera comes to rest somewhere new (zoom, pan, a turn by the user), the device set or names change; while the camera drifts by itself or eases, the last grouping holds and only the fanned rows follow the nodes. A folded stack's ring takes the colour of its most unusual device. Details in `docs/floorplan.md`, chunk 8.
 **Why:** The view's yaw drifts all the time, so grouping every frame would make names near the overlap threshold stack and unstack every few seconds. A stack hides its devices' labels, so its ring has to carry their outlier colour or an outlier disappears into a cupboard.
 **Alternatives:** Grouping every frame (flickers); hysteresis on the boxes (unclear through chains of overlaps); grouping at a fixed yaw (wrong once the user turns the view).
+
+## 2026-10-20 - Corners drag in Box and Lines; undo is snapshots of the plan
+
+**Decision:** No Select tool: in Box and Lines, with no room being drawn, a press on a corner that moves drags it, in every room with those numbers and at the doorways' ends; a bad spot is refused and the corner stays at its last good one. Undo and redo keep a copy of the whole plan (rooms, doorways, places, underlay) before each change, up to 100.
+**Why:** A tool of its own would be one more switch while tracing, where fixing a corner comes up mid-way; a press that doesn't move stays a click, so starting a room on a corner still works. A home's plan is a few dozen corners, so a copy per change is cheap, and one mechanism covers every change, including the ones that move everything (Turn, measuring again), without an inverse for each.
+**Alternatives:** A Select tool (as first planned); a list of commands each with its own undo (more code for every kind of change); refusing a bad spot only on release (the corner would jump back).

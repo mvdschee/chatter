@@ -255,6 +255,34 @@ export function roomWidth(points) {
 // The rectangle with corners a and c, in order round it.
 export const box = (a, c) => [a, [c[0], a[1]], c, [a[0], c[1]]];
 
+// --- moving a corner (edit.js, chunk 5) ---
+
+// Whether an opening fits on its edge, as the collector checks it.
+export function fitsEdge({ from, to, at, width }) {
+	const len = dist(from, to);
+	return width > 0 && at * len - width / 2 >= -EPS_M && at * len + width / 2 <= len + EPS_M;
+}
+
+// The rooms and openings with the corner `from` moved to `to`, in every room
+// that has it and at the ends of every opening. Matched by value: shared
+// corners are the same numbers, not always the same array. A corner that only
+// lies on another room's wall leaves that room alone. { why } instead when a
+// room it's in would be refused or a doorway no longer fits: two of its
+// corners on one spot, walls that cross, narrower than minWidth.
+export function moveCorner({ rooms, openings }, from, to, minWidth = 0) {
+	const is = (p) => p[0] === from[0] && p[1] === from[1];
+	const put = (p) => (is(p) ? [to[0], to[1]] : p);
+	const moved = rooms.map((r) => (r.points.some(is) ? { ...r, points: r.points.map(put) } : r));
+	for (const r of moved.filter((r, i) => r !== rooms[i])) {
+		if (new Set(r.points.map(corner)).size < r.points.length) return { why: `${r.name}: two of its corners would meet.` };
+		if (crossesItself(r.points)) return { why: `${r.name}: its walls would cross.` };
+		if (roomWidth(r.points) < minWidth) return { why: `${r.name}: too narrow for a room.` };
+	}
+	const ends = openings.map((o) => (is(o.from) || is(o.to) ? { ...o, from: put(o.from), to: put(o.to) } : o));
+	if (ends.some((o, i) => o !== openings[i] && !fitsEdge(o))) return { why: "A doorway wouldn't fit on its wall." };
+	return { rooms: moved, openings: ends };
+}
+
 // --- the underlay, an image to trace over (edit.js) ---
 
 // An underlay { pixels_per_m, offset, angle } puts the image's pixel (u, v)

@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-	atLength, box, canAdd, corner, crossesItself, fanColumn, followImage, fromImage, frontAreas, inOpening, inside, labelAt, measure, middleOf, mm, roomAt, roomWidth, snap, stacks, toImage, toUnits, turnPlan, wallPieces,
+	atLength, box, canAdd, corner, crossesItself, fanColumn, fitsEdge, followImage, fromImage, frontAreas, inOpening, inside, labelAt, measure, middleOf, mm, moveCorner, roomAt, roomWidth, snap, stacks, toImage, toUnits, turnPlan, wallPieces,
 } from "../ui/geometry.js";
 
 // Made-up plans: a row of two rooms over a row of three, and an L.
@@ -124,6 +124,36 @@ test("a room's width: a strip's is its width, a sliver's is near 0", () => {
 	assert.ok(roomWidth([[0, 0], [8, 0], [8, 0.28]]) < 0.2, "the sliver a double-click made");
 	assert.deepEqual(box([1, 2], [0, 5]), [[1, 2], [0, 2], [0, 5], [1, 5]]);
 	assert.ok(!crossesItself(box([1, 2], [0, 5])));
+});
+
+test("a shared corner moves in every room that has it, matched by value", () => {
+	// separate arrays holding the same numbers, as after loading a plan
+	const plan = structuredClone(TWO_ROWS);
+	const { rooms, why } = moveCorner(plan, [5, 4], [5.5, 4]);
+	assert.equal(why, undefined);
+	assert.deepEqual(rooms[0].points, [[0, 0], [5, 0], [5.5, 4], [0, 4]]);
+	assert.deepEqual(rooms[1].points, [[5, 0], [9, 0], [9, 4], [5.5, 4]]);
+	assert.equal(rooms[3], plan.rooms[3], "D only has it on its wall, and stays");
+	assert.deepEqual(plan.rooms[0].points[2], [5, 4], "the plan it came from is left as it was");
+});
+
+test("a doorway's end follows its corner", () => {
+	const { rooms, openings } = moveCorner(structuredClone(TWO_ROWS), [3, 4], [3, 4.5]);
+	assert.deepEqual(openings[0], { from: [0, 4], to: [3, 4.5], at: 0.5, width: 0.8 });
+	assert.deepEqual(rooms[2].points[1], [3, 4.5]);
+	assert.deepEqual(rooms[3].points[0], [3, 4.5]);
+});
+
+test("a corner move that would break a room or a doorway is refused", () => {
+	const room = { rooms: [{ id: "r", name: "R", points: box([0, 0], [4, 3]) }], openings: [{ from: [0, 0], to: [4, 0], at: 0.5, width: 3 }] };
+	assert.match(moveCorner(room, [4, 3], [4, 0]).why, /corners would meet/);
+	assert.match(moveCorner(room, [4, 3], [-1, 1.5]).why, /cross/);
+	const strip = { rooms: [{ id: "s", name: "S", points: box([0, 0], [4, 0.3]) }], openings: [] };
+	assert.match(moveCorner(strip, [4, 0.3], [4, 0.05], 0.2).why, /narrow/);
+	assert.match(moveCorner(room, [4, 0], [2, 0]).why, /doorway/);
+	assert.ok(moveCorner(room, [4, 0], [4.5, 0]).rooms, "a longer wall still fits it");
+	assert.ok(fitsEdge({ from: [0, 0], to: [2, 0], at: 0.5, width: 2 }));
+	assert.ok(!fitsEdge({ from: [0, 0], to: [2, 0], at: 0.6, width: 2 }));
 });
 
 test("the underlay: image and plan points map both ways", () => {

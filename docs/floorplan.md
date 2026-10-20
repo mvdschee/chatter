@@ -1,6 +1,6 @@
 # The floor plan editor (research and plan)
 
-Status, 2026-10-20: research done; chunks 1 to 4 and 7 to 9 built.
+Status, 2026-10-20: research done; chunks 1 to 5 and 7 to 9 built.
 Plan step 3 in `docs/monitoring.md`. The view draws the saved plan, or a
 made-up example (`EXAMPLE_PLAN` in `crates/collector/ui/plan.js`) until
 one with rooms is saved.
@@ -231,8 +231,26 @@ One reviewable commit each:
    its walls' lengths, to check against the plan's sizes. The first
    measurement after picking an image leaves rooms alone: they weren't
    traced on it.
-5. Edit: drag corners (a shared one moves in every room), undo and redo.
-   (Renaming and deleting came with chunk 3.)
+5. Done: edit: drag corners (a shared one moves in every room), undo and
+   redo. (Renaming and deleting came with chunk 3.) There's no Select tool:
+   in Box and Lines, with no room being drawn, a press on a corner that
+   moves drags it, and one that doesn't is still a click, so a room can
+   still start on a corner. The corner is found by value, not by the array
+   holding it, so it moves in every room with those numbers and at the
+   ends of the doorways on its walls; a corner that only lies on another
+   room's wall (a T) leaves that room alone. It snaps to the other corners
+   and lines up with them, never with itself; Alt for none. A spot where a
+   room it's in would cross itself, get a corner twice or come out too
+   narrow, or a doorway would no longer fit its wall, is refused: the
+   corner stays at its last good spot and the reason shows. While it's
+   dragged its rooms show their walls' lengths.
+   Undo (⌘Z or Ctrl+Z) and redo (⇧⌘Z or Ctrl+Y) are snapshots of the plan,
+   as react-planner does it: rooms, doorways, places, the underlay and the
+   steps done, taken before each change; a drag or a rename is one change.
+   While a room is being drawn, undo takes back its last corner, as
+   Backspace does. A device's name is saved at once, not with the plan, so
+   undo leaves it alone. The history starts empty each time the editor
+   opens.
 6. Doors on edges.
 7. Place the router, the sensors and the devices, in two commits. The
    owner chose (2026-10-20): placing is a step in the editor, top-down; a
@@ -363,6 +381,9 @@ the page's geometry, `cargo test` for the save checks):
 - shared edges are drawn once; an opening cuts the right stretch of its edge;
 - snapping: a corner near an existing one becomes that one; 90° holds;
 - the scale from two points and a distance;
+- moving a corner: it moves in every room with the same numbers and at the
+  doorways' ends, not in a room it only touches, and a spot that would
+  break a room or a doorway is refused;
 - stacks: names that overlap, directly or through others, stack, and so do
   stacks whose marks would overlap; a fanned column's names don't overlap,
   and it keeps below a bar along the top.
@@ -371,6 +392,8 @@ Only the owner can judge:
 
 - whether drawing the real home takes "a few minutes", and how it feels;
 - whether snapping helps or gets in the way;
+- whether dragging corners in Box and Lines is found, and doesn't get in
+  the way of moving the plan;
 - whether the walls and doorways look right in the view;
 - whether tracing over the underlay is fast, and the image clear enough to
   trace yet faint enough to see the rooms;
@@ -389,7 +412,8 @@ Only the owner can judge:
 3. **Doorways on shared edges** belong to both rooms: stored once on the edge,
    which is why an opening names its corners rather than a room.
 4. **Moving a shared corner** moves both rooms. Is that always wanted, or does
-   it need a way to pull rooms apart?
+   it need a way to pull rooms apart? (Built that way in chunk 5; nothing
+   pulls them apart yet.)
 5. **Phone editing:** how much of the drawing works with fingers.
 6. **Private MACs:** a phone that makes up a new MAC per network, or now
    and then, comes back as a new device, waiting again, and its old place

@@ -12,8 +12,10 @@
 // Placing (chunk 7): the router, the sensors and the devices, each placed,
 // carried by someone, or waiting; saved in the plan as `places`. Things whose
 // names would overlap stack, and a stack fans out as a column (chunk 8).
+// Editing (chunk 5): drag a corner in Box or Lines, and it moves in every
+// room that has it; undo and redo take back any change to the plan.
 
-import { atLength, box, canAdd, crossesItself, dist, fanColumn, followImage, fromImage, inside, labelAt, measure, mm, roomAt as roomIn, roomWidth, snap, stacks, turnPlan } from "./geometry.js";
+import { atLength, box, canAdd, crossesItself, dist, fanColumn, followImage, fromImage, inside, labelAt, measure, mm, moveCorner, roomAt as roomIn, roomWidth, snap, stacks, turnPlan } from "./geometry.js";
 import { DEVICES, SENSORS, renameDevice } from "./data.js";
 import { closePanel } from "./panel.js";
 import { loadPlan, saved } from "./plan.js";
@@ -53,11 +55,14 @@ const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 // side, and this see-through.
 const GHOST_PX = 4096;
 const GHOST_ALPHA = 0.55;
+// How many changes undo goes back.
+const MAX_UNDO = 100;
 
 const HELP = {
 	box: [
 		["click", "one corner, then the opposite one"],
 		["type 4.2x3.1, Enter", "a room that size, towards the pointer"],
+		["drag a corner", "move it, in every room that has it"],
 		["Esc", "drop the first corner"],
 	],
 	lines: [
@@ -65,6 +70,7 @@ const HELP = {
 		["first corner, double-click, Enter", "close the room"],
 		["type 4.2, Enter", "the next wall that long, towards the pointer"],
 		["Backspace", "take back a corner"],
+		["drag a corner", "move it, in every room that has it"],
 		["Esc", "drop the room"],
 	],
 	scale: [
@@ -79,6 +85,8 @@ const HELP = {
 		["Esc", "fold them again, or pick nothing"],
 	],
 	both: [
+		["⌘Z, Ctrl+Z", "undo"],
+		["⇧⌘Z, Ctrl+Y", "redo"],
 		["Alt", "no snapping"],
 		["drag", "move the plan"],
 		["scroll", "zoom"],
@@ -98,6 +106,10 @@ let rooms = [], openings = [], chain = [], next = null, typed = "", dirty = fals
 // last showed.
 let underlay = null, ghost = null, imageFile = null, shown = true, loads = 0;
 let measured = false, turned = false, stepsKey = "";
+// The saved underlay's image once loaded, which undo brings back with it.
+let stored = null;
+// The plan before each change, for undo, and the changes undone, for redo.
+let history = [], future = [];
 // Where things stand ({ router, sensors, devices }, devices not seen lately
 // kept), the one picked in the list (a key from things()), the name last
 // given as who carries a device; a thing whose stack was clicked open.
@@ -149,10 +161,12 @@ function openEditor() {
 	[measured, turned] = [Boolean(underlay), false];
 	places = { ...noPlaces(), ...structuredClone(saved?.places ?? {}) };
 	[picked, opened, filterEl.value] = [null, null, ""];
+	[history, future, stored] = [[], [], null];
 	if (underlay) {
 		const n = ++loads;
 		loadImage(`/v1/plan/underlay?${Date.now()}`)
 			.then((g) => {
+				stored = g;
 				if (n !== loads) return;
 				ghost = g;
 				fitView();
@@ -207,10 +221,15 @@ function renderRooms() {
 			const name = el("input");
 			Object.assign(name, { value: r.name, maxLength: 64 });
 			name.setAttribute("aria-label", "Room name");
+			// one undo for a whole rename, not one per letter
+			let typing = false;
 			name.addEventListener("input", () => {
+				if (!typing) remember();
+				typing = true;
 				r.name = name.value;
 				dirty = true;
 			});
+			name.addEventListener("change", () => (typing = false));
 			name.addEventListener("keydown", (ev) => ev.key === "Enter" && canvas.focus());
 			const del = el("button", "×");
 			del.className = "del";
@@ -229,6 +248,7 @@ function renderRooms() {
 }
 
 function deleteRoom(i) {
+	remember();
 	const [gone] = rooms.splice(i, 1);
 	// a doorway goes with the last room that has its edge
 	const isEdge = (o, pts) => pts.some((a, k) => {
@@ -252,6 +272,11 @@ function aim() {
 	if (pointer.alt || tool === "scale" || tool === "place") return (next = { at: p.map(mm), how: "free" });
 	const walls = rooms.flatMap((r) => r.points);
 	const reach = REACH_PX / cam.ppm;
+	// a corner being dragged snaps to the others, never to itself
+	if (drag?.corner) {
+		const others = walls.filter((c) => !same(c, drag.corner));
+		return (next = snap(p, { corners: others, reach }));
+	}
 	if (tool === "box") return (next = snap(p, { corners: walls, reach }));
 	const corners = [...walls, ...(chain.length >= 3 ? [chain[0]] : []), ...chain.slice(-1)];
 	next = snap(p, { corners, align: [...walls, ...chain], last: chain.at(-1), prev: chain.at(-2), reach });
@@ -265,6 +290,7 @@ function fine(points) {
 }
 
 function addRoom(points) {
+	remember();
 	const ids = new Set(rooms.map((r) => r.id));
 	let k = rooms.length + 1;
 	while (ids.has(`room-${k}`)) k++;
@@ -332,6 +358,7 @@ function measureWall() {
 	if (chain.length < 2 || !(len > 0)) return say("Click both ends of a wall, then type its length.", true);
 	if (same(chain[0], chain[1])) return say("Those are the same point: click the wall's other end.", true);
 	const before = underlay;
+	remember();
 	underlay = measure(underlay, chain[0], chain[1], len);
 	// measured before: what's traced is on the image, and goes with it
 	const carried = measured && rooms.length > 0;
@@ -390,6 +417,7 @@ async function pickImage(file) {
 	if (n !== loads) return;
 	const k = Math.max(g.w / ((W * 0.8) / cam.ppm), g.h / ((H * 0.8) / cam.ppm));
 	const mid = [(W / 2 - cam.ox) / cam.ppm, (H / 2 - cam.oy) / cam.ppm];
+	remember();
 	underlay = { pixels_per_m: k, offset: [mm(mid[0] - g.w / k / 2), mm(mid[1] - g.h / k / 2)], angle: 0 };
 	[ghost, imageFile, shown, dirty, measured] = [g, file, true, true, false];
 	setTool("scale");
@@ -397,6 +425,7 @@ async function pickImage(file) {
 }
 
 function removeUnderlay() {
+	remember();
 	[underlay, ghost, imageFile, dirty, measured] = [null, null, null, true, false];
 	loads++;
 	if (tool === "scale") setTool(drawTool);
@@ -407,6 +436,7 @@ function removeUnderlay() {
 // and the image together, so what's traced stays on it.
 function turn(dir) {
 	if (chain.length && tool !== "scale") return say("Finish the room being drawn first, or drop it (Esc).", true);
+	remember();
 	({ rooms, openings, underlay, places } = turnPlan({ rooms, openings, underlay, places }, dir));
 	[chain, typed, turned, dirty] = [[], "", true, true];
 	fitView();
@@ -437,6 +467,44 @@ function updateSteps() {
 	scaleBtn.disabled = showBtn.disabled = removeBtn.disabled = !underlay;
 	showBtn.setAttribute("aria-pressed", String(shown));
 	turnBtns.forEach((b) => (b.disabled = !underlay && !rooms.length));
+}
+
+// --- undo ---
+
+// Everything a change to the plan can touch. A new image not saved yet goes
+// along with its file; the saved one is `stored`.
+function snapshot() {
+	const plan = structuredClone({ rooms, openings, underlay, places });
+	return { ...plan, measured, turned, imageFile, ghost: imageFile ? ghost : null };
+}
+
+// Called before each change: the plan as it was, for undo. A new change
+// can't be redone over.
+function remember() {
+	history.push(snapshot());
+	if (history.length > MAX_UNDO) history.shift();
+	future = [];
+}
+
+function restore(s) {
+	({ rooms, openings, underlay, places, measured, turned, imageFile } = s);
+	ghost = imageFile ? s.ghost : underlay ? stored : null;
+	// a lit room or an open stack may be gone
+	[chain, typed, lit, opened, dirty] = [[], "", null, null, true];
+	if (tool === "scale" && !underlay) setTool(drawTool);
+	renderRooms();
+	renderThings();
+}
+
+// Undo, or redo with `back` false. While a room is being drawn, undo takes
+// back its last corner instead, as Backspace does.
+function undo(back = true) {
+	if (back && chain.length) return void chain.pop();
+	const [from, to] = back ? [history, future] : [future, history];
+	if (!from.length) return say(back ? "Nothing to undo." : "Nothing to redo.");
+	to.push(snapshot());
+	restore(from.pop());
+	say(back ? "Undone." : "Redone.");
 }
 
 // --- placing ---
@@ -493,6 +561,7 @@ function placePicked(p) {
 	const t = things().find((x) => x.key === picked);
 	if (!t) return say("Pick something in the list first.", true);
 	const waited = !placeOf(picked);
+	remember();
 	setPlace(picked, { at: p });
 	const room = roomAt(p);
 	say(`${t.name} placed${room ? ` in ${room}` : ""}.`);
@@ -632,6 +701,7 @@ function renderDetail(t) {
 			if (!name) return say("Type who carries it.", true);
 			carrier = name;
 			const waited = !place;
+			remember();
 			setPlace(t.key, { carried_by: name });
 			say(`${t.name} moves around with ${name}.`);
 			handOn(waited);
@@ -645,6 +715,7 @@ function renderDetail(t) {
 		const back = el("button", t.device ? "Back to waiting" : "Not placed");
 		back.className = "tl-btn";
 		back.addEventListener("click", () => {
+			remember();
 			setPlace(t.key, null);
 			renderThings();
 			say(`${t.name} ${t.device ? "waits in front of the house" : "isn't placed"}.`);
@@ -786,9 +857,11 @@ export function drawEditor() {
 	ctx.stroke();
 
 	ctx.font = '600 12px "Avenir Next Condensed", "Arial Narrow", sans-serif';
-	// the room pointed at, or lit from the list, shows its walls' lengths
+	// the room pointed at, or lit from the list, shows its walls' lengths;
+	// so do the rooms of a corner being dragged
 	const at = pointer && !chain.length && tool !== "place" && [(pointer.x - cam.ox) / cam.ppm, (pointer.y - cam.oy) / cam.ppm];
-	const sized = lit ?? (at ? rooms.findIndex((r) => inside(at, r.points)) : -1);
+	const sized = drag?.corner && drag.moved ? rooms.flatMap((r, i) => (r.points.some((c) => same(c, drag.corner)) ? [i] : []))
+		: [lit ?? (at ? rooms.findIndex((r) => inside(at, r.points)) : -1)];
 	rooms.forEach((r, i) => {
 		const pts = r.points.map(toScreen);
 		polygon(pts, true);
@@ -803,7 +876,7 @@ export function drawEditor() {
 		ctx.fillStyle = i === lit ? "#e8f4f6" : "rgba(92,122,134,0.95)";
 		ctx.fillText(r.name.toUpperCase().split("").join(" "), lx, ly);
 	});
-	if (sized >= 0) wallLengths(rooms[sized].points);
+	for (const i of sized) if (i >= 0) wallLengths(rooms[i].points);
 	drawPlaces();
 
 	const last = chain.at(-1);
@@ -935,31 +1008,66 @@ function ring([x, y], r, color) {
 	ctx.stroke();
 }
 
-// Click to put a corner, drag to move the plan, scroll to zoom. In Place, a
-// press on a placed thing picks it, and dragging moves it instead.
+// The room corner within reach of (x, y) on screen, when corners can be
+// dragged: in Box and Lines with no room being drawn.
+function cornerAt(x, y) {
+	if ((tool !== "box" && tool !== "lines") || chain.length) return null;
+	let best = null, bestD = REACH_PX;
+	for (const c of rooms.flatMap((r) => r.points)) {
+		const [cx, cy] = toScreen(c);
+		const d = Math.hypot(cx - x, cy - y);
+		if (d <= bestD) [best, bestD] = [c, d];
+	}
+	return best;
+}
+
+// The corner dragged to where the pointer snaps, if every room that has it
+// stays one the collector takes; otherwise it stays at its last good spot.
+function dragCorner() {
+	if (!next || same(next.at, drag.corner)) return;
+	const moved = moveCorner({ rooms, openings }, drag.corner, next.at, MIN_WIDTH);
+	if (moved.why) return say(moved.why, true);
+	({ rooms, openings } = moved);
+	drag.corner = next.at;
+	say("");
+}
+
+// Click to put a corner, drag to move the plan, scroll to zoom. In Box and
+// Lines, dragging a corner moves it. In Place, a press on a placed thing
+// picks it, and dragging moves it instead.
 let drag = null;
 canvas.addEventListener("pointerdown", (ev) => {
 	canvas.focus();
 	const r = canvas.getBoundingClientRect();
-	const hit = tool === "place" ? hitAt(ev.clientX - r.left, ev.clientY - r.top) : null;
+	const [x, y] = [ev.clientX - r.left, ev.clientY - r.top];
+	const hit = tool === "place" ? hitAt(x, y) : null;
 	const thing = typeof hit === "string" ? hit : null;
 	// a folded stack pressed: it fans out
 	if (hit?.stack) opened = hit.stack;
-	drag = { x: ev.clientX, y: ev.clientY, moved: false, thing, opening: Boolean(hit?.stack) };
+	// a corner is only dragged once the pointer moves; a click on it still
+	// starts a room there
+	drag = { x: ev.clientX, y: ev.clientY, moved: false, thing, opening: Boolean(hit?.stack), corner: cornerAt(x, y) };
 	if (thing) pick(thing);
 	canvas.setPointerCapture(ev.pointerId);
 });
 canvas.addEventListener("pointermove", (ev) => {
 	const r = canvas.getBoundingClientRect();
 	pointer = { x: ev.clientX - r.left, y: ev.clientY - r.top, alt: ev.altKey };
+	canvas.style.cursor = drag?.corner && drag.moved ? "grabbing" : !drag && cornerAt(pointer.x, pointer.y) ? "grab" : "";
 	if (drag) {
 		const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
 		if (drag.moved || Math.hypot(dx, dy) >= 4) {
+			// one undo for the whole drag
+			if (!drag.moved && (drag.thing || drag.corner)) remember();
 			drag.moved = true;
 			if (drag.thing) {
 				// no rendering of the list while dragging; it catches up on release
 				const at = [(pointer.x - cam.ox) / cam.ppm, (pointer.y - cam.oy) / cam.ppm].map(mm);
 				setPlace(drag.thing, { at });
+			} else if (drag.corner) {
+				aim();
+				dragCorner();
+				dirty = true;
 			} else {
 				cam.ox += dx;
 				cam.oy += dy;
@@ -971,9 +1079,13 @@ canvas.addEventListener("pointermove", (ev) => {
 });
 canvas.addEventListener("pointerup", (ev) => {
 	const isClick = drag && !drag.moved && ev.button === 0;
-	const { thing, moved, opening } = drag ?? {};
+	const { thing, moved, opening, corner } = drag ?? {};
 	drag = null;
 	if (opening) return;
+	if (corner && moved) {
+		canvas.style.cursor = "";
+		return aim();
+	}
 	// a placed thing pressed: picked, or dragged to its new spot
 	if (thing) {
 		const room = moved && roomAt(placeOf(thing).at);
@@ -1017,6 +1129,12 @@ canvas.addEventListener("wheel", (ev) => {
 // a character or the last corner, Esc the typed size or the room being drawn.
 document.addEventListener("keydown", (ev) => {
 	if (!editing || ev.target.closest?.("button, input, textarea")) return;
+	const z = ev.key.toLowerCase();
+	if ((ev.metaKey || ev.ctrlKey) && (z === "z" || z === "y")) {
+		ev.preventDefault();
+		if (!drag) undo(z === "z" && !ev.shiftKey);
+		return aim();
+	}
 	const key = ev.key === "," ? "." : ev.key === "*" || ev.key === "X" ? "x" : ev.key;
 	const part = typed.split("x").at(-1);
 	if (/^[0-9]$/.test(key) || (key === "." && !part.includes(".")) || (key === "x" && tool === "box" && typed && !typed.includes("x"))) {
