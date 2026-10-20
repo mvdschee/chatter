@@ -17,7 +17,7 @@ router.
   target.
 - **MIMO frames arrive as a length only**, with no header (ESP-IDF: "For MIMO
   frames, only the frame length is dumped"). Two-stream clients are partly
-  invisible. Most IoT gear is 1x1.
+  invisible. Most IoT gear is 1x1. Flagging them: `docs/streams.md`.
 - **Range.** It hears what reaches its antenna. Next to the router it hears
   every downlink frame (the router talks to every device). Uplink from a
   device at the far end of the house may be missed.
