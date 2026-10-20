@@ -12,7 +12,7 @@
 // Placing (chunk 7): the router, the sensors and the devices, each placed,
 // carried by someone, or waiting; saved in the plan as `places`.
 
-import { atLength, box, canAdd, crossesItself, dist, followImage, fromImage, inside, labelAt, measure, mm, roomWidth, snap, turnPlan } from "./geometry.js";
+import { atLength, box, canAdd, crossesItself, dist, followImage, fromImage, inside, labelAt, measure, mm, roomAt as roomIn, roomWidth, snap, turnPlan } from "./geometry.js";
 import { DEVICES, SENSORS } from "./data.js";
 import { closePanel } from "./panel.js";
 import { loadPlan, saved } from "./plan.js";
@@ -478,7 +478,7 @@ function setPlace(key, place) {
 	dirty = true;
 }
 
-const roomAt = (p) => rooms.find((r) => inside(p, r.points))?.name;
+const roomAt = (p) => roomIn(rooms, p);
 
 function pick(key) {
 	picked = key;

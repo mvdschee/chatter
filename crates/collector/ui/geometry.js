@@ -9,9 +9,12 @@ export const corner = ([x, y]) => `${x},${y}`;
 
 // The plan from metres into plan units: its bounds fitted into 1000 by 600,
 // the same scale both ways, with the margin round them; w and h are its frame.
+// The bounds take in placed things too, so a router in the garden stays on it.
 export function toUnits(plan) {
-	const xs = plan.rooms.flatMap((r) => r.points.map((p) => p[0]));
-	const ys = plan.rooms.flatMap((r) => r.points.map((p) => p[1]));
+	const placed = [plan.places?.router, ...Object.values(plan.places?.sensors ?? {}), ...Object.values(plan.places?.devices ?? {}).map((d) => d.at)];
+	const all = [...plan.rooms.flatMap((r) => r.points), ...placed.filter(Boolean)];
+	const xs = all.map((p) => p[0]);
+	const ys = all.map((p) => p[1]);
 	const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
 	const s = Math.min((1000 - 2 * MARGIN) / (x1 - x0), (600 - 2 * MARGIN) / (y1 - y0));
 	const u = ([x, y]) => [MARGIN + (x - x0) * s, MARGIN + (y - y0) * s];
@@ -20,7 +23,37 @@ export function toUnits(plan) {
 		h: (y1 - y0) * s + 2 * MARGIN,
 		rooms: plan.rooms.map((r) => ({ name: r.name, points: r.points.map(u) })),
 		openings: (plan.openings ?? []).map((o) => ({ from: u(o.from), to: u(o.to), at: o.at, width: o.width * s })),
+		places: movePlaces(plan.places, u),
 	};
+}
+
+// The name of the room p is in, or undefined.
+export const roomAt = (rooms, p) => rooms.find((r) => inside(p, r.points))?.name;
+
+// The areas on the ground in front of the house (plan units): `groups` are
+// [{ count, compact, ... }] in the order they go, left to right from `left`,
+// from `top` down, each area keeping the rest of its group; a slot per thing,
+// row by row. A compact area's things are dots without labels, so a crowd
+// stays small next to the house; it takes the width the others leave, at
+// least MIN_COLS wide. The others are labelled, up to LABELLED.rows deep. The
+// strip may come out wider than `width`.
+const LABELLED = { w: 110, h: 40, rows: 3 }, COMPACT = { w: 30, h: 30 };
+const AREA_GAP = 30, MIN_COLS = 6;
+
+export function frontAreas(groups, { left, top, width }) {
+	const labelledCols = (count) => Math.ceil(count / Math.min(count, LABELLED.rows));
+	const taken = groups.filter((g) => !g.compact).reduce((s, g) => s + labelledCols(g.count) * LABELLED.w + AREA_GAP, 0);
+	const free = Math.max(MIN_COLS, Math.floor((width - taken) / COMPACT.w));
+	let x = left;
+	return groups.map(({ count, ...rest }) => {
+		const slot = rest.compact ? COMPACT : LABELLED;
+		const cols = rest.compact ? Math.min(count, free) : labelledCols(count);
+		const pad = rest.compact ? slot.w / 2 : 18;
+		const slots = Array.from({ length: count }, (_, i) => [x + pad + (i % cols) * slot.w, top + slot.h / 2 + Math.floor(i / cols) * slot.h]);
+		const area = { ...rest, x, y: top, w: cols * slot.w, h: Math.ceil(count / cols) * slot.h, slots };
+		x += area.w + AREA_GAP;
+		return area;
+	});
 }
 
 // Where c is along a→b: its distance from a along the line, and from the line.

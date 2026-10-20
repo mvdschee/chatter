@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-	atLength, box, canAdd, corner, crossesItself, followImage, fromImage, inOpening, inside, labelAt, measure, middleOf, mm, roomWidth, snap, toImage, toUnits, turnPlan, wallPieces,
+	atLength, box, canAdd, corner, crossesItself, followImage, fromImage, frontAreas, inOpening, inside, labelAt, measure, middleOf, mm, roomAt, roomWidth, snap, toImage, toUnits, turnPlan, wallPieces,
 } from "../ui/geometry.js";
 
 // Made-up plans: a row of two rooms over a row of three, and an L.
@@ -221,4 +221,54 @@ test("measuring again carries the traced rooms along with the image", () => {
 	assert.ok(near(moved.places.sensors.study, PLACES.sensors.study));
 	assert.ok(near(moved.places.devices["fa:42:31:98:3e:b5"].at, PLACES.devices["fa:42:31:98:3e:b5"].at));
 	assert.equal(moved.places.devices["c2:d7:2c:93:34:d2"].carried_by, "Robin");
+});
+
+test("places come into plan units with the rooms, and one outside widens the frame", () => {
+	const u = toUnits({ ...TWO_ROWS, places: PLACES });
+	const at = (p) => u.rooms[0].points[0].map((v, i) => v + (p[i] - TWO_ROWS.rooms[0].points[0][i]) * ((u.rooms[0].points[1][0] - u.rooms[0].points[0][0]) / 5));
+	assert.ok(dist(u.places.router, at(PLACES.router)) < 1e-9);
+	assert.equal(u.places.devices["c2:d7:2c:93:34:d2"].carried_by, "Robin");
+	// a place on a room's corner is that corner's point
+	const onCorner = toUnits({ ...TWO_ROWS, places: { router: [5, 4] } });
+	assert.deepEqual(onCorner.places.router, onCorner.rooms[0].points[2]);
+	assert.equal(roomAt(u.rooms, u.places.router), roomAt(TWO_ROWS.rooms, PLACES.router));
+	// a router in the garden stays inside the frame
+	const garden = toUnits({ ...TWO_ROWS, places: { router: [12, 3] } });
+	assert.ok(garden.places.router[0] <= garden.w - 40 + 1e-9);
+	assert.equal(roomAt(garden.rooms, garden.places.router), undefined);
+});
+
+test("the areas in front of the house: below it, apart, a slot each, in order", () => {
+	const u = toUnits(TWO_ROWS);
+	const frame = { left: 40, top: u.h - 40 + 50, width: u.w - 80 };
+	const cases = [
+		[{ count: 60, compact: true }, { count: 3 }, { count: 1 }],
+		[{ count: 1, compact: true }],
+		[{ count: 7 }],
+		[{ count: 200, compact: true }, ...Array.from({ length: 12 }, () => ({ count: 2 }))],
+	];
+	for (const groups of cases) {
+		const areas = frontAreas(groups.map((g, i) => ({ ...g, name: `g${i}` })), frame);
+		assert.equal(areas.length, groups.length);
+		areas.forEach((a, i) => {
+			assert.equal(a.name, `g${i}`);
+			assert.equal(a.slots.length, groups[i].count);
+			assert.ok(a.y > Math.max(...u.rooms.flatMap((r) => r.points.map((p) => p[1]))), "past the house");
+			if (!a.compact) assert.ok(Math.ceil(a.h / 40) <= 3, "labelled areas stay shallow");
+			for (const [x, y] of a.slots) {
+				assert.ok(x > a.x && x < a.x + a.w && y > a.y && y < a.y + a.h, "slot in its area");
+				assert.ok(!u.rooms.some((r) => inside([x, y], r.points)), "slot in no room");
+			}
+			const b = areas[i + 1];
+			if (b) assert.ok(a.x + a.w < b.x, "areas apart, left to right");
+			// slots row by row, no two the same
+			assert.equal(new Set(a.slots.map(corner)).size, a.slots.length);
+			a.slots.forEach((s, k) => k && assert.ok(s[1] > a.slots[k - 1][1] || (s[1] === a.slots[k - 1][1] && s[0] > a.slots[k - 1][0])));
+		});
+	}
+	// a crowd waiting next to two people fits the house's width
+	const crowd = frontAreas([{ count: 60, compact: true }, { count: 3 }, { count: 2 }], frame);
+	assert.ok(crowd.at(-1).x + crowd.at(-1).w <= frame.left + frame.width);
+	// the same groups, the same slots: nothing reshuffles between overviews
+	assert.deepEqual(frontAreas([{ count: 7, compact: true }, { count: 2 }], frame), frontAreas([{ count: 7, compact: true }, { count: 2 }], frame));
 });

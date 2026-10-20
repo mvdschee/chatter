@@ -3,7 +3,7 @@
 
 import { hhmm, whenLabel } from "./format.js";
 import { closePanel, onData, selected } from "./panel.js";
-import { ROUTER, SPOTS } from "./plan.js";
+import { arrange } from "./plan.js";
 import { play } from "./playback.js";
 import { rand } from "./random.js";
 import { renderSensorPills } from "./sensors.js";
@@ -67,7 +67,7 @@ const vendorless = (mac) => (parseInt(mac[1], 16) & 2 ? "private address (made-u
 // Each flow starts partway to its next train of packets, or every arc stays
 // empty for the first seconds and then they all fire at once.
 function newDevice(mac) {
-	return { id: mac, name: mac, short: mac.slice(9), room: "not placed yet", mac, vendor: "unknown", ports: [], dns: [],
+	return { id: mac, name: mac, short: mac.slice(9), room: "waiting to be placed", x: 0, y: 0, mac, vendor: "unknown", ports: [], dns: [],
 		particles: [], spawn: [rand(), rand()], shownAt: -1e9, screen: [0, 0] };
 }
 
@@ -95,13 +95,12 @@ function applyOverview(o) {
 	const seen = [...o.devices].sort((a, b) => a.mac.localeCompare(b.mac));
 	const old = new Map(DEVICES.map((d) => [d.id, d]));
 	DEVICES.length = 0;
-	seen.forEach((x, i) => {
+	seen.forEach((x) => {
 		const d = old.get(x.mac) ?? newDevice(x.mac);
-		const [sx, sy] = SPOTS[i % SPOTS.length] ?? [ROUTER.x, ROUTER.y];
 		// the name the host sweep found (without the local domain), else the MAC
 		const host = x.hostname?.split(".")[0];
 		Object.assign(d, {
-			x: sx, y: sy, minutes: pad(x.minutes), rssi: x.rssi_max, firstSeen: x.first_seen,
+			minutes: pad(x.minutes), rssi: x.rssi_max, firstSeen: x.first_seen,
 			name: host ?? x.mac, short: host ?? x.mac.slice(9), vendor: x.vendor ?? vendorless(x.mac),
 			ip: x.ip, hostname: x.hostname, ports: x.ports, portScannedAt: x.port_scanned_at, usual: x.usual,
 		});
@@ -114,6 +113,7 @@ function applyOverview(o) {
 		const beatAt = !old ? -1e9 : x.last_seen > old.last_seen ? performance.now() : old.beatAt;
 		return { ...x, beatAt };
 	});
+	arrange();
 	renderSensorPills();
 	const newest = o.sensors.reduce((a, b) => (b.last_seen > a.last_seen ? b : a), o.sensors[0]);
 	Object.assign(STATUS, {

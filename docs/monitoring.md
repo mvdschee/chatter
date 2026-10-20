@@ -170,7 +170,8 @@ One reviewable chunk each, with its check:
    with the loop, and the day timeline from storage. Devices are placed by
    hand. _(First part built: the collector serves the page on `/` and its
    data on `/v1/overview`; the page polls it every loop instead of SSE, names
-   devices by their sweep hostname or MAC, and puts them on a grid. The
+   devices by their sweep hostname or MAC, and puts them where they were
+   placed in the plan editor, the rest waiting in front of the house. The
    floor plan is the saved one, or the example until one is saved.)_
    Check: the owner's judgement, plus "a busy device turns red" with the C3
    test client.

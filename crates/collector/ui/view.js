@@ -3,7 +3,7 @@
 
 import { DEVICES, SENSORS } from "./data.js";
 import { select } from "./panel.js";
-import { PLAN, SENSOR, WALL_H } from "./plan.js";
+import { PLAN, WALL_H } from "./plan.js";
 import { play } from "./playback.js";
 import { openSensor } from "./sensors.js";
 import { redrawGraph } from "./timeline.js";
@@ -148,7 +148,7 @@ document.getElementById("zoom-in").addEventListener("click", () => zoomAt(W / 2,
 document.getElementById("zoom-out").addEventListener("click", () => zoomAt(W / 2, H / 2, 0.8));
 document.getElementById("view-reset").addEventListener("click", resetView);
 
-// pick a device by clicking near its node, or the sensor
+// pick a device by clicking near its node, or a sensor
 canvas.addEventListener("click", (ev) => {
 	if (dragged) {
 		dragged = false;
@@ -156,9 +156,8 @@ canvas.addEventListener("click", (ev) => {
 	}
 	const r = canvas.getBoundingClientRect();
 	const x = ev.clientX - r.left, y = ev.clientY - r.top;
-	if (SENSORS[0] && SENSOR.screen && Math.hypot(SENSOR.screen[0] - x, SENSOR.screen[1] - y) < 16) {
-		return openSensor(SENSORS[0].name);
-	}
+	const sensor = SENSORS.find((s) => s.screen && Math.hypot(s.screen[0] - x, s.screen[1] - y) < 16);
+	if (sensor) return openSensor(sensor.name);
 	let best = null, bestDist = 24;
 	for (const d of DEVICES) {
 		const dist = Math.hypot(d.screen[0] - x, d.screen[1] - y);

@@ -1,12 +1,12 @@
-// Drawing the plan, each frame: the floor, walls and rooms, the traffic as
-// glows and packets on arcs to the router, the devices, the sensor, the
-// selected device's box and the HUD.
+// Drawing the plan, each frame: the floor, walls and rooms, the areas in
+// front of the house, the traffic as glows and packets on arcs to the router,
+// the devices, the sensors, the selected device's box and the HUD.
 
 import { heat, redness, score, scoreColor } from "./colour.js";
 import { DEVICES, SENSORS, STATUS } from "./data.js";
 import { fmtBytes } from "./format.js";
 import { panel, selected } from "./panel.js";
-import { ROUTER, SENSOR, WALL_H, floorDots, rooms, wallDots } from "./plan.js";
+import { ROUTER, WALL_H, areas, floorDots, rooms, sensorAt, wallDots } from "./plan.js";
 import { current, outlierNow, play, scoreNow } from "./playback.js";
 import { rand } from "./random.js";
 import { STATE_COLOR, sensorState } from "./sensors.js";
@@ -21,6 +21,7 @@ export function draw(now) {
 	drawFloorHeat(now);
 	drawRing(now);
 	drawRooms();
+	drawAreas();
 	drawWalls(now);
 
 	ctx.globalCompositeOperation = "lighter";
@@ -28,7 +29,7 @@ export function draw(now) {
 	ctx.globalCompositeOperation = "source-over";
 
 	drawStation(ROUTER, "#7fe7f2", 9);
-	drawSensor(now);
+	for (const s of SENSORS) drawSensor(s, now);
 	for (const d of DEVICES) drawNode(d, now);
 	drawCallouts(now);
 	drawHud(now);
@@ -51,6 +52,24 @@ function drawRooms() {
 		const [x, y] = project(r.label[0], r.label[1]);
 		ctx.fillText(r.name.toUpperCase().split("").join(" "), x, y);
 	}
+}
+
+// The areas in front of the house, marked out on the ground: the waiting
+// one dashed, a person's drawn through; each named like a room, just behind
+// it.
+function drawAreas() {
+	ctx.lineWidth = 1;
+	for (const a of areas) {
+		ctx.strokeStyle = a.compact ? "rgba(92,122,134,0.6)" : "rgba(127,231,242,0.3)";
+		ctx.setLineDash(a.compact ? [4, 5] : []);
+		path([[a.x, a.y], [a.x + a.w, a.y], [a.x + a.w, a.y + a.h], [a.x, a.y + a.h], [a.x, a.y]].map(([x, y]) => project(x, y)));
+		ctx.stroke();
+		const [x, y] = project(a.x, a.y - 10);
+		ctx.font = `600 ${11 * fit * Math.min(cam.zoom, 1.6)}px "Avenir Next Condensed", "Arial Narrow", sans-serif`;
+		ctx.fillStyle = "rgba(92,122,134,0.85)";
+		ctx.fillText(a.name.toUpperCase().split("").join(" "), x, y);
+	}
+	ctx.setLineDash([]);
 }
 
 function drawWalls(now) {
@@ -215,14 +234,13 @@ function drawFlow(d, now, dt) {
 	d.particles = d.particles.filter((p) => (p.s - p.size) / len < 1);
 }
 
-// The sensor on the plan, in its state's colour; a ring goes out when a new
-// report has come in.
-function drawSensor(now) {
-	const s = SENSORS[0];
-	if (!s) return drawStation(SENSOR, "#5c7a86", 6);
-	const color = STATE_COLOR[sensorState(s)];
-	const [x, yTop] = drawStation({ ...SENSOR, name: s.name }, color, 6);
-	SENSOR.screen = [x, yTop];
+// A sensor where it stands, in its state's colour; a ring goes out when a
+// new report has come in.
+function drawSensor(s, now) {
+	const at = sensorAt.get(s.name);
+	if (!at) return;
+	const [x, yTop] = drawStation({ ...at, name: s.name }, STATE_COLOR[sensorState(s)], 6);
+	s.screen = [x, yTop];
 	const t = (now - s.beatAt) / 1400;
 	if (t >= 0 && t < 1 && !reduced) {
 		ctx.strokeStyle = `rgba(127,231,242,${(0.8 * (1 - t)).toFixed(3)})`;
@@ -303,6 +321,8 @@ function drawNode(d, now) {
 
 	if (selected === d) brackets(x, y, 17 * k, "#7fe7f2");
 
+	// a device waiting to be placed is a dot in a crowd: named only when picked
+	if (d.waiting && selected !== d) return;
 	const sub = d.locationOnly ? "location only" : `${fmtBytes(tx + rx)}/min`;
 	label(d.short ?? d.name, x + 12, y - 3, glitching ? "#ff3b3b" : "rgba(232,244,246,0.8)");
 	label(sub, x + 12, y + 10, "#5c7a86", "mono");

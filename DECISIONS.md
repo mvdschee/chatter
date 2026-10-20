@@ -168,3 +168,9 @@
 **Decision:** The floor plan's underlay image is one file, `plan-underlay`, in the collector's data directory, stored through `PUT /v1/plan/underlay` (PNG, JPEG or WebP by their first bytes, up to 20 MB) and replaced by the next one. The plan JSON keeps where it lies: pixels per metre, the top left corner's offset and an angle. It's scaled from two clicks on a wall's ends and its typed length, and a wall within 10° of level or upright turns square. Details in `docs/floorplan.md`.
 **Why:** In the plan JSON the image would blow the plan route's 512 KB limit and be copied into every saved row; a file next to the database is on the same volume in the container. Turning a slightly crooked scan square keeps it from fighting the square snapping, and it comes free with the two points the scale needs.
 **Alternatives:** The image in SQLite (a blob per save, or a table of its own); a data URL in the plan; a separate step to rotate the image; reading PDFs in the page with pdf.js (a large dependency, when exporting a page as PNG is one step).
+
+## 2026-10-20 - Devices not placed yet wait in front of the house, as dots without labels
+
+**Decision:** In the view, a device not placed yet stands in a dashed area on the ground past the house's front wall, in a compact block of dots without labels (named when picked), and a device someone carries stands in that person's area, labelled. The frame grows to take the areas in. Details in `docs/floorplan.md`, chunk 7.
+**Why:** A made-up spot inside would read as a real place. With a labelled slot each, a home's worth of unplaced devices made the strip twice as deep as the house; as dots the house stays the main thing while most devices still wait, and the editor's list names them.
+**Alternatives:** A labelled slot per waiting device (the strip outgrows the house); a count instead of dots (loses each device's traffic and its click); a tray beside the 3D view (the owner chose a place on the ground).

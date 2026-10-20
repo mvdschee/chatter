@@ -1,5 +1,5 @@
-import { DEVICES } from "./data.js";
-import { corner, inOpening, inside, labelAt, middleOf, toUnits, wallPieces } from "./geometry.js";
+import { DEVICES, SENSORS } from "./data.js";
+import { MARGIN, corner, frontAreas, inOpening, inside, labelAt, middleOf, roomAt, toUnits, wallPieces } from "./geometry.js";
 import { rand } from "./random.js";
 import { resize } from "./view.js";
 
@@ -36,17 +36,18 @@ const EXAMPLE_PLAN = {
 export const PLAN = { w: 1000, h: 600 };
 export const WALL_H = 56;
 
-// Where the router and the sensor stand until they can be placed by hand,
-// when that's inside a room (plan units).
-const ROUTER_AT = [410, 470];
-const SENSOR_AT = [455, 520];
-export const ROUTER = { x: ROUTER_AT[0], y: ROUTER_AT[1], name: "Router" };
-export const SENSOR = { x: SENSOR_AT[0], y: SENSOR_AT[1], name: "Sensor" };
+// Where the router stands: its place, else the middle of the first room
+// (the traffic's arcs need it somewhere). Set by arrange.
+export const ROUTER = { x: 0, y: 0, name: "Router" };
 
-// Until devices can be placed by hand, each gets a spot on a grid over the
-// plan's rooms, the same one on every load: spots shuffled once, handed out in
-// MAC order. Set by setPlan.
-export let SPOTS = [];
+// Where each sensor stands, by name: its place, else a slot with the devices
+// waiting. Set by arrange.
+export const sensorAt = new Map();
+
+// The areas in front of the house: the things still waiting to be placed,
+// then one per person with the devices they carry (frontAreas). Set by
+// arrange.
+export let areas = [];
 
 // Set by setPlan: the rooms (points in plan units, where the name goes), the
 // walls as point-cloud curtains (dots along each wall, stacked to wall
@@ -62,7 +63,6 @@ export let saved = null;
 // Draws this plan from now on: a saved one or the example.
 function setPlan(plan) {
 	const p = toUnits(plan);
-	Object.assign(PLAN, { w: p.w, h: p.h });
 	const inPlan = (q) => p.rooms.some((r) => inside(q, r.points));
 	rooms = p.rooms.map((r) => ({ ...r, label: labelAt(r.points) }));
 
@@ -81,34 +81,61 @@ function setPlan(plan) {
 	}
 
 	floorDots = [];
-	for (let x = 50; x < PLAN.w - 40; x += 16) {
-		for (let y = 50; y < PLAN.h - 40; y += 16) {
+	for (let x = 50; x < p.w - 40; x += 16) {
+		for (let y = 50; y < p.h - 40; y += 16) {
 			const q = [x + (rand() - 0.5) * 4, y + (rand() - 0.5) * 4];
 			if (inPlan(q)) floorDots.push({ x: q[0], y: q[1], a: 0.25 + rand() * 0.5 });
 		}
 	}
 
-	// the router and the sensor where they stood, if that's in a room
-	const [rx, ry] = inPlan(ROUTER_AT) ? ROUTER_AT : middleOf(p.rooms[0].points);
-	const near = [rx + 45, ry + 50];
-	const [sx, sy] = inPlan(SENSOR_AT) ? SENSOR_AT : inPlan(near) ? near : [rx, ry];
-	Object.assign(ROUTER, { x: rx, y: ry });
-	Object.assign(SENSOR, { x: sx, y: sy });
+	[house, places] = [{ w: p.w, h: p.h }, p.places];
+	arrange();
+}
 
-	SPOTS = [];
-	for (let x = 100; x <= PLAN.w - 100; x += 114) {
-		for (let y = 95; y <= PLAN.h - 90; y += 83) {
-			if (inPlan([x, y]) && Math.hypot(x - rx, y - ry) > 70 && Math.hypot(x - sx, y - sy) > 50) SPOTS.push([x, y]);
-		}
+// The house's frame and the places in plan units, from setPlan.
+let house = null, places = null;
+
+// Puts the router, the sensors and the devices where they go: placed ones
+// where they stand, carried ones in their person's area, the rest waiting.
+// Called when the plan or the devices change. The frame grows to take in the
+// areas, and the view refits when it does.
+export function arrange() {
+	if (!house) return;
+	const at = (p) => ({ x: p[0], y: p[1] });
+	Object.assign(ROUTER, at(places?.router ?? middleOf(rooms[0].points)));
+
+	const waiting = [], carried = new Map();
+	for (const d of DEVICES) {
+		const place = places?.devices?.[d.mac];
+		if (place?.at) Object.assign(d, at(place.at), { room: roomAt(rooms, place.at) ?? "placed outside the rooms", waiting: false });
+		else if (place?.carried_by) carried.set(place.carried_by, [...(carried.get(place.carried_by) ?? []), d]);
+		else waiting.push(d);
 	}
-	let seed = 11;
-	for (let i = SPOTS.length - 1; i > 0; i--) {
-		seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-		const j = seed % (i + 1);
-		[SPOTS[i], SPOTS[j]] = [SPOTS[j], SPOTS[i]];
+	// waiting sensors last, so their labels don't cover the area's name
+	sensorAt.clear();
+	for (const s of SENSORS) {
+		const p = places?.sensors?.[s.name];
+		if (p) sensorAt.set(s.name, at(p));
+		else waiting.push({ sensor: s.name });
 	}
-	DEVICES.forEach((d, i) => ([d.x, d.y] = SPOTS[i % SPOTS.length] ?? [rx, ry]));
-	resize();
+	const groups = [
+		...(waiting.length ? [{ name: "Waiting to be placed", room: "waiting to be placed", compact: true, things: waiting }] : []),
+		...[...carried.keys()].sort().map((name) => ({ name, room: `carried by ${name}`, things: carried.get(name) })),
+	];
+	areas = frontAreas(groups.map((g) => ({ name: g.name, compact: g.compact, count: g.things.length })),
+		{ left: MARGIN, top: house.h - MARGIN + 50, width: house.w - 2 * MARGIN });
+	groups.forEach((g, i) => g.things.forEach((t, k) => {
+		const spot = at(areas[i].slots[k]);
+		if (t.sensor) sensorAt.set(t.sensor, spot);
+		else Object.assign(t, spot, { room: g.room, waiting: Boolean(g.compact) });
+	}));
+
+	const w = Math.max(house.w, ...areas.map((a) => a.x + a.w + MARGIN));
+	const h = Math.max(house.h, ...areas.map((a) => a.y + a.h + MARGIN));
+	if (w !== PLAN.w || h !== PLAN.h) {
+		Object.assign(PLAN, { w, h });
+		resize();
+	}
 }
 
 // The saved plan, or the example until one with rooms is saved.

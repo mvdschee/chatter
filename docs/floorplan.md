@@ -167,7 +167,7 @@ One reviewable commit each:
    the devices' spots only inside rooms. The plan is scaled to fit 1000 by 600
    plan units and the view's frame takes its shape, so the look holds for any
    size or shape of home. The router and the sensor keep their spot when it's
-   in a room, else go to the middle of the first room, until chunk 6. Until a
+   in a room, else go to the middle of the first room, until chunk 7. Until a
    plan with rooms is saved the page shows the example, now a plan in metres
    like any other.
 3. Done: draw rooms. "Edit plan" opens `edit.js` over the view, the
@@ -267,10 +267,24 @@ One reviewable commit each:
       opens the editor on it. Going into Place picks the first one waiting;
       a press on a placed thing picks it rather than placing the picked one
       on top of it. The view doesn't use the places yet.
-   2. The view: placed things where they stand, every placed sensor drawn;
-      in front of the house, on the ground, a marked area of the devices
-      still waiting and one per person with the devices they carry; a
-      device's panel says its room, or who carries it, or that it waits.
+   2. Done: the view: placed things where they stand, every sensor drawn;
+      in front of the house, on the ground, a dashed area of the things
+      still waiting and one per person with the devices they carry, each
+      named just behind it; a device's panel says its room, or who carries
+      it, or that it waits. The router not placed yet stands in the middle
+      of the first room (the arcs need it somewhere); a sensor not placed
+      yet waits with the devices, after them. Placed points count in the
+      plan's bounds, so a router in the garden stays in the frame. The
+      areas sit past the house's front wall and the frame grows to take
+      them in; the view refits only when that changes its size. A first
+      try gave every waiting device a labelled slot: with 48 made-up
+      devices waiting the strip came out twice as deep as the house, which
+      shrank to a corner.
+      So the waiting ones are a compact block of dots without labels (a
+      click still opens one, and the picked one is named) that takes the
+      width the people's areas leave; a person's devices keep their labels,
+      up to three rows deep. With no saved plan every device waits in front
+      of the example: it isn't anyone's home, so nothing stands in it.
 
 ## Validation
 
