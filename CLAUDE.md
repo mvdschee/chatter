@@ -27,7 +27,9 @@
 - `docs/timeline.md`: the timeline (ranges, playback) and the sensor
   heartbeat: research and plan.
 - `docs/outliers.md`: colouring devices by their own normal (baselines,
-  robust score): research and plan, the next thing to build.
+  robust score): research and plan, built.
+- `docs/identify.md`: identify mode (hold the sensor next to a device to
+  tell which one it is): research and plan, the next thing to build.
 - `docs/streams.md`: flagging multi-stream devices, whose counts the sensor
   can't complete: theories and tests, not yet run.
 - `docs/setup.md`: the install log. Add every install or setup step as it is

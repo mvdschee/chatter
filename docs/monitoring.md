@@ -191,15 +191,15 @@ One reviewable chunk each, with its check:
 6. **More sensors:** C3 support in the firmware, and a room suggestion from
    the strongest sensor.
    Check: carry a test device from room to room.
-   **Identify mode** (after the floor plan): hold a sensor next to a device to
-   tell which one it is, then name and place it. The collector tells the
-   sensor in its answer to the report it already sends: `204` is "carry on"
-   (as now), `200` with a short body such as `identify 600` is "identify
-   mode for ten minutes". The sensor reads it after the status it checks
-   already; the parsing is in core, tested on the host. It may take up to a
-   minute to start; in identify mode the sensor reports every few seconds,
-   so "stop" arrives fast. If that first minute is too slow: a small poll
-   every 10 s, only while the page is in identify mode.
+   **Identify mode** (after the floor plan; planned in `docs/identify.md`):
+   hold a sensor next to a device to tell which one it is, then name and place
+   it. The collector tells the sensor in its answer to the report it already
+   sends: `204` is "carry on" (as now), `200` with a short body such as
+   `identify 600` is "identify mode for ten minutes". The sensor reads it
+   after the status it checks already; the parsing is in core, tested on the
+   host. It may take up to a minute to start; in identify mode the sensor
+   reports every few seconds, so "stop" arrives fast. If that first minute is
+   too slow: a small poll every 10 s, only while the page is in identify mode.
    **Sensor status** _(built)_: a pill per sensor in the top bar and the
    sensor on the plan, live, late or silent by its newest report, with a
    ring for each new one; its panel has the day's heartbeat (reports per 5
