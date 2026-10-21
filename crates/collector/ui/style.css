@@ -150,6 +150,9 @@ canvas#edit-plan:focus-visible { outline: 1px solid var(--signal); outline-offse
 .edit-rooms .del:hover, .edit-rooms .del:focus-visible { color: var(--heat); border-color: var(--heat); }
 #edit-status { margin: 0; font: 13px/1.4 var(--mono); color: var(--phosphor); }
 .edit-rooms-part[hidden] { display: none; }
+.edit-kind { display: flex; gap: 8px; }
+.edit-kind[hidden] { display: none; }
+.edit-kind .tl-btn { flex: 1; text-align: center; padding: 8px 10px; font-size: 11px; }
 .edit-rooms-part { display: flex; flex-direction: column; gap: 8px; }
 #edit-status:empty { display: none; }
 #edit-status.bad { color: var(--heat); }

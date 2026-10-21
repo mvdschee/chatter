@@ -1,14 +1,14 @@
 import { DEVICES, SENSORS } from "./data.js";
-import { MARGIN, corner, frontAreas, inOpening, inside, labelAt, middleOf, roomAt, toUnits, wallPieces } from "./geometry.js";
+import { MARGIN, corner, cutsRow, frontAreas, inside, labelAt, middleOf, openingAt, roomAt, toUnits, wallPieces } from "./geometry.js";
 import { rand } from "./random.js";
 import { resize } from "./view.js";
 
 // The floor plan: the one saved through /v1/plan, else this example. It's
 // made up, not anyone's house. Rooms are polygons in metres, origin top left,
-// y down; openings are doorways on an edge (docs/floorplan.md). Turned into
+// y down; openings are doorways and windows on an edge (docs/floorplan.md). Turned into
 // plan units, walls, floor and spots here; drawn in draw.js.
 
-// How far off a doorway's line, in metres, a wall's dots still go for it:
+// How far off an opening's line, in metres, a wall's dots still go for it:
 // rooms traced side by side give their shared wall twice, a few mm apart, and
 // a doorway has to cut both. A wall is about ten times this thick.
 const DOOR_REACH = 0.01;
@@ -32,6 +32,11 @@ const EXAMPLE_PLAN = {
 		{ from: [6, 3.6], to: [6, 6.5], at: 0.3, width: 0.8 },
 		{ from: [9.5, 3.6], to: [9.5, 6.5], at: 0.5, width: 0.8 },
 		{ from: [6, 6.5], to: [3.3, 6.5], at: 0.5, width: 1 },
+		{ from: [0, 0], to: [4.5, 0], at: 0.5, width: 2.4, kind: "window" },
+		{ from: [4.5, 0], to: [8.2, 0], at: 0.5, width: 1.4, kind: "half" },
+		{ from: [8.2, 0], to: [11.5, 0], at: 0.5, width: 1.2, kind: "half" },
+		{ from: [0, 3.6], to: [0, 6.5], at: 0.5, width: 1.2, kind: "half" },
+		{ from: [11.5, 3.6], to: [11.5, 6.5], at: 0.5, width: 0.8, kind: "half" },
 	],
 };
 
@@ -40,6 +45,8 @@ const EXAMPLE_PLAN = {
 // house; PLAN then takes the plan's own shape (setPlan).
 export const PLAN = { w: 1000, h: 600 };
 export const WALL_H = 56;
+// How far apart a wall's rows of dots are, plan units.
+const ROW = 7;
 
 // Where the router stands: its place, else the middle of the first room
 // (the traffic's arcs need it somewhere). Set by arrange.
@@ -79,9 +86,13 @@ function setPlan(plan) {
 		return Array.from({ length: n - 1 }, (_, k) => [x1 + ((x2 - x1) * (k + 1)) / n, y1 + ((y2 - y1) * (k + 1)) / n]);
 	});
 	for (const [x, y] of [...corners.values(), ...between]) {
-		if (inOpening([x, y], p.openings, DOOR_REACH * p.perM)) continue;
-		for (let z = 0; z <= WALL_H; z += 7) {
-			wallDots.push({ x, y, z, top: z + 7 > WALL_H, phase: rand() * Math.PI * 2 });
+		const opening = openingAt([x, y], p.openings, DOOR_REACH * p.perM);
+		for (let z = 0; z <= WALL_H; z += ROW) {
+			if (opening && cutsRow(opening.kind, z, WALL_H, ROW)) continue;
+			// the wall fades as it rises: the row a window leaves under the
+			// top is drawn as clear as the bottom row, or it can't be seen
+			const lintel = Boolean(opening) && z + ROW <= WALL_H && z + 2 * ROW > WALL_H;
+			wallDots.push({ x, y, z, top: z + ROW > WALL_H, lintel, phase: rand() * Math.PI * 2 });
 		}
 	}
 

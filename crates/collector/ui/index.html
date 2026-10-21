@@ -48,6 +48,7 @@
 					<button class="tl-btn" data-tool="box" aria-pressed="true">Box</button>
 					<button class="tl-btn" data-tool="lines" aria-pressed="false">Lines</button>
 					<button class="tl-btn" data-tool="door" aria-pressed="false">Doors</button>
+					<button class="tl-btn" data-tool="window" aria-pressed="false">Windows</button>
 				</li>
 				<li data-step="place" title="Place things">
 					<button class="tl-btn" data-tool="place" aria-pressed="false">Place</button>
@@ -62,6 +63,10 @@
 			<aside class="edit-side" aria-label="Edit plan">
 				<p id="edit-status" role="status"></p>
 				<div class="edit-guide" id="edit-guide"></div>
+				<div class="edit-kind" id="edit-kind" role="group" aria-label="Window" hidden>
+					<button class="tl-btn" data-kind="window" aria-pressed="true" title="From the floor up, the wall above it left">Full</button>
+					<button class="tl-btn" data-kind="half" aria-pressed="false" title="From half height up, the wall above it left">Half</button>
+				</div>
 				<input type="file" id="underlay-file" accept="image/png,image/jpeg,image/webp" hidden>
 				<section class="edit-things" id="edit-things" hidden aria-label="Things to place">
 					<h2 class="eyebrow">Things</h2>

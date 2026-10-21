@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-	atLength, box, canAdd, corner, crossesItself, doorAt, doorSpan, doorsOverlap, fanColumn, fitsEdge, followImage, fromImage, frontAreas, inOpening, inside, labelAt, measure, middleOf, mm, moveCorner, nearestEdge, resizeDoor, roomAt, roomWidth, snap, stacks, toImage, toUnits, turnPlan, wallPieces,
+	atLength, box, canAdd, corner, crossesItself, doorAt, doorSpan, doorsOverlap, cutsRow, fanColumn, fitsEdge, followImage, fromImage, frontAreas, openingAt, inside, labelAt, measure, middleOf, mm, moveCorner, nearestEdge, resizeDoor, roomAt, roomWidth, snap, stacks, toImage, toUnits, turnPlan, wallPieces,
 } from "../ui/geometry.js";
 
 // Made-up plans: a row of two rooms over a row of three, and an L.
@@ -47,21 +47,52 @@ test("shared walls are drawn once, split at T-junctions", () => {
 
 test("an opening named on a short edge cuts the long one it lies on", () => {
 	const { openings } = TWO_ROWS;
-	assert.ok(inOpening([1.5, 4], openings));
-	assert.ok(!inOpening([0.5, 4], openings));
-	assert.ok(!inOpening([1.5, 4.1], openings));
+	assert.ok(openingAt([1.5, 4], openings));
+	assert.ok(!openingAt([0.5, 4], openings));
+	assert.ok(!openingAt([1.5, 4.1], openings));
 });
 
 test("an opening cuts the neighbour's wall too when it's traced a few mm off", () => {
 	// the room below's wall, traced 2 mm lower than the door's
 	const { openings } = TWO_ROWS;
-	assert.ok(!inOpening([1.5, 4.002], openings), "exactly on the line only");
-	assert.ok(inOpening([1.5, 4.002], openings, 0.01));
-	assert.ok(!inOpening([1.5, 4.1], openings, 0.01), "a wall 10 cm away keeps its dots");
+	assert.ok(!openingAt([1.5, 4.002], openings), "exactly on the line only");
+	assert.ok(openingAt([1.5, 4.002], openings, 0.01));
+	assert.ok(!openingAt([1.5, 4.1], openings, 0.01), "a wall 10 cm away keeps its dots");
 	// in plan units, the reach scales with the plan
 	const p = toUnits(TWO_ROWS);
 	const [x, y] = [p.openings[0].from[0] + 1.5 * p.perM, p.openings[0].from[1] + 0.002 * p.perM];
-	assert.ok(inOpening([x, y], p.openings, 0.01 * p.perM));
+	assert.ok(openingAt([x, y], p.openings, 0.01 * p.perM));
+});
+
+test("a doorway cuts the whole wall, a window all but its top two rows, a half window its upper half", () => {
+	const rows = (kind, h, row) => {
+		const all = Array.from({ length: Math.floor(h / row) + 1 }, (_, k) => k * row);
+		return all.filter((z) => !cutsRow(kind, z, h, row));
+	};
+	// the view's wall: 56 high, rows 7 apart
+	assert.deepEqual(rows("door", 56, 7), []);
+	assert.deepEqual(rows("window", 56, 7), [49, 56]);
+	assert.deepEqual(rows("half", 56, 7), [0, 7, 14, 21, 49, 56]);
+	// for any wall: a window keeps exactly the top two rows and cuts the rest;
+	// a half window keeps what's under half height too, and cuts something
+	for (const [h, row] of [[56, 7], [60, 6], [40, 8], [63, 7]]) {
+		assert.deepEqual(rows("door", h, row), []);
+		const top = rows("window", h, row);
+		assert.equal(top.length, 2, `${h}/${row}`);
+		assert.ok(top.every((z) => z + 2 * row > h));
+		const half = rows("half", h, row);
+		assert.ok(half.every((z) => z < h / 2 || z + 2 * row > h));
+		assert.ok(half.length < Math.floor(h / row) + 1, `a half window cuts a row of ${h}/${row}`);
+	}
+});
+
+test("an opening without a kind is a doorway; a window keeps its kind when moved or sized", () => {
+	const p = toUnits({ ...TWO_ROWS, openings: [...TWO_ROWS.openings, { from: [0, 0], to: [3, 0], at: 0.5, width: 1.2, kind: "half" }] });
+	assert.deepEqual(p.openings.map((o) => o.kind), ["door", "half"]);
+	const win = doorAt({ from: [0, 0], to: [4, 0], kind: "window" }, 2, 1.2);
+	assert.equal(win.kind, "window");
+	assert.equal(doorAt(win, 1, win.width).kind, "window");
+	assert.equal(resizeDoor(win, 1, 3, 0.05).kind, "window");
 });
 
 test("labels and middles are inside their rooms, an L included", () => {
@@ -185,7 +216,7 @@ test("a doorway goes on the nearest wall, the shortest where walls lie on one li
 
 test("a new doorway fits on its wall, slid along or narrowed", () => {
 	const wall = { from: [0, 0], to: [4, 0] };
-	assert.deepEqual(doorAt(wall, 2, 0.9), { from: [0, 0], to: [4, 0], at: 0.5, width: 0.9 });
+	assert.deepEqual(doorAt(wall, 2, 0.9), { from: [0, 0], to: [4, 0], at: 0.5, width: 0.9, kind: "door" });
 	const corner = doorAt(wall, 0.1, 0.9);
 	assert.deepEqual(doorSpan(corner), [0, 0.9]);
 	assert.ok(fitsEdge(corner) && fitsEdge(doorAt(wall, 3.95, 0.9)));
@@ -278,7 +309,7 @@ test("turning the plan takes rooms, openings and the image round together", () =
 	const [a, b] = right.rooms;
 	assert.ok(a.points.some((p) => b.points.some((q) => corner(p) === corner(q))));
 	// the doorway's middle, (1.5, 4), turned
-	assert.ok(inOpening([-4, 1.5], right.openings));
+	assert.ok(openingAt([-4, 1.5], right.openings));
 	// four turns either way are no turn, and left undoes right
 	let back = plan;
 	for (let i = 0; i < 4; i++) back = turnPlan(back, 1);

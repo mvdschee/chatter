@@ -216,3 +216,9 @@
 **Decision:** The steps and their buttons are a bar across the top of the editor; the side panel shows the tool's text, the rooms (Box, Lines, Doors) or the things (Place), and the keys folded. Its edge drags wider, kept in `localStorage`.
 **Why:** One column of steps, things, keys and rooms ran to twice the screen's height, with the device list below the fold, and its 320 px cut off a device's IP.
 **Alternatives:** Tabs in the panel (Steps, Things, Rooms, Keys); the same column with done steps folded and the keys behind a button.
+
+## 2026-10-21 - Windows are openings with a kind
+
+**Decision:** A window is an opening like a doorway, with `kind`: `door`, `window` or `half` (a missing kind is a door). In the view a doorway cuts the whole wall; a window leaves the top two rows, the lower one drawn as clear as the wall's bottom row; a half window leaves the wall below half height too. The editor has a Windows tool beside Doors, with Full and Half in the panel. Details in `docs/floorplan.md`, chunk 10.
+**Why:** Windows show which side of the house is outside, so the plan is easier to read. The wall fades as it rises, so a window that only kept the top line looked like a doorway, and the row under it was too faint to see.
+**Alternatives:** A list of windows next to the openings (two lists to check, move and turn the same way); windows as glass-coloured dots in the gap (more to draw; the two rows already read as wall above a hole); the row under the top as bright as the top (the owner found a normal row better).

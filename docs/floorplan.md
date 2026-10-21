@@ -1,6 +1,6 @@
 # The floor plan editor (research and plan)
 
-Status, 2026-10-21: research done; all nine chunks built.
+Status, 2026-10-21: research done; all ten chunks built.
 Plan step 3 in `docs/monitoring.md`. The view draws the saved plan, or a
 made-up example (`EXAMPLE_PLAN` in `crates/collector/ui/plan.js`) until
 one with rooms is saved.
@@ -11,7 +11,8 @@ Anyone who buys this draws their own home in a few minutes, on a laptop or a
 phone, with nothing but the app: no CAD skills, no LiDAR phone. The plan then
 drives:
 
-- the view: wall dot curtains with doorways, room labels, the floor;
+- the view: wall dot curtains with doorways and windows, room labels, the
+  floor;
 - which room a device or sensor is in (the heatmap per room, the room
   suggestion from the strongest sensor, plan step 6);
 - where devices and sensors sit, placed by hand.
@@ -116,7 +117,9 @@ view rotates as it likes).
 
 - An opening names its edge by its two corners (either order), so it survives
   renaming or reordering rooms; `at` is where its middle is, from `from`, as
-  a share of the edge's length.
+  a share of the edge's length. Its `kind` is `door`, `window` or `half` (a
+  half window); a plan saved before windows has none, which means a door
+  (chunk 10).
 - The plan is one JSON document in SQLite, saved whole: a home is a few dozen
   corners, and it's always loaded and edited as a whole. Each save is a new
   row, so an older version can be restored.
@@ -415,6 +418,22 @@ One reviewable commit each:
    filter still finds it. The Timeline's events still say the sweep's
    name.
 
+10. Done: windows, so the plan shows which side is outside. A window is an
+    opening with `kind` `window` (from the floor up) or `half` (from half
+    height up); a doorway is `door`. In the view a doorway cuts the whole
+    wall; a window leaves the top two rows of dots, a half window the rows
+    under half height too. The wall fades as it rises, so the row a window
+    leaves under the top was too faint to see and a window looked like a
+    doorway. Drawn as bright as the top it made a double line, which the
+    owner found too much; now it's a normal row, as clear as the wall's
+    bottom one. **Windows**, beside Doors, works the same way (click,
+    drag, size, type a width, Backspace), a new one 1.20 m wide, Full or Half
+    as picked in the panel; picking a window shows its kind there, and
+    clicking the other kind changes it. Each tool picks only its own
+    openings, and a doorway and a window can't overlap. In the editor a
+    window is two thin lines along the wall, as plans draw them, a half one
+    with a tick across its middle. The example plan has windows too.
+
 ## Validation
 
 Checked automatically (`node --test crates/collector/ui-tests/*.test.mjs` for
@@ -432,6 +451,10 @@ the page's geometry, `cargo test` for the save checks):
 - doorways: the wall pointed at, a small room's where walls lie on one
   line; a new one fits its wall; dragging an end keeps the other and
   stays on the wall; two overlap only on one line;
+- windows: a doorway cuts every row, a window all but the top two, a half
+  window only the rows from half height to there, for any wall height; an
+  opening without a kind is a doorway, and a window keeps its kind when
+  slid or sized; the collector refuses an unknown kind;
 - stacks: names that overlap what's drawn stack, not through a chain; so
   do stacks whose marks would overlap, and nothing drawn overlaps; a fanned column's names don't overlap,
   and it keeps below a bar along the top.
@@ -445,6 +468,10 @@ Only the owner can judge:
 - whether the walls and doorways look right in the view;
 - whether Doors is found, 0.90 m is the right width to start from, and a
   doorway sliding along when its wall gets shorter is what's wanted;
+- whether windows help to see which way the house faces; whether the
+  row under the top over a window reads as a window and not a doorway,
+  and a half window as half; whether 1.20 m is the right width to start
+  from;
 - whether tracing over the underlay is fast, and the image clear enough to
   trace yet faint enough to see the rooms;
 - placing devices on a phone;

@@ -82,7 +82,7 @@ function drawWalls(now) {
 	for (const d of wallDots) {
 		const [x, y, k] = project(d.x, d.y, d.z);
 		const tw = reduced ? 0.8 : 0.55 + 0.45 * Math.sin(now / 800 + d.phase);
-		const a = d.top ? 0.95 : (0.18 + 0.5 * (1 - d.z / WALL_H)) * tw;
+		const a = d.top ? 0.95 : (0.18 + 0.5 * (d.lintel ? 1 : 1 - d.z / WALL_H)) * tw;
 		ctx.fillStyle = d.top ? `rgba(200,250,255,${a.toFixed(3)})` : `rgba(127,231,242,${a.toFixed(3)})`;
 		const s = (d.top ? 1.9 : 1.4) * k * Math.sqrt(cam.zoom);
 		ctx.fillRect(x - s / 2, y - s / 2, s, s);

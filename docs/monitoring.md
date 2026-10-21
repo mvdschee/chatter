@@ -163,7 +163,7 @@ One reviewable chunk each, with its check:
    `services/web`).
    Check: a day of reports, queried per device and hour.
 3. **Floor plan editor:** draw walls and rooms, saved in SQLite. _(Built:
-   all nine chunks of `docs/floorplan.md`.)_
+   all ten chunks of `docs/floorplan.md`.)_
    Check: draw the real floor plan in a few minutes.
 4. **Live view:** the page on real data over server-sent events,
    with the loop, and the day timeline from storage. Devices are placed by

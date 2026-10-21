@@ -16,6 +16,7 @@
 // Editing (chunk 5): drag a corner in Box or Lines, and it moves in every
 // room that has it; undo and redo take back any change to the plan.
 // Doors (chunk 6): click a wall for a doorway, drag its ends or its middle.
+// Windows: the same, each a full or a half window.
 
 import { atLength, box, canAdd, crossesItself, dist, doorAt, doorSpan, doorsOverlap, fanColumn, followImage, fromImage, inside, labelAt, measure, mm, moveCorner, nearestEdge, resizeDoor, roomAt as roomIn, roomWidth, snap, stacks, turnPlan } from "./geometry.js";
 import { DEVICES, SENSORS, renameDevice } from "./data.js";
@@ -45,6 +46,8 @@ const thingsList = document.getElementById("things-list");
 const thingDetail = document.getElementById("thing-detail");
 const filterEl = document.getElementById("things-filter");
 const carriersEl = document.getElementById("carriers");
+const kindEl = document.getElementById("edit-kind");
+const kindBtns = kindEl.querySelectorAll("[data-kind]");
 
 // The collector's limit on corners per room.
 const MAX_CORNERS = 100;
@@ -65,6 +68,10 @@ const MAX_UNDO = 100;
 // A new doorway's width, and the steps a doorway moves and sizes in, metres.
 const DOOR_W = 0.9;
 const DOOR_STEP = 0.05;
+// A new window's width, metres.
+const WINDOW_W = 1.2;
+// What each kind of opening is called.
+const NOUN = { door: "doorway", window: "window", half: "half window" };
 // The panel's usual and least width, pixels; the CSS keeps it to 60% of the
 // editor at most. Where its width is kept between visits.
 const SIDE_W = 340;
@@ -76,11 +83,11 @@ const GUIDE = {
 	image: ["Load the floor plan", "An image of it to trace over: PNG, JPEG or WebP (export a PDF page as PNG). No floor plan? Skip to step 4."],
 	scale: ["Measure a wall", "Zoom in. If the plan has a scale bar, click its 0 and its last mark and type that length. Otherwise pick the longest size the plan gives, click the inside faces of the two walls it runs between, and type it in metres (4200 mm is 4.2). Press Enter. Measuring again later moves the traced rooms along."],
 	turn: ["Turn it", "If you like: turn the plan a quarter at a time until it's the way round you want to see it, the long side across. The app shows it this way. Or go on to step 4."],
-	rooms: ["Trace the rooms", "Box for rectangular rooms, Lines for the rest, along the middle of the walls. Rooms that touch share their corners. Drag a corner to move it. Doors: click a wall where a doorway is, drag its ends to size it. Name each room in the list below."],
+	rooms: ["Trace the rooms", "Box for rectangular rooms, Lines for the rest, along the middle of the walls. Rooms that touch share their corners. Drag a corner to move it. Doors: click a wall where a doorway is, drag its ends to size it. Windows the same, Full from the floor up or Half from half height: they show which side is outside. Name each room in the list below."],
 	place: ["Place things", "Put the router, the sensors and the devices where they stand: pick one in the list, click its spot. A laptop or phone that moves around: say who carries it. What you don't place waits in front of the house."],
 };
 // The step each tool belongs to.
-const STEP_OF = { box: "rooms", lines: "rooms", door: "rooms", scale: "scale", place: "place" };
+const STEP_OF = { box: "rooms", lines: "rooms", door: "rooms", window: "rooms", scale: "scale", place: "place" };
 
 const HELP = {
 	box: [
@@ -108,6 +115,14 @@ const HELP = {
 		["drag its end", "make it wider or narrower"],
 		["type 0.8, Enter", "the picked doorway that wide"],
 		["Backspace", "remove the picked doorway"],
+		["Esc", "pick none"],
+	],
+	window: [
+		["click a wall", `a window ${WINDOW_W.toFixed(2)} m wide there, Full or Half as picked on the right`],
+		["drag a window", "slide it along its wall"],
+		["drag its end", "make it wider or narrower"],
+		["type 1.2, Enter", "the picked window that wide"],
+		["Backspace", "remove the picked window"],
 		["Esc", "pick none"],
 	],
 	place: [
@@ -140,8 +155,10 @@ let underlay = null, ghost = null, imageFile = null, shown = true, loads = 0;
 let measured = false, turned = false, stepsKey = "";
 // The saved underlay's image once loaded, which undo brings back with it.
 let stored = null;
-// The doorway picked in Door, an index into openings, or null.
+// The doorway or window picked in Doors or Windows, an index into openings,
+// or null. A new window is full or half, as picked in the panel.
 let door = null;
+let windowKind = "window";
 // The plan before each change, for undo, and the changes undone, for redo.
 let history = [], future = [];
 // Where things stand ({ router, sensors, devices }, devices not seen lately
@@ -235,6 +252,7 @@ function setTool(t) {
 	[tool, chain, typed, door] = [t, [], "", null];
 	toolBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.tool === t)));
 	thingsEl.hidden = t !== "place";
+	kindEl.hidden = t !== "window";
 	roomsPart.hidden = STEP_OF[t] !== "rooms";
 	// into Place with nothing picked: the first one waiting
 	if (t === "place" && !picked) pick(things().find((x) => !placeOf(x.key))?.key ?? null);
@@ -314,7 +332,7 @@ function aim() {
 	if (!pointer) return (next = null);
 	const p = [(pointer.x - cam.ox) / cam.ppm, (pointer.y - cam.oy) / cam.ppm];
 	// a doorway goes on the wall in reach, where along it the pointer is
-	if (tool === "door") {
+	if (opens()) {
 		const edge = nearestEdge(rooms, p, REACH_PX / cam.ppm);
 		return (next = edge && { at: atLength(edge.from, edge.to, edge.t), how: "edge", edge });
 	}
@@ -384,7 +402,7 @@ function closeRoom() {
 // close the room.
 function enter() {
 	if (tool === "scale") return measureWall();
-	if (tool === "door") return sizeDoor();
+	if (opens()) return sizeDoor();
 	const last = chain.at(-1);
 	if (tool === "lines" && !typed) return closeRoom();
 	if (!typed || !last) return;
@@ -577,8 +595,17 @@ function alongDoor(o) {
 
 const doorStep = () => (pointer?.alt ? 0.001 : DOOR_STEP);
 const inSteps = (v) => Math.round(v / doorStep()) * doorStep();
-// Whether doorway o, as openings[i] or a new one (i -1), would overlap another.
-const overlapsDoor = (o, i = -1) => openings.some((x, k) => k !== i && doorsOverlap(o, x));
+// The opening o, as openings[i] or a new one (i -1), would overlap, if any.
+const overlapsDoor = (o, i = -1) => openings.find((x, k) => k !== i && doorsOverlap(o, x));
+// Whether the tool is Doors or Windows, and whether opening o is the tool's
+// to pick: Doors picks doorways, Windows windows.
+const opens = () => tool === "door" || tool === "window";
+const ours = (o) => (o.kind === "door") === (tool === "door");
+// The opening a click would put on the wall pointed at.
+function newOpening() {
+	const kind = tool === "door" ? "door" : windowKind;
+	return doorAt({ ...next.edge, kind }, inSteps(next.edge.t), kind === "door" ? DOOR_W : WINDOW_W);
+}
 
 // A doorway's ends on screen.
 function doorEnds(o) {
@@ -591,6 +618,7 @@ function doorEnds(o) {
 function doorAtScreen(x, y) {
 	let best = null, bestD = REACH_PX;
 	openings.forEach((o, i) => {
+		if (!ours(o)) return;
 		const [a, b] = doorEnds(o);
 		[a, b].forEach(([ex, ey], end) => {
 			const d = Math.hypot(ex - x, ey - y);
@@ -609,17 +637,33 @@ function alongScreen([x, y], [ax, ay], [bx, by]) {
 	return { t: (x - ax) * dx + (y - ay) * dy, off: Math.abs((x - ax) * dy - (y - ay) * dx), len };
 }
 
-// A click in Door: a doorway on the wall pointed at, or, off the walls, none
-// picked.
+// A click in Doors or Windows: one on the wall pointed at, or, off the walls,
+// none picked.
 function addDoor() {
 	if (!next) return void (door = null);
-	const o = doorAt(next.edge, inSteps(next.edge.t), DOOR_W);
-	if (overlapsDoor(o)) return say("There's a doorway there already: drag it, or its ends.", true);
+	const o = newOpening();
+	const there = overlapsDoor(o);
+	if (there) return say(`There's a ${NOUN[there.kind]} there already${ours(there) ? ": drag it, or its ends" : ""}.`, true);
 	remember();
 	openings.push(o);
 	[door, dirty] = [openings.length - 1, true];
-	say(`A doorway ${o.width.toFixed(2)} m wide: drag its ends to size it, or type its width.`);
+	say(`A ${NOUN[o.kind]} ${o.width.toFixed(2)} m wide: drag its ends to size it, or type its width.`);
 }
+
+// Full or Half: for the next window, and the picked one.
+function setWindowKind(k) {
+	windowKind = k;
+	kindBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === k)));
+}
+
+kindBtns.forEach((b) => b.addEventListener("click", () => {
+	setWindowKind(b.dataset.kind);
+	canvas.focus();
+	if (door === null || openings[door].kind === windowKind) return;
+	remember();
+	[openings[door], dirty] = [{ ...openings[door], kind: windowKind }, true];
+	say(`Now a ${NOUN[windowKind]}.`);
+}));
 
 // The picked doorway dragged: its end to the pointer, or its middle, the
 // spot where it was grabbed staying under the pointer. One that would overlap
@@ -629,21 +673,22 @@ function dragDoor() {
 	const o = openings[i];
 	const t = alongDoor(o);
 	const moved = end === null ? doorAt(o, inSteps(t - grab), o.width) : resizeDoor(o, end, t, doorStep());
-	if (overlapsDoor(moved, i)) return say("Doorways can't overlap.", true);
+	if (overlapsDoor(moved, i)) return say("Doorways and windows can't overlap.", true);
 	openings[i] = moved;
 	dirty = true;
 	say(`${moved.width.toFixed(2)} m wide.`);
 }
 
-// Enter in Door: the picked doorway as wide as typed, about its middle.
+// Enter in Doors or Windows: the picked one as wide as typed, about its middle.
 function sizeDoor() {
 	const w = parseFloat(typed);
 	typed = "";
-	if (door === null) return say("Pick a doorway first.", true);
+	if (door === null) return say(`Pick a ${tool === "door" ? "doorway" : "window"} first.`, true);
 	if (!(w > 0)) return say("Type a width in metres, like 0.8.", true);
 	const o = openings[door];
 	const sized = doorAt(o, doorSpan(o).reduce((a, b) => a + b) / 2, w);
-	if (overlapsDoor(sized, door)) return say("That would overlap another doorway.", true);
+	const there = overlapsDoor(sized, door);
+	if (there) return say(`That would overlap a ${NOUN[there.kind]}.`, true);
 	remember();
 	[openings[door], dirty] = [sized, true];
 	say(sized.width < w ? `As wide as its wall: ${sized.width.toFixed(2)} m.` : `${sized.width.toFixed(2)} m wide.`);
@@ -651,9 +696,10 @@ function sizeDoor() {
 
 function removeDoor() {
 	remember();
-	openings.splice(door, 1);
+	const [gone] = openings.splice(door, 1);
 	[door, dirty] = [null, true];
-	say("Doorway removed.");
+	const noun = NOUN[gone.kind];
+	say(`${noun[0].toUpperCase()}${noun.slice(1)} removed.`);
 }
 
 // --- placing ---
@@ -1009,7 +1055,7 @@ export function drawEditor() {
 	// the room pointed at, or lit from the list, shows its walls' lengths;
 	// so do the rooms of a corner being dragged; not in Door, where they'd
 	// cover the doorways
-	const at = pointer && !chain.length && tool !== "place" && tool !== "door" && [(pointer.x - cam.ox) / cam.ppm, (pointer.y - cam.oy) / cam.ppm];
+	const at = pointer && !chain.length && tool !== "place" && !opens() && [(pointer.x - cam.ox) / cam.ppm, (pointer.y - cam.oy) / cam.ppm];
 	const sized = drag?.corner && drag.moved ? rooms.flatMap((r, i) => (r.points.some((c) => same(c, drag.corner)) ? [i] : []))
 		: [lit ?? (at ? rooms.findIndex((r) => inside(at, r.points)) : -1)];
 	rooms.forEach((r, i) => {
@@ -1034,7 +1080,7 @@ export function drawEditor() {
 	if (tool === "box") drawBox(last);
 	else if (tool === "scale") drawScale();
 	else if (tool === "lines") drawLines(last);
-	if (!next || tool === "place" || tool === "door") return;
+	if (!next || tool === "place" || opens()) return;
 	const [nx, ny] = toScreen(next.at);
 	if (next.how === "corner") ring([nx, ny], 7, "#7fe7f2");
 	else {
@@ -1043,21 +1089,26 @@ export function drawEditor() {
 	}
 }
 
-// The doorways: a bright stretch of wall between two ticks across it, the
-// picked one lit with its width. In Door, where a click would put one, unless
-// the pointer is on one already.
+// The doorways: a bright stretch of wall between two ticks across it; a
+// window two thin lines along the wall, the way plans draw them, a half one
+// with a tick across its middle too. The picked one lit with its width. In
+// Doors or Windows, where a click would put one, unless the pointer is on
+// one already.
 function drawDoors() {
-	const mark = ([a, b], color, width) => {
+	const mark = ([a, b], color, width, kind) => {
 		const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
-		const [nx, ny] = [((a[1] - b[1]) / len) * 6, ((b[0] - a[0]) / len) * 6];
+		const [ux, uy] = [(a[1] - b[1]) / len, (b[0] - a[0]) / len];
 		ctx.strokeStyle = color;
-		ctx.lineWidth = width;
+		ctx.lineWidth = kind === "door" ? width : width * 0.6;
 		ctx.beginPath();
-		ctx.moveTo(...a);
-		ctx.lineTo(...b);
-		for (const [x, y] of [a, b]) {
-			ctx.moveTo(x - nx, y - ny);
-			ctx.lineTo(x + nx, y + ny);
+		for (const k of kind === "door" ? [0] : [-3, 3]) {
+			ctx.moveTo(a[0] + ux * k, a[1] + uy * k);
+			ctx.lineTo(b[0] + ux * k, b[1] + uy * k);
+		}
+		const ticks = kind === "half" ? [a, b, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]] : [a, b];
+		for (const [x, y] of ticks) {
+			ctx.moveTo(x - ux * 6, y - uy * 6);
+			ctx.lineTo(x + ux * 6, y + uy * 6);
 		}
 		ctx.stroke();
 	};
@@ -1065,17 +1116,17 @@ function drawDoors() {
 		const [x, y] = [(ends[0][0] + ends[1][0]) / 2, (ends[0][1] + ends[1][1]) / 2];
 		label(typed ? `${typed}▏ m` : `${w.toFixed(2)} m`, x + 10, y - 10);
 	};
-	openings.forEach((o, i) => i !== door && mark(doorEnds(o), "#e8f4f6", 2.5));
+	openings.forEach((o, i) => i !== door && mark(doorEnds(o), "#e8f4f6", 2.5, o.kind));
 	if (door !== null) {
 		const ends = doorEnds(openings[door]);
-		mark(ends, "#7fe7f2", 3.5);
+		mark(ends, "#7fe7f2", 3.5, openings[door].kind);
 		width(ends, openings[door].width);
 	}
-	if (tool !== "door" || !next || drag?.door || (pointer && doorAtScreen(pointer.x, pointer.y))) return;
-	const o = doorAt(next.edge, inSteps(next.edge.t), DOOR_W);
+	if (!opens() || !next || drag?.door || (pointer && doorAtScreen(pointer.x, pointer.y))) return;
+	const o = newOpening();
 	const ends = doorEnds(o);
 	ctx.setLineDash([4, 3]);
-	mark(ends, overlapsDoor(o) ? "#ff3b3b" : "rgba(232,244,246,0.8)", 2.5);
+	mark(ends, overlapsDoor(o) ? "#ff3b3b" : "rgba(232,244,246,0.8)", 2.5, o.kind);
 	ctx.setLineDash([]);
 	if (door === null) width(ends, o.width);
 }
@@ -1237,19 +1288,20 @@ canvas.addEventListener("pointerdown", (ev) => {
 	drag = { x: ev.clientX, y: ev.clientY, moved: false, thing, opening: Boolean(hit?.stack), corner: cornerAt(x, y) };
 	if (thing) pick(thing);
 	// a doorway pressed: picked, and dragged once the pointer moves
-	const d = tool === "door" ? doorAtScreen(x, y) : null;
+	const d = opens() ? doorAtScreen(x, y) : null;
 	if (d) {
 		pointer = { x, y, alt: ev.altKey };
 		const o = openings[d.i];
 		drag.door = { ...d, grab: alongDoor(o) - doorSpan(o).reduce((a, b) => a + b) / 2 };
 		[door, typed] = [d.i, ""];
+		if (o.kind !== "door") setWindowKind(o.kind);
 	}
 	canvas.setPointerCapture(ev.pointerId);
 });
 canvas.addEventListener("pointermove", (ev) => {
 	const r = canvas.getBoundingClientRect();
 	pointer = { x: ev.clientX - r.left, y: ev.clientY - r.top, alt: ev.altKey };
-	canvas.style.cursor = (drag?.corner || drag?.door) && drag.moved ? "grabbing" : !drag && (cornerAt(pointer.x, pointer.y) || (tool === "door" && doorAtScreen(pointer.x, pointer.y))) ? "grab" : "";
+	canvas.style.cursor = (drag?.corner || drag?.door) && drag.moved ? "grabbing" : !drag && (cornerAt(pointer.x, pointer.y) || (opens() && doorAtScreen(pointer.x, pointer.y))) ? "grab" : "";
 	if (drag) {
 		const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
 		if (drag.moved || Math.hypot(dx, dy) >= 4) {
@@ -1298,7 +1350,7 @@ canvas.addEventListener("pointerup", (ev) => {
 	const r = canvas.getBoundingClientRect();
 	pointer = { x: ev.clientX - r.left, y: ev.clientY - r.top, alt: ev.altKey };
 	aim();
-	if (tool === "door") addDoor();
+	if (opens()) addDoor();
 	else click(next.at);
 	aim();
 });
@@ -1336,11 +1388,11 @@ document.addEventListener("keydown", (ev) => {
 	const key = ev.key === "," ? "." : ev.key === "*" || ev.key === "X" ? "x" : ev.key;
 	const part = typed.split("x").at(-1);
 	if (/^[0-9]$/.test(key) || (key === "." && !part.includes(".")) || (key === "x" && tool === "box" && typed && !typed.includes("x"))) {
-		if (tool === "scale" ? chain.length === 2 : tool === "door" ? door !== null : chain.length) typed += key;
+		if (tool === "scale" ? chain.length === 2 : opens() ? door !== null : chain.length) typed += key;
 	} else if (key === "Enter") enter();
-	else if (key === "Backspace") typed ? (typed = typed.slice(0, -1)) : tool === "door" ? door !== null && removeDoor() : chain.pop();
-	else if (key === "Delete" && tool === "door" && door !== null) removeDoor();
-	else if (key === "Escape") typed ? (typed = "") : tool === "place" ? (opened ? (opened = null) : pick(null)) : tool === "door" ? (door = null) : (chain = []);
+	else if (key === "Backspace") typed ? (typed = typed.slice(0, -1)) : opens() ? door !== null && removeDoor() : chain.pop();
+	else if (key === "Delete" && opens() && door !== null) removeDoor();
+	else if (key === "Escape") typed ? (typed = "") : tool === "place" ? (opened ? (opened = null) : pick(null)) : opens() ? (door = null) : (chain = []);
 	else if (key === "Alt") pointer && (pointer.alt = true);
 	else return;
 	ev.preventDefault();

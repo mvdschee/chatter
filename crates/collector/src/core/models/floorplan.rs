@@ -1,5 +1,5 @@
-//! The floor plan: rooms as polygons in metres, the openings (doorways) on
-//! their edges. Walls are the rooms' edges. In as `FloorPlanPayload`, the
+//! The floor plan: rooms as polygons in metres, the openings (doorways and
+//! windows) on their edges. Walls are the rooms' edges. In as `FloorPlanPayload`, the
 //! JSON the page saves; checked into a `FloorPlan`, which is also how it's
 //! stored and sent back. The underlay, an image to trace over, is a file of
 //! its own; the plan keeps where it lies. The places of the router, the
@@ -95,6 +95,21 @@ pub struct Opening {
 	pub at: f64,
 	/// In metres.
 	pub width: f64,
+	/// Plans saved before windows had only doorways.
+	#[serde(default)]
+	pub kind: OpeningKind,
+}
+
+/// What an opening is, which decides how much of the wall it cuts in the
+/// view: a doorway all of it, a window all but the top, a half window the
+/// stretch between half height and the top.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OpeningKind {
+	#[default]
+	Door,
+	Window,
+	Half,
 }
 
 /// Where the underlay image lies on the plan: its pixel (u, v) is at
@@ -184,6 +199,7 @@ fn check_opening(opening: &Opening, rooms: &[Room]) -> Result<()> {
 		to,
 		at,
 		width,
+		..
 	} = *opening;
 	let bad = |why: &str| Err(Error::Plan(format!("opening {from:?} to {to:?}: {why}")));
 	if !rooms
@@ -415,6 +431,7 @@ mod tests {
 			to,
 			at,
 			width,
+			kind: OpeningKind::Door,
 		};
 		// the shared edge, named both ways round
 		assert!(plan(rooms(), vec![door([3.7, 0.0], [3.7, 2.9], 0.5, 0.9)]).is_ok());
@@ -424,6 +441,22 @@ mod tests {
 		// sticks out past the corner, or has no width
 		assert!(plan(rooms(), vec![door([3.7, 0.0], [3.7, 2.9], 0.1, 0.9)]).is_err());
 		assert!(plan(rooms(), vec![door([3.7, 0.0], [3.7, 2.9], 0.5, 0.0)]).is_err());
+	}
+
+	#[test]
+	fn an_opening_without_a_kind_is_a_doorway_and_windows_read_back() {
+		let json = r#"{"rooms":[{"id":"a","name":"A","points":[[0,0],[2,0],[2,2],[0,2]]}],
+			"openings":[{"from":[0,0],"to":[2,0],"at":0.5,"width":0.9},
+				{"from":[2,0],"to":[2,2],"at":0.5,"width":1.2,"kind":"window"},
+				{"from":[0,2],"to":[0,0],"at":0.5,"width":1.2,"kind":"half"}]}"#;
+		let payload: FloorPlanPayload = serde_json::from_str(json).unwrap();
+		let saved = FloorPlan::try_from(payload).unwrap();
+		let kinds: Vec<_> = saved.openings.iter().map(|o| o.kind).collect();
+		assert_eq!(kinds, [OpeningKind::Door, OpeningKind::Window, OpeningKind::Half]);
+		let json_out = serde_json::to_string(&saved).unwrap();
+		assert_eq!(serde_json::from_str::<FloorPlan>(&json_out).unwrap(), saved);
+		let skylight = json.replace(r#""kind":"half""#, r#""kind":"skylight""#);
+		assert!(serde_json::from_str::<FloorPlanPayload>(&skylight).is_err());
 	}
 
 	#[test]

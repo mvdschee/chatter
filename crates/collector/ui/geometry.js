@@ -24,7 +24,7 @@ export function toUnits(plan) {
 		w: (x1 - x0) * s + 2 * MARGIN,
 		h: (y1 - y0) * s + 2 * MARGIN,
 		rooms: plan.rooms.map((r) => ({ name: r.name, points: r.points.map(u) })),
-		openings: (plan.openings ?? []).map((o) => ({ from: u(o.from), to: u(o.to), at: o.at, width: o.width * s })),
+		openings: (plan.openings ?? []).map((o) => ({ from: u(o.from), to: u(o.to), at: o.at, width: o.width * s, kind: o.kind ?? "door" })),
 		places: movePlaces(plan.places, u),
 	};
 }
@@ -88,14 +88,24 @@ export function wallPieces(rooms) {
 	return [...pieces.values()];
 }
 
-// Whether p is in a doorway: within `reach` of its edge's line, within its
-// width. A reach of a few mm takes in the neighbouring room's side of a
-// shared wall, traced a little off the doorway's.
-export function inOpening(p, openings, reach = EPS) {
-	return openings.some(({ from, to, at, width }) => {
+// The opening p is in, or undefined: within `reach` of its edge's line,
+// within its width. A reach of a few mm takes in the neighbouring room's side
+// of a shared wall, traced a little off the opening's.
+export function openingAt(p, openings, reach = EPS) {
+	return openings.find(({ from, to, at, width }) => {
 		const { t, off, len } = along(p, from, to);
 		return off < reach && Math.abs(t - at * len) < width / 2;
 	});
+}
+
+// Whether an opening of this kind cuts a wall's row of dots at height z, in a
+// wall `h` high with rows `row` apart: a doorway cuts them all; a window
+// leaves the top two rows, so it reads as a hole with wall above, not a door;
+// a half window leaves the bottom half too.
+export function cutsRow(kind, z, h, row) {
+	if (kind === "door") return true;
+	if (z + 2 * row > h) return false;
+	return kind === "window" || z >= h / 2;
 }
 
 // Whether p is inside the polygon (ray casting).
@@ -308,13 +318,13 @@ export function nearestEdge(rooms, p, reach) {
 	return best && { from: best.from, to: best.to, t: best.t };
 }
 
-// A doorway `width` wide with its middle at t metres along the edge from →
-// to, slid along so it fits and no wider than the edge.
-export function doorAt({ from, to }, t, width) {
+// A doorway (or window, by `kind`) `width` wide with its middle at t metres
+// along the edge from → to, slid along so it fits and no wider than the edge.
+export function doorAt({ from, to, kind = "door" }, t, width) {
 	const len = dist(from, to);
 	const w = mm(Math.min(width, len));
 	const mid = Math.max(w / 2, Math.min(len - w / 2, t));
-	return { from: [...from], to: [...to], at: mid / len, width: w };
+	return { from: [...from], to: [...to], at: mid / len, width: w, kind };
 }
 
 // A doorway's two ends, in metres from its edge's `from`.
