@@ -192,6 +192,22 @@ The deployment itself lives in a separate infrastructure repo.
 Pointed at the home server, the sensor doesn't report to a collector on the
 Mac: for that, point it at the Mac and reflash.
 
+## 6. A second C6 for testing
+
+A spare C6 runs the same firmware against the collector on the Mac, so
+testing never touches the sensor that counts (`docs/identify.md`).
+
+- `.env` gets `CHATTER_PROBE_C6_DEV` (its `VID:PID:serial` from
+  `probe-rs list`) and `CHATTER_DEV_COLLECTOR_ADDR` (the Mac's LAN address
+  and the collector's port).
+- `CHATTER_BIND=0.0.0.0:8080 make collector`: the board can't reach a
+  collector that only listens on `127.0.0.1`. The environment wins over
+  `.env`.
+- `make run-dev` flashes the spare C6 with `CHATTER_COLLECTOR_ADDR` set to the
+  Mac's collector, and stops if either key is missing. Antenna on first.
+- `make run` afterwards rebuilds with the server's address (`build.rs`
+  reruns when the environment changes).
+
 ## Start over
 
 Everything lives in `~/.rustup` and `~/.cargo/bin`:

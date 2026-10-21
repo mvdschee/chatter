@@ -13,6 +13,16 @@ C3_PROBE = $(if $(call probe,C3),PROBE_RS_PROBE=$(call probe,C3))
 run:
 	$(C6_PROBE) cargo run $(FIRMWARE)
 
+# The spare C6, reporting to the Mac's collector (CHATTER_BIND=0.0.0.0:8080
+# make collector) instead of the server's: two sensors reporting to one
+# collector would count every device twice. Both keys are required, so it
+# never flashes the counting sensor or falls back to the server.
+env = $(shell grep '^$(1)=' .env 2>/dev/null | cut -d= -f2-)
+run-dev:
+	$(if $(call probe,C6_DEV),,$(error CHATTER_PROBE_C6_DEV is not set in .env))
+	$(if $(call env,CHATTER_DEV_COLLECTOR_ADDR),,$(error CHATTER_DEV_COLLECTOR_ADDR is not set in .env))
+	PROBE_RS_PROBE=$(call probe,C6_DEV) CHATTER_COLLECTOR_ADDR=$(call env,CHATTER_DEV_COLLECTOR_ADDR) cargo run $(FIRMWARE)
+
 test-client:
 	$(C3_PROBE) cargo run $(TESTCLIENT)
 

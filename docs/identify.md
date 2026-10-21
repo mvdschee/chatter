@@ -1,6 +1,6 @@
 # Identify mode (research and plan)
 
-Status, 2026-10-21: planned, nothing built. This is the identify part of
+Status, 2026-10-21: planned; chunk 1 (the dev board) built. This is the identify part of
 `docs/monitoring.md` plan step 6.
 
 ## Goal
