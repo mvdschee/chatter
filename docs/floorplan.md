@@ -340,9 +340,10 @@ One reviewable commit each:
    apart by itself. Here every marker carries a name, and names are what
    collide, so:
    - Things stack when their name boxes (dot and name, on screen) would
-     overlap, directly or through a chain of others. The stack is drawn at
-     its first thing's spot as a dot with the count, named after that
-     thing with "+2".
+     overlap what's drawn: a thing alone, or a stack's mark. The stack is
+     drawn at its first thing's spot as a dot with the count, named after
+     that thing with "+2"; the others in it are only spots, so they don't
+     pull more in.
    - A stack fans out as a column beside it, a row each, with a line from
      each row to the stack, rather than a circle: names in a column can't
      overlap, on a circle they do past a handful. Picking one from the
@@ -359,6 +360,14 @@ One reviewable commit each:
       merge too, until nothing overlaps. Near the canvas's right edge the
       column goes left of the stack, names right-aligned, and it shifts
       to stay on screen. Stacking is only in Place, where names show.
+      A later fix: in the owner's view things with floor between them
+      folded into one stack. Things stacked through a chain of overlaps,
+      and stacks merged when the box around all their things overlapped,
+      so one stack could take in a whole room. Now only what's drawn counts, as in
+      markercluster, where a pin joins a cluster by its distance to the
+      cluster's marker, not to its other pins: in order, a thing joins
+      what its box overlaps, and a stack whose mark then overlaps more
+      takes that in too.
    2. Done: the view: the same stacks in 3D, the router and sensors in
       them as in the editor; a device waiting in front of the house is an
       unnamed dot and doesn't stack. A folded stack is a disc with the
@@ -414,8 +423,8 @@ the page's geometry, `cargo test` for the save checks):
 - doorways: the wall pointed at, a small room's where walls lie on one
   line; a new one fits its wall; dragging an end keeps the other and
   stays on the wall; two overlap only on one line;
-- stacks: names that overlap, directly or through others, stack, and so do
-  stacks whose marks would overlap; a fanned column's names don't overlap,
+- stacks: names that overlap what's drawn stack, not through a chain; so
+  do stacks whose marks would overlap, and nothing drawn overlaps; a fanned column's names don't overlap,
   and it keeps below a bar along the top.
 
 Only the owner can judge:

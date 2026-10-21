@@ -432,38 +432,29 @@ export function followImage({ rooms, openings, places }, from, to) {
 // --- stacks: things close together on screen (docs/floorplan.md, chunk 8) ---
 
 // Which things stack: `boxes` are their [x0, y0, x1, y1] on screen, dot and
-// name; two stack when their boxes overlap, directly or through others.
-// `mark(group)` is the box of what's drawn for a stack (its number and name);
-// stacks whose boxes, things and mark together, still overlap merge too,
-// until none do. Groups of indexes, each in order, in the order of their
-// first.
-export function stacks(boxes, mark = () => null) {
-	let groups = boxes.map((_, i) => [i]);
-	for (;;) {
-		const around = groups.map((g) => [...g.map((i) => boxes[i]), g.length > 1 ? mark(g) : null].filter(Boolean)).map((bs) => [
-			Math.min(...bs.map((b) => b[0])), Math.min(...bs.map((b) => b[1])), Math.max(...bs.map((b) => b[2])), Math.max(...bs.map((b) => b[3])),
-		]);
-		const merged = overlapping(around).map((ks) => ks.flatMap((k) => groups[k]).sort((x, y) => x - y));
-		if (merged.length === groups.length) return groups;
-		groups = merged;
-	}
-}
-
-// Boxes that overlap, directly or through others: groups of indexes.
-function overlapping(boxes) {
-	const top = boxes.map((_, i) => i);
-	const root = (i) => (top[i] === i ? i : (top[i] = root(top[i])));
-	const meet = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
-	for (let i = 0; i < boxes.length; i++) {
-		for (let j = i + 1; j < boxes.length; j++) {
-			if (!meet(boxes[i], boxes[j])) continue;
-			const [a, b] = [root(i), root(j)];
-			top[Math.max(a, b)] = Math.min(a, b);
+// name. `mark(group)` is the box of what's drawn for a stack (its number
+// and name, at its first thing's spot); the other things in it are only
+// spots, so only what's drawn counts: a thing alone by its box, a stack by
+// its mark. In order, each thing stands alone unless its box overlaps what
+// is drawn already; then it joins that, and a stack whose mark now
+// overlaps more takes that in too. So a row of things just apart doesn't
+// chain into one stack. Groups of indexes, each in order, in the order of
+// their first.
+export function stacks(boxes, mark = (g) => boxes[g[0]]) {
+	const over = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+	let drawn = [];
+	boxes.forEach((b, i) => {
+		let s = { group: [i], box: b };
+		for (;;) {
+			const hit = drawn.filter((d) => over(d.box, s.box));
+			if (!hit.length) break;
+			drawn = drawn.filter((d) => !hit.includes(d));
+			const group = [...hit.flatMap((d) => d.group), ...s.group].sort((x, y) => x - y);
+			s = { group, box: mark(group) };
 		}
-	}
-	const groups = new Map();
-	boxes.forEach((_, i) => groups.set(root(i), [...(groups.get(root(i)) ?? []), i]));
-	return [...groups.values()];
+		drawn.push(s);
+	});
+	return drawn.map((d) => d.group).sort((a, b) => a[0] - b[0]);
 }
 
 // Where a fanned stack's rows go: a column `gap` right of its rightmost

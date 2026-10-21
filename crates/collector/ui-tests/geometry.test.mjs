@@ -367,10 +367,11 @@ test("the areas in front of the house: below it, apart, a slot each, in order", 
 	assert.deepEqual(frontAreas([{ count: 7, compact: true }, { count: 2 }], frame), frontAreas([{ count: 7, compact: true }, { count: 2 }], frame));
 });
 
-test("things stack when their names would overlap, through a chain too", () => {
-	// a and b overlap, b and c overlap, d stands apart, e overlaps a
+test("things stack when their names would overlap what's drawn, not through a chain", () => {
+	// a and b overlap, b and c overlap, d stands apart, e overlaps a; with
+	// b folded into a's stack, c is clear of what's drawn and stands alone
 	const boxes = [[0, 0, 100, 16], [90, 5, 190, 21], [180, 10, 280, 26], [0, 200, 100, 216], [50, -10, 150, 6]];
-	assert.deepEqual(stacks(boxes), [[0, 1, 2, 4], [3]]);
+	assert.deepEqual(stacks(boxes), [[0, 1, 4], [2], [3]]);
 	// boxes that only touch don't stack
 	assert.deepEqual(stacks([[0, 0, 10, 10], [10, 0, 20, 10]]), [[0], [1]]);
 	assert.deepEqual(stacks([]), []);
@@ -378,6 +379,23 @@ test("things stack when their names would overlap, through a chain too", () => {
 	const four = [[0, 0, 50, 16], [40, 0, 90, 16], [0, 30, 50, 46], [40, 30, 90, 46]];
 	assert.deepEqual(stacks(four), [[0, 1], [2, 3]]);
 	assert.deepEqual(stacks(four, (g) => [0, four[g[0]][1], 120, four[g[0]][1] + 35]), [[0, 1, 2, 3]]);
+});
+
+test("nothing drawn for things and stacks overlaps", () => {
+	// a made-up crowd: each thing a dot with a name to its right, a stack
+	// drawn as its first thing's dot with the count and a longer name
+	let seed = 7;
+	const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+	for (let round = 0; round < 50; round++) {
+		const spots = Array.from({ length: 40 }, () => [rand() * 600, rand() * 300]);
+		const boxes = spots.map(([x, y]) => [x - 6, y - 8, x + 60 + rand() * 60, y + 8]);
+		const mark = (g) => [spots[g[0]][0] - 10, spots[g[0]][1] - 10, spots[g[0]][0] + 140, spots[g[0]][1] + 10];
+		const groups = stacks(boxes, mark);
+		assert.deepEqual(groups.flat().sort((a, b) => a - b), boxes.map((_, i) => i));
+		const drawn = groups.map((g) => (g.length > 1 ? mark(g) : boxes[g[0]]));
+		const over = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+		drawn.forEach((a, i) => drawn.forEach((b, j) => i < j && assert.ok(!over(a, b), `round ${round}: ${groups[i]} and ${groups[j]}`)));
+	}
 });
 
 test("a fanned stack's rows: right of its spots, apart, centred on them", () => {

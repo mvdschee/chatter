@@ -204,3 +204,9 @@
 **Decision:** A click on a wall in Doors puts the doorway on the nearest room edge; where edges lie on one line (a small room against a long room's wall), on the shortest of them. A new doorway is 0.90 m wide. Details in `docs/floorplan.md`, chunk 6.
 **Why:** On the shared stretch the doorway is between the two rooms, so it belongs to the small one's wall: it can't slide off the stretch the rooms share, it follows that wall when its corners move, and it goes when that room is deleted. 0.90 m is about a common interior door's opening.
 **Alternatives:** The long room's wall (the doorway can slide past the small room into an outside wall, and stays when the small room is deleted); splitting edges at T's into wall pieces (the collector checks a doorway against a room's own edges).
+
+## 2026-10-21 - Stacks count only what's drawn, not a chain
+
+**Decision:** In order, a thing joins a stack only when its name box overlaps what's drawn already (a thing alone, or a stack's mark at its first thing's spot); a stack whose mark then overlaps more takes that in. Details in `docs/floorplan.md`, chunk 8.
+**Why:** Things with floor between them folded into one stack: overlaps chained, and stacks merged by the box around all their things. The folded things are only spots, so they shouldn't pull more in; markercluster works the same way, by distance to a cluster's marker.
+**Alternatives:** Keep the chain but shrink the name boxes (still chains, just later); try other spots for a name (left, above) before stacking (more to draw and test; worth it if stacks still feel too eager).
