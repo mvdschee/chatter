@@ -8,6 +8,11 @@ import { resize } from "./view.js";
 // y down; openings are doorways on an edge (docs/floorplan.md). Turned into
 // plan units, walls, floor and spots here; drawn in draw.js.
 
+// How far off a doorway's line, in metres, a wall's dots still go for it:
+// rooms traced side by side give their shared wall twice, a few mm apart, and
+// a doorway has to cut both. A wall is about ten times this thick.
+const DOOR_REACH = 0.01;
+
 const EXAMPLE_PLAN = {
 	rooms: [
 		{ id: "living", name: "Living room", points: [[0, 0], [4.5, 0], [4.5, 3.6], [0, 3.6]] },
@@ -74,7 +79,7 @@ function setPlan(plan) {
 		return Array.from({ length: n - 1 }, (_, k) => [x1 + ((x2 - x1) * (k + 1)) / n, y1 + ((y2 - y1) * (k + 1)) / n]);
 	});
 	for (const [x, y] of [...corners.values(), ...between]) {
-		if (inOpening([x, y], p.openings)) continue;
+		if (inOpening([x, y], p.openings, DOOR_REACH * p.perM)) continue;
 		for (let z = 0; z <= WALL_H; z += 7) {
 			wallDots.push({ x, y, z, top: z + 7 > WALL_H, phase: rand() * Math.PI * 2 });
 		}

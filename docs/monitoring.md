@@ -162,9 +162,8 @@ One reviewable chunk each, with its check:
    collector is axum with the usual layout (`core`, `repository`,
    `services/web`).
    Check: a day of reports, queried per device and hour.
-3. **Floor plan editor:** draw walls and rooms, saved in SQLite. _(In
-   progress: chunks 1 to 5 and 7 to 9 of `docs/floorplan.md` built; doors
-   on edges are left.)_
+3. **Floor plan editor:** draw walls and rooms, saved in SQLite. _(Built:
+   all nine chunks of `docs/floorplan.md`.)_
    Check: draw the real floor plan in a few minutes.
 4. **Live view:** the page on real data over server-sent events,
    with the loop, and the day timeline from storage. Devices are placed by

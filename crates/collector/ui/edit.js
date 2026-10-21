@@ -14,8 +14,9 @@
 // names would overlap stack, and a stack fans out as a column (chunk 8).
 // Editing (chunk 5): drag a corner in Box or Lines, and it moves in every
 // room that has it; undo and redo take back any change to the plan.
+// Doors (chunk 6): click a wall for a doorway, drag its ends or its middle.
 
-import { atLength, box, canAdd, crossesItself, dist, fanColumn, followImage, fromImage, inside, labelAt, measure, mm, moveCorner, roomAt as roomIn, roomWidth, snap, stacks, turnPlan } from "./geometry.js";
+import { atLength, box, canAdd, crossesItself, dist, doorAt, doorSpan, doorsOverlap, fanColumn, followImage, fromImage, inside, labelAt, measure, mm, moveCorner, nearestEdge, resizeDoor, roomAt as roomIn, roomWidth, snap, stacks, turnPlan } from "./geometry.js";
 import { DEVICES, SENSORS, renameDevice } from "./data.js";
 import { closePanel } from "./panel.js";
 import { loadPlan, saved } from "./plan.js";
@@ -57,6 +58,9 @@ const GHOST_PX = 4096;
 const GHOST_ALPHA = 0.55;
 // How many changes undo goes back.
 const MAX_UNDO = 100;
+// A new doorway's width, and the steps a doorway moves and sizes in, metres.
+const DOOR_W = 0.9;
+const DOOR_STEP = 0.05;
 
 const HELP = {
 	box: [
@@ -77,6 +81,14 @@ const HELP = {
 		["click", "the scale bar's ends, or the inside faces of two walls a size runs between"],
 		["type 4.2, Enter", "its length: the image scales to it, and turns square if the wall leans a little"],
 		["Esc", "start again"],
+	],
+	door: [
+		["click a wall", `a doorway ${DOOR_W.toFixed(2)} m wide there`],
+		["drag a doorway", "slide it along its wall"],
+		["drag its end", "make it wider or narrower"],
+		["type 0.8, Enter", "the picked doorway that wide"],
+		["Backspace", "remove the picked doorway"],
+		["Esc", "pick none"],
 	],
 	place: [
 		["click", "put the picked one there; the next one waiting is picked"],
@@ -108,6 +120,8 @@ let underlay = null, ghost = null, imageFile = null, shown = true, loads = 0;
 let measured = false, turned = false, stepsKey = "";
 // The saved underlay's image once loaded, which undo brings back with it.
 let stored = null;
+// The doorway picked in Door, an index into openings, or null.
+let door = null;
 // The plan before each change, for undo, and the changes undone, for redo.
 let history = [], future = [];
 // Where things stand ({ router, sensors, devices }, devices not seen lately
@@ -161,7 +175,7 @@ function openEditor() {
 	[measured, turned] = [Boolean(underlay), false];
 	places = { ...noPlaces(), ...structuredClone(saved?.places ?? {}) };
 	[picked, opened, filterEl.value] = [null, null, ""];
-	[history, future, stored] = [[], [], null];
+	[history, future, stored, door] = [[], [], null, null];
 	if (underlay) {
 		const n = ++loads;
 		loadImage(`/v1/plan/underlay?${Date.now()}`)
@@ -197,7 +211,7 @@ function closeEditor() {
 function setTool(t) {
 	if (t === "scale" && !underlay) t = drawTool;
 	if (t !== "scale") drawTool = t;
-	[tool, chain, typed] = [t, [], ""];
+	[tool, chain, typed, door] = [t, [], "", null];
 	toolBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.tool === t)));
 	thingsEl.hidden = t !== "place";
 	// into Place with nothing picked: the first one waiting
@@ -256,7 +270,7 @@ function deleteRoom(i) {
 		return (same(a, o.from) && same(b, o.to)) || (same(a, o.to) && same(b, o.from));
 	});
 	openings = openings.filter((o) => rooms.some((r) => isEdge(o, r.points)));
-	[lit, dirty] = [null, true];
+	[lit, dirty, door] = [null, true, null];
 	renderRooms();
 	aim();
 	say(`${gone.name} deleted.`);
@@ -269,6 +283,11 @@ function deleteRoom(i) {
 function aim() {
 	if (!pointer) return (next = null);
 	const p = [(pointer.x - cam.ox) / cam.ppm, (pointer.y - cam.oy) / cam.ppm];
+	// a doorway goes on the wall in reach, where along it the pointer is
+	if (tool === "door") {
+		const edge = nearestEdge(rooms, p, REACH_PX / cam.ppm);
+		return (next = edge && { at: atLength(edge.from, edge.to, edge.t), how: "edge", edge });
+	}
 	if (pointer.alt || tool === "scale" || tool === "place") return (next = { at: p.map(mm), how: "free" });
 	const walls = rooms.flatMap((r) => r.points);
 	const reach = REACH_PX / cam.ppm;
@@ -335,6 +354,7 @@ function closeRoom() {
 // close the room.
 function enter() {
 	if (tool === "scale") return measureWall();
+	if (tool === "door") return sizeDoor();
 	const last = chain.at(-1);
 	if (tool === "lines" && !typed) return closeRoom();
 	if (!typed || !last) return;
@@ -489,8 +509,8 @@ function remember() {
 function restore(s) {
 	({ rooms, openings, underlay, places, measured, turned, imageFile } = s);
 	ghost = imageFile ? s.ghost : underlay ? stored : null;
-	// a lit room or an open stack may be gone
-	[chain, typed, lit, opened, dirty] = [[], "", null, null, true];
+	// a lit room, an open stack or the picked doorway may be gone
+	[chain, typed, lit, opened, dirty, door] = [[], "", null, null, true, null];
 	if (tool === "scale" && !underlay) setTool(drawTool);
 	renderRooms();
 	renderThings();
@@ -505,6 +525,96 @@ function undo(back = true) {
 	to.push(snapshot());
 	restore(from.pop());
 	say(back ? "Undone." : "Redone.");
+}
+
+// --- doorways ---
+
+// Where the pointer falls along a doorway's wall, metres from its `from`.
+function alongDoor(o) {
+	const p = [(pointer.x - cam.ox) / cam.ppm, (pointer.y - cam.oy) / cam.ppm];
+	const len = dist(o.from, o.to);
+	return ((p[0] - o.from[0]) * (o.to[0] - o.from[0]) + (p[1] - o.from[1]) * (o.to[1] - o.from[1])) / len;
+}
+
+const doorStep = () => (pointer?.alt ? 0.001 : DOOR_STEP);
+const inSteps = (v) => Math.round(v / doorStep()) * doorStep();
+// Whether doorway o, as openings[i] or a new one (i -1), would overlap another.
+const overlapsDoor = (o, i = -1) => openings.some((x, k) => k !== i && doorsOverlap(o, x));
+
+// A doorway's ends on screen.
+function doorEnds(o) {
+	const len = dist(o.from, o.to);
+	return doorSpan(o).map((s) => toScreen([o.from[0] + ((o.to[0] - o.from[0]) * s) / len, o.from[1] + ((o.to[1] - o.from[1]) * s) / len]));
+}
+
+// The doorway at (x, y) on screen: { i, end } with end 0 or 1 for one of its
+// ends, null for its middle; or null.
+function doorAtScreen(x, y) {
+	let best = null, bestD = REACH_PX;
+	openings.forEach((o, i) => {
+		const [a, b] = doorEnds(o);
+		[a, b].forEach(([ex, ey], end) => {
+			const d = Math.hypot(ex - x, ey - y);
+			if (d <= bestD) [best, bestD] = [{ i, end }, d];
+		});
+		if (best?.i === i) return;
+		const { off, t, len } = alongScreen([x, y], a, b);
+		if (t > 0 && t < len && off <= bestD) [best, bestD] = [{ i, end: null }, off];
+	});
+	return best;
+}
+
+function alongScreen([x, y], [ax, ay], [bx, by]) {
+	const len = Math.hypot(bx - ax, by - ay);
+	const [dx, dy] = [(bx - ax) / len, (by - ay) / len];
+	return { t: (x - ax) * dx + (y - ay) * dy, off: Math.abs((x - ax) * dy - (y - ay) * dx), len };
+}
+
+// A click in Door: a doorway on the wall pointed at, or, off the walls, none
+// picked.
+function addDoor() {
+	if (!next) return void (door = null);
+	const o = doorAt(next.edge, inSteps(next.edge.t), DOOR_W);
+	if (overlapsDoor(o)) return say("There's a doorway there already: drag it, or its ends.", true);
+	remember();
+	openings.push(o);
+	[door, dirty] = [openings.length - 1, true];
+	say(`A doorway ${o.width.toFixed(2)} m wide: drag its ends to size it, or type its width.`);
+}
+
+// The picked doorway dragged: its end to the pointer, or its middle, the
+// spot where it was grabbed staying under the pointer. One that would overlap
+// another stays where it was.
+function dragDoor() {
+	const { i, end, grab } = drag.door;
+	const o = openings[i];
+	const t = alongDoor(o);
+	const moved = end === null ? doorAt(o, inSteps(t - grab), o.width) : resizeDoor(o, end, t, doorStep());
+	if (overlapsDoor(moved, i)) return say("Doorways can't overlap.", true);
+	openings[i] = moved;
+	dirty = true;
+	say(`${moved.width.toFixed(2)} m wide.`);
+}
+
+// Enter in Door: the picked doorway as wide as typed, about its middle.
+function sizeDoor() {
+	const w = parseFloat(typed);
+	typed = "";
+	if (door === null) return say("Pick a doorway first.", true);
+	if (!(w > 0)) return say("Type a width in metres, like 0.8.", true);
+	const o = openings[door];
+	const sized = doorAt(o, doorSpan(o).reduce((a, b) => a + b) / 2, w);
+	if (overlapsDoor(sized, door)) return say("That would overlap another doorway.", true);
+	remember();
+	[openings[door], dirty] = [sized, true];
+	say(sized.width < w ? `As wide as its wall: ${sized.width.toFixed(2)} m.` : `${sized.width.toFixed(2)} m wide.`);
+}
+
+function removeDoor() {
+	remember();
+	openings.splice(door, 1);
+	[door, dirty] = [null, true];
+	say("Doorway removed.");
 }
 
 // --- placing ---
@@ -858,8 +968,9 @@ export function drawEditor() {
 
 	ctx.font = '600 12px "Avenir Next Condensed", "Arial Narrow", sans-serif';
 	// the room pointed at, or lit from the list, shows its walls' lengths;
-	// so do the rooms of a corner being dragged
-	const at = pointer && !chain.length && tool !== "place" && [(pointer.x - cam.ox) / cam.ppm, (pointer.y - cam.oy) / cam.ppm];
+	// so do the rooms of a corner being dragged; not in Door, where they'd
+	// cover the doorways
+	const at = pointer && !chain.length && tool !== "place" && tool !== "door" && [(pointer.x - cam.ox) / cam.ppm, (pointer.y - cam.oy) / cam.ppm];
 	const sized = drag?.corner && drag.moved ? rooms.flatMap((r, i) => (r.points.some((c) => same(c, drag.corner)) ? [i] : []))
 		: [lit ?? (at ? rooms.findIndex((r) => inside(at, r.points)) : -1)];
 	rooms.forEach((r, i) => {
@@ -877,19 +988,57 @@ export function drawEditor() {
 		ctx.fillText(r.name.toUpperCase().split("").join(" "), lx, ly);
 	});
 	for (const i of sized) if (i >= 0) wallLengths(rooms[i].points);
+	drawDoors();
 	drawPlaces();
 
 	const last = chain.at(-1);
 	if (tool === "box") drawBox(last);
 	else if (tool === "scale") drawScale();
 	else if (tool === "lines") drawLines(last);
-	if (!next || tool === "place") return;
+	if (!next || tool === "place" || tool === "door") return;
 	const [nx, ny] = toScreen(next.at);
 	if (next.how === "corner") ring([nx, ny], 7, "#7fe7f2");
 	else {
 		ctx.fillStyle = "#7fe7f2";
 		ctx.fillRect(nx - 2, ny - 2, 4, 4);
 	}
+}
+
+// The doorways: a bright stretch of wall between two ticks across it, the
+// picked one lit with its width. In Door, where a click would put one, unless
+// the pointer is on one already.
+function drawDoors() {
+	const mark = ([a, b], color, width) => {
+		const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+		const [nx, ny] = [((a[1] - b[1]) / len) * 6, ((b[0] - a[0]) / len) * 6];
+		ctx.strokeStyle = color;
+		ctx.lineWidth = width;
+		ctx.beginPath();
+		ctx.moveTo(...a);
+		ctx.lineTo(...b);
+		for (const [x, y] of [a, b]) {
+			ctx.moveTo(x - nx, y - ny);
+			ctx.lineTo(x + nx, y + ny);
+		}
+		ctx.stroke();
+	};
+	const width = (ends, w) => {
+		const [x, y] = [(ends[0][0] + ends[1][0]) / 2, (ends[0][1] + ends[1][1]) / 2];
+		label(typed ? `${typed}▏ m` : `${w.toFixed(2)} m`, x + 10, y - 10);
+	};
+	openings.forEach((o, i) => i !== door && mark(doorEnds(o), "#e8f4f6", 2.5));
+	if (door !== null) {
+		const ends = doorEnds(openings[door]);
+		mark(ends, "#7fe7f2", 3.5);
+		width(ends, openings[door].width);
+	}
+	if (tool !== "door" || !next || drag?.door || (pointer && doorAtScreen(pointer.x, pointer.y))) return;
+	const o = doorAt(next.edge, inSteps(next.edge.t), DOOR_W);
+	const ends = doorEnds(o);
+	ctx.setLineDash([4, 3]);
+	mark(ends, overlapsDoor(o) ? "#ff3b3b" : "rgba(232,244,246,0.8)", 2.5);
+	ctx.setLineDash([]);
+	if (door === null) width(ends, o.width);
 }
 
 // The box from its first corner to the pointer, and its size.
@@ -1048,17 +1197,25 @@ canvas.addEventListener("pointerdown", (ev) => {
 	// starts a room there
 	drag = { x: ev.clientX, y: ev.clientY, moved: false, thing, opening: Boolean(hit?.stack), corner: cornerAt(x, y) };
 	if (thing) pick(thing);
+	// a doorway pressed: picked, and dragged once the pointer moves
+	const d = tool === "door" ? doorAtScreen(x, y) : null;
+	if (d) {
+		pointer = { x, y, alt: ev.altKey };
+		const o = openings[d.i];
+		drag.door = { ...d, grab: alongDoor(o) - doorSpan(o).reduce((a, b) => a + b) / 2 };
+		[door, typed] = [d.i, ""];
+	}
 	canvas.setPointerCapture(ev.pointerId);
 });
 canvas.addEventListener("pointermove", (ev) => {
 	const r = canvas.getBoundingClientRect();
 	pointer = { x: ev.clientX - r.left, y: ev.clientY - r.top, alt: ev.altKey };
-	canvas.style.cursor = drag?.corner && drag.moved ? "grabbing" : !drag && cornerAt(pointer.x, pointer.y) ? "grab" : "";
+	canvas.style.cursor = (drag?.corner || drag?.door) && drag.moved ? "grabbing" : !drag && (cornerAt(pointer.x, pointer.y) || (tool === "door" && doorAtScreen(pointer.x, pointer.y))) ? "grab" : "";
 	if (drag) {
 		const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
 		if (drag.moved || Math.hypot(dx, dy) >= 4) {
 			// one undo for the whole drag
-			if (!drag.moved && (drag.thing || drag.corner)) remember();
+			if (!drag.moved && (drag.thing || drag.corner || drag.door)) remember();
 			drag.moved = true;
 			if (drag.thing) {
 				// no rendering of the list while dragging; it catches up on release
@@ -1068,7 +1225,8 @@ canvas.addEventListener("pointermove", (ev) => {
 				aim();
 				dragCorner();
 				dirty = true;
-			} else {
+			} else if (drag.door) dragDoor();
+			else {
 				cam.ox += dx;
 				cam.oy += dy;
 			}
@@ -1079,9 +1237,9 @@ canvas.addEventListener("pointermove", (ev) => {
 });
 canvas.addEventListener("pointerup", (ev) => {
 	const isClick = drag && !drag.moved && ev.button === 0;
-	const { thing, moved, opening, corner } = drag ?? {};
+	const { thing, moved, opening, corner, door: pressed } = drag ?? {};
 	drag = null;
-	if (opening) return;
+	if (opening || pressed) return;
 	if (corner && moved) {
 		canvas.style.cursor = "";
 		return aim();
@@ -1101,7 +1259,8 @@ canvas.addEventListener("pointerup", (ev) => {
 	const r = canvas.getBoundingClientRect();
 	pointer = { x: ev.clientX - r.left, y: ev.clientY - r.top, alt: ev.altKey };
 	aim();
-	click(next.at);
+	if (tool === "door") addDoor();
+	else click(next.at);
 	aim();
 });
 // The double-click's first click put a corner; if the room can't close, it
@@ -1138,10 +1297,11 @@ document.addEventListener("keydown", (ev) => {
 	const key = ev.key === "," ? "." : ev.key === "*" || ev.key === "X" ? "x" : ev.key;
 	const part = typed.split("x").at(-1);
 	if (/^[0-9]$/.test(key) || (key === "." && !part.includes(".")) || (key === "x" && tool === "box" && typed && !typed.includes("x"))) {
-		if (tool === "scale" ? chain.length === 2 : chain.length) typed += key;
+		if (tool === "scale" ? chain.length === 2 : tool === "door" ? door !== null : chain.length) typed += key;
 	} else if (key === "Enter") enter();
-	else if (key === "Backspace") typed ? (typed = typed.slice(0, -1)) : chain.pop();
-	else if (key === "Escape") typed ? (typed = "") : tool === "place" ? (opened ? (opened = null) : pick(null)) : (chain = []);
+	else if (key === "Backspace") typed ? (typed = typed.slice(0, -1)) : tool === "door" ? door !== null && removeDoor() : chain.pop();
+	else if (key === "Delete" && tool === "door" && door !== null) removeDoor();
+	else if (key === "Escape") typed ? (typed = "") : tool === "place" ? (opened ? (opened = null) : pick(null)) : tool === "door" ? (door = null) : (chain = []);
 	else if (key === "Alt") pointer && (pointer.alt = true);
 	else return;
 	ev.preventDefault();

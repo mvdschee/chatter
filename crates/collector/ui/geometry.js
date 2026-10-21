@@ -8,7 +8,8 @@ const EPS = 1e-6;
 export const corner = ([x, y]) => `${x},${y}`;
 
 // The plan from metres into plan units: its bounds fitted into 1000 by 600,
-// the same scale both ways, with the margin round them; w and h are its frame.
+// the same scale both ways, with the margin round them; w and h are its frame,
+// perM the plan units to a metre.
 // The bounds take in placed things too, so a router in the garden stays on it.
 export function toUnits(plan) {
 	const placed = [plan.places?.router, ...Object.values(plan.places?.sensors ?? {}), ...Object.values(plan.places?.devices ?? {}).map((d) => d.at)];
@@ -19,6 +20,7 @@ export function toUnits(plan) {
 	const s = Math.min((1000 - 2 * MARGIN) / (x1 - x0), (600 - 2 * MARGIN) / (y1 - y0));
 	const u = ([x, y]) => [MARGIN + (x - x0) * s, MARGIN + (y - y0) * s];
 	return {
+		perM: s,
 		w: (x1 - x0) * s + 2 * MARGIN,
 		h: (y1 - y0) * s + 2 * MARGIN,
 		rooms: plan.rooms.map((r) => ({ name: r.name, points: r.points.map(u) })),
@@ -86,11 +88,13 @@ export function wallPieces(rooms) {
 	return [...pieces.values()];
 }
 
-// Whether p is in a doorway: on its edge's line, within its width.
-export function inOpening(p, openings) {
+// Whether p is in a doorway: within `reach` of its edge's line, within its
+// width. A reach of a few mm takes in the neighbouring room's side of a
+// shared wall, traced a little off the doorway's.
+export function inOpening(p, openings, reach = EPS) {
 	return openings.some(({ from, to, at, width }) => {
 		const { t, off, len } = along(p, from, to);
-		return off < EPS && Math.abs(t - at * len) < width / 2;
+		return off < reach && Math.abs(t - at * len) < width / 2;
 	});
 }
 
@@ -281,6 +285,68 @@ export function moveCorner({ rooms, openings }, from, to, minWidth = 0) {
 	const ends = openings.map((o) => (is(o.from) || is(o.to) ? { ...o, from: put(o.from), to: put(o.to) } : o));
 	if (ends.some((o, i) => o !== openings[i] && !fitsEdge(o))) return { why: "A doorway wouldn't fit on its wall." };
 	return { rooms: moved, openings: ends };
+}
+
+// --- doorways (edit.js, chunk 6) ---
+
+// The room edge nearest p within reach, as { from, to, t }: t is how far
+// along it p falls, in metres from `from`. Where edges lie on one line (a
+// small room against a long one's wall), the shortest wins, so a doorway
+// between the two stays on the wall they share and goes with the small room.
+export function nearestEdge(rooms, p, reach) {
+	let best = null;
+	for (const { points } of rooms) {
+		points.forEach((a, i) => {
+			const b = points[(i + 1) % points.length];
+			const { t, len } = along(p, a, b);
+			const s = Math.max(0, Math.min(len, t));
+			const d = dist(p, [a[0] + ((b[0] - a[0]) * s) / len, a[1] + ((b[1] - a[1]) * s) / len]);
+			if (d > reach) return;
+			if (!best || d < best.d - 1e-3 || (d < best.d + 1e-3 && len < best.len)) best = { from: a, to: b, t: s, d, len };
+		});
+	}
+	return best && { from: best.from, to: best.to, t: best.t };
+}
+
+// A doorway `width` wide with its middle at t metres along the edge from →
+// to, slid along so it fits and no wider than the edge.
+export function doorAt({ from, to }, t, width) {
+	const len = dist(from, to);
+	const w = mm(Math.min(width, len));
+	const mid = Math.max(w / 2, Math.min(len - w / 2, t));
+	return { from: [...from], to: [...to], at: mid / len, width: w };
+}
+
+// A doorway's two ends, in metres from its edge's `from`.
+export function doorSpan({ from, to, at, width }) {
+	const mid = at * dist(from, to);
+	return [mid - width / 2, mid + width / 2];
+}
+
+// The doorway with one end (0 the one nearer `from`, 1 the other) moved to
+// t metres along its edge, the other end staying; its width in `step`s, at
+// least one.
+export function resizeDoor(o, end, t, step) {
+	const len = dist(o.from, o.to);
+	const fixed = doorSpan(o)[1 - end];
+	const room = end ? len - fixed : fixed;
+	const w = Math.min(Math.max(step, Math.round((end ? t - fixed : fixed - t) / step) * step), room);
+	return { ...o, at: (fixed + (end ? w / 2 : -w / 2)) / len, width: mm(w) };
+}
+
+// Whether two doorways overlap: on one line, their stretches sharing more
+// than a point.
+export function doorsOverlap(a, b) {
+	const ends = (o) => doorSpan(o).map((s) => {
+		const k = s / dist(o.from, o.to);
+		return [o.from[0] + (o.to[0] - o.from[0]) * k, o.from[1] + (o.to[1] - o.from[1]) * k];
+	});
+	const [a0, a1] = ends(a), [b0, b1] = ends(b);
+	const off = 1e-6 * dist(a0, a1);
+	if (Math.abs(cross(a0, a1, b0)) > off || Math.abs(cross(a0, a1, b1)) > off) return false;
+	const u = sub(a1, a0);
+	const [s0, s1] = [dot(sub(b0, a0), u), dot(sub(b1, a0), u)].sort((x, y) => x - y);
+	return s1 > EPS && s0 < dot(u, u) - EPS;
 }
 
 // --- the underlay, an image to trace over (edit.js) ---

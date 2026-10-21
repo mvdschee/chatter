@@ -1,6 +1,6 @@
 # The floor plan editor (research and plan)
 
-Status, 2026-10-20: research done; chunks 1 to 5 and 7 to 9 built.
+Status, 2026-10-21: research done; all nine chunks built.
 Plan step 3 in `docs/monitoring.md`. The view draws the saved plan, or a
 made-up example (`EXAMPLE_PLAN` in `crates/collector/ui/plan.js`) until
 one with rooms is saved.
@@ -251,7 +251,33 @@ One reviewable commit each:
    Backspace does. A device's name is saved at once, not with the plan, so
    undo leaves it alone. The history starts empty each time the editor
    opens.
-6. Doors on edges.
+6. Done: doors on edges. **Doors**, a third tool beside Box and Lines in
+   the Trace step: a click on a wall puts a doorway 0.90 m wide there,
+   slid along to fit and no wider than the wall; dragging its end makes
+   it wider or narrower, the other end staying, and dragging its middle
+   slides it, both in 5 cm steps (Alt for none); a typed width and Enter
+   sizes the picked one about its middle, Backspace or Delete removes it,
+   Esc picks none. Pointing at a wall shows, dashed, where the click
+   would put one (red where it would overlap another), and a doorway is
+   a bright stretch of wall between two ticks, the picked one lit with
+   its width. A doorway can't be put, dragged or sized over another; a
+   drag that would stays at its last good spot. (Dragging a corner doesn't
+   check this: at a T, a doorway sliding along with its wall can run into
+   one on the longer wall, and the view's gaps just merge.) Where a small
+   room's wall lies along a longer one's (a T), a click there puts the
+   doorway on the small room's wall: it opens into that room, can't slide
+   off the wall the two share, and goes when that room is deleted. One put
+   on the longer wall past the small room and slid onto the shared stretch
+   stays on the longer wall. The walls' lengths aren't shown in
+   Doors: they sat on the doorways. A doorway's `at` is a share of its
+   wall, so dragging a corner that shortens the wall slides it along too
+   (since chunk 5).
+   The owner's first try cut only the outside walls in the view: two rooms
+   traced side by side give their shared wall twice, the second a few mm
+   off the first where their corners weren't snapped together, and a
+   doorway only cut the wall dots exactly on its own line. Now it cuts
+   those within 1 cm of it, both sides of a shared wall; a wall is about
+   ten times thicker, so a parallel one keeps its dots.
 7. Place the router, the sensors and the devices, in two commits. The
    owner chose (2026-10-20): placing is a step in the editor, top-down; a
    device not placed yet waits in a marked place on the ground in front of
@@ -378,12 +404,16 @@ the page's geometry, `cargo test` for the save checks):
 
 - a room is at least three corners and doesn't cross itself (rejected on save);
 - point-in-polygon: a device's room, including points on an edge;
-- shared edges are drawn once; an opening cuts the right stretch of its edge;
+- shared edges are drawn once; an opening cuts the right stretch of its edge,
+  and a neighbour's side of the wall traced a few mm off;
 - snapping: a corner near an existing one becomes that one; 90° holds;
 - the scale from two points and a distance;
 - moving a corner: it moves in every room with the same numbers and at the
   doorways' ends, not in a room it only touches, and a spot that would
   break a room or a doorway is refused;
+- doorways: the wall pointed at, a small room's where walls lie on one
+  line; a new one fits its wall; dragging an end keeps the other and
+  stays on the wall; two overlap only on one line;
 - stacks: names that overlap, directly or through others, stack, and so do
   stacks whose marks would overlap; a fanned column's names don't overlap,
   and it keeps below a bar along the top.
@@ -395,6 +425,8 @@ Only the owner can judge:
 - whether dragging corners in Box and Lines is found, and doesn't get in
   the way of moving the plan;
 - whether the walls and doorways look right in the view;
+- whether Doors is found, 0.90 m is the right width to start from, and a
+  doorway sliding along when its wall gets shorter is what's wanted;
 - whether tracing over the underlay is fast, and the image clear enough to
   trace yet faint enough to see the rooms;
 - placing devices on a phone;

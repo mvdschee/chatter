@@ -198,3 +198,9 @@
 **Decision:** No Select tool: in Box and Lines, with no room being drawn, a press on a corner that moves drags it, in every room with those numbers and at the doorways' ends; a bad spot is refused and the corner stays at its last good one. Undo and redo keep a copy of the whole plan (rooms, doorways, places, underlay) before each change, up to 100.
 **Why:** A tool of its own would be one more switch while tracing, where fixing a corner comes up mid-way; a press that doesn't move stays a click, so starting a room on a corner still works. A home's plan is a few dozen corners, so a copy per change is cheap, and one mechanism covers every change, including the ones that move everything (Turn, measuring again), without an inverse for each.
 **Alternatives:** A Select tool (as first planned); a list of commands each with its own undo (more code for every kind of change); refusing a bad spot only on release (the corner would jump back).
+
+## 2026-10-21 - A doorway at a T goes on the small room's wall
+
+**Decision:** A click on a wall in Doors puts the doorway on the nearest room edge; where edges lie on one line (a small room against a long room's wall), on the shortest of them. A new doorway is 0.90 m wide. Details in `docs/floorplan.md`, chunk 6.
+**Why:** On the shared stretch the doorway is between the two rooms, so it belongs to the small one's wall: it can't slide off the stretch the rooms share, it follows that wall when its corners move, and it goes when that room is deleted. 0.90 m is about a common interior door's opening.
+**Alternatives:** The long room's wall (the doorway can slide past the small room into an outside wall, and stays when the small room is deleted); splitting edges at T's into wall pieces (the collector checks a doorway against a room's own edges).

@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-	atLength, box, canAdd, corner, crossesItself, fanColumn, fitsEdge, followImage, fromImage, frontAreas, inOpening, inside, labelAt, measure, middleOf, mm, moveCorner, roomAt, roomWidth, snap, stacks, toImage, toUnits, turnPlan, wallPieces,
+	atLength, box, canAdd, corner, crossesItself, doorAt, doorSpan, doorsOverlap, fanColumn, fitsEdge, followImage, fromImage, frontAreas, inOpening, inside, labelAt, measure, middleOf, mm, moveCorner, nearestEdge, resizeDoor, roomAt, roomWidth, snap, stacks, toImage, toUnits, turnPlan, wallPieces,
 } from "../ui/geometry.js";
 
 // Made-up plans: a row of two rooms over a row of three, and an L.
@@ -50,6 +50,18 @@ test("an opening named on a short edge cuts the long one it lies on", () => {
 	assert.ok(inOpening([1.5, 4], openings));
 	assert.ok(!inOpening([0.5, 4], openings));
 	assert.ok(!inOpening([1.5, 4.1], openings));
+});
+
+test("an opening cuts the neighbour's wall too when it's traced a few mm off", () => {
+	// the room below's wall, traced 2 mm lower than the door's
+	const { openings } = TWO_ROWS;
+	assert.ok(!inOpening([1.5, 4.002], openings), "exactly on the line only");
+	assert.ok(inOpening([1.5, 4.002], openings, 0.01));
+	assert.ok(!inOpening([1.5, 4.1], openings, 0.01), "a wall 10 cm away keeps its dots");
+	// in plan units, the reach scales with the plan
+	const p = toUnits(TWO_ROWS);
+	const [x, y] = [p.openings[0].from[0] + 1.5 * p.perM, p.openings[0].from[1] + 0.002 * p.perM];
+	assert.ok(inOpening([x, y], p.openings, 0.01 * p.perM));
 });
 
 test("labels and middles are inside their rooms, an L included", () => {
@@ -154,6 +166,58 @@ test("a corner move that would break a room or a doorway is refused", () => {
 	assert.ok(moveCorner(room, [4, 0], [4.5, 0]).rooms, "a longer wall still fits it");
 	assert.ok(fitsEdge({ from: [0, 0], to: [2, 0], at: 0.5, width: 2 }));
 	assert.ok(!fitsEdge({ from: [0, 0], to: [2, 0], at: 0.6, width: 2 }));
+});
+
+test("a doorway goes on the nearest wall, the shortest where walls lie on one line", () => {
+	const { rooms } = TWO_ROWS;
+	// A's bottom wall runs under C and part of D: the door goes on theirs
+	assert.deepEqual(nearestEdge(rooms, [1.5, 4.05], 0.1), { from: [0, 4], to: [3, 4], t: 1.5 });
+	const d = nearestEdge(rooms, [4, 3.96], 0.1);
+	assert.deepEqual([d.from, d.to], [[3, 4], [7, 4]]);
+	assert.ok(Math.abs(d.t - 1) < 1e-9);
+	// a wall only A has
+	assert.deepEqual(nearestEdge(rooms, [-0.05, 2], 0.1), { from: [0, 4], to: [0, 0], t: 2 });
+	assert.equal(nearestEdge(rooms, [2, 2], 0.1), null, "out of reach of every wall");
+	// just past a corner: one of its walls, at that corner
+	const e = nearestEdge([{ points: box([0, 0], [4, 3]) }], [-0.05, -0.05], 0.1);
+	assert.deepEqual(e.t === 0 ? e.from : e.to, [0, 0]);
+});
+
+test("a new doorway fits on its wall, slid along or narrowed", () => {
+	const wall = { from: [0, 0], to: [4, 0] };
+	assert.deepEqual(doorAt(wall, 2, 0.9), { from: [0, 0], to: [4, 0], at: 0.5, width: 0.9 });
+	const corner = doorAt(wall, 0.1, 0.9);
+	assert.deepEqual(doorSpan(corner), [0, 0.9]);
+	assert.ok(fitsEdge(corner) && fitsEdge(doorAt(wall, 3.95, 0.9)));
+	const narrow = doorAt({ from: [0, 0], to: [0, 0.6] }, 0.3, 0.9);
+	assert.equal(narrow.width, 0.6);
+	assert.ok(fitsEdge(narrow));
+	// its own arrays, not the room's
+	assert.notEqual(doorAt(wall, 2, 0.9).from, wall.from);
+});
+
+test("dragging a doorway's end: the other stays, the width in steps, on the wall", () => {
+	const door = doorAt({ from: [0, 0], to: [4, 0] }, 2, 0.9);
+	const span = (o) => doorSpan(o).map(mm);
+	assert.deepEqual(span(resizeDoor(door, 1, 2.83, 0.05)), [1.55, 2.85]);
+	assert.deepEqual(span(resizeDoor(door, 0, 1.0, 0.05)), [1, 2.45]);
+	// dragged past the other end: one step wide, never past it
+	assert.deepEqual(span(resizeDoor(door, 1, 0.2, 0.05)), [1.55, 1.6]);
+	// dragged past the wall's end: up to it
+	const wide = resizeDoor(door, 1, 9, 0.05);
+	assert.deepEqual(span(wide), [1.55, 4]);
+	assert.ok(fitsEdge(wide));
+});
+
+test("doorways overlap only on one line, sharing more than a point", () => {
+	const door = (from, to, at, width) => ({ from, to, at, width });
+	const a = door([0, 0], [4, 0], 0.25, 1);
+	assert.ok(doorsOverlap(a, door([0, 0], [4, 0], 0.4, 1)));
+	assert.ok(doorsOverlap(a, door([4, 0], [0, 0], 0.7, 1)), "the same wall named the other way");
+	assert.ok(!doorsOverlap(a, door([0, 0], [4, 0], 0.5, 1)), "end to end");
+	// a small room's wall on the same line as a long one's
+	assert.ok(doorsOverlap(door([-2, 0], [6, 0], 0.3, 1), a));
+	assert.ok(!doorsOverlap(a, door([0, 0], [0, 3], 0.2, 1)), "a wall round the corner");
 });
 
 test("the underlay: image and plan points map both ways", () => {
