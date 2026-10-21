@@ -210,3 +210,9 @@
 **Decision:** In order, a thing joins a stack only when its name box overlaps what's drawn already (a thing alone, or a stack's mark at its first thing's spot); a stack whose mark then overlaps more takes that in. Details in `docs/floorplan.md`, chunk 8.
 **Why:** Things with floor between them folded into one stack: overlaps chained, and stacks merged by the box around all their things. The folded things are only spots, so they shouldn't pull more in; markercluster works the same way, by distance to a cluster's marker.
 **Alternatives:** Keep the chain but shrink the name boxes (still chains, just later); try other spots for a name (left, above) before stacking (more to draw and test; worth it if stacks still feel too eager).
+
+## 2026-10-21 - The editor's steps are a toolbar; the panel shows the tool's part
+
+**Decision:** The steps and their buttons are a bar across the top of the editor; the side panel shows the tool's text, the rooms (Box, Lines, Doors) or the things (Place), and the keys folded. Its edge drags wider, kept in `localStorage`.
+**Why:** One column of steps, things, keys and rooms ran to twice the screen's height, with the device list below the fold, and its 320 px cut off a device's IP.
+**Alternatives:** Tabs in the panel (Steps, Things, Rooms, Keys); the same column with done steps folded and the keys behind a button.

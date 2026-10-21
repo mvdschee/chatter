@@ -86,31 +86,41 @@ canvas#plan:focus-visible { outline: 1px solid var(--signal); outline-offset: -1
 /* drawing rooms: over the plan, straight from above (edit.js) */
 .app.editing { grid-template-rows: 1fr; }
 .app.editing .timeline { display: none; }
-.editor { position: absolute; inset: 0; z-index: 6; display: grid; grid-template-columns: 1fr 320px; background: var(--void); }
+.editor { position: absolute; inset: 0; z-index: 6; display: grid; grid-template-columns: minmax(0, 1fr) 7px min(var(--edit-side-w, 340px), 60%); grid-template-rows: auto minmax(0, 1fr); background: var(--void); }
 .editor[hidden] { display: none; }
 canvas#edit-plan { display: block; width: 100%; height: 100%; min-width: 0; cursor: crosshair; touch-action: none; }
 canvas#edit-plan:focus-visible { outline: 1px solid var(--signal); outline-offset: -1px; }
-.edit-side { display: flex; flex-direction: column; gap: 12px; padding: 22px 22px; border-left: 1px solid var(--line); background: var(--panel); overflow-y: auto; }
-.edit-side .eyebrow { margin: 6px 0 0; }
-.edit-tools { display: flex; gap: 6px; }
-.edit-tools .tl-btn { flex: 1; text-align: center; padding: 9px 0; font-size: 12px; }
-.edit-tools .tl-btn:disabled { opacity: 0.4; cursor: default; border-color: var(--line); }
-.edit-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; counter-reset: step; }
-.edit-steps li { counter-increment: step; display: grid; grid-template-columns: 22px 1fr; gap: 0 10px; padding: 8px 10px 8px 8px; border: 1px solid transparent; color: var(--muted); font-size: 14px; }
-.edit-steps li > * { grid-column: 2; }
-.edit-steps li::before { content: counter(step); grid-column: 1; grid-row: 1 / span 3; width: 20px; height: 20px; border: 1px solid var(--line); border-radius: 50%; font: 11px/20px var(--mono); text-align: center; }
+/* the steps, a bar across the top: each a number, done or next, and its buttons */
+.edit-steps { grid-column: 1 / -1; list-style: none; margin: 0; padding: 12px 22px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 26px; border-bottom: 1px solid var(--line); background: var(--panel); counter-reset: step; }
+.edit-steps li { counter-increment: step; display: flex; align-items: center; gap: 6px; }
+.edit-steps li::before { content: counter(step); flex: none; width: 20px; height: 20px; margin-right: 4px; border: 1px solid var(--line); border-radius: 50%; font: 11px/20px var(--mono); text-align: center; color: var(--muted); }
 .edit-steps li.done::before { content: "✓"; color: var(--signal); border-color: var(--signal); }
-.edit-steps li.now { border-color: var(--signal); background: rgba(127, 231, 242, 0.04); color: var(--phosphor); }
 .edit-steps li.now::before { content: counter(step); background: var(--signal); border-color: var(--signal); color: var(--void); }
-.edit-steps b { font-weight: 500; line-height: 20px; }
-.edit-steps p { margin: 2px 0 0; font-size: 13px; line-height: 1.4; }
-.edit-steps li:not(.now) p { display: none; }
-.edit-steps .edit-tools { margin-top: 8px; }
+.edit-steps li[data-step="save"] { margin-left: auto; }
+.edit-steps .tl-btn { padding: 8px 12px; font-size: 12px; }
+.edit-steps .tl-btn:disabled { opacity: 0.4; cursor: default; border-color: var(--line); }
+/* drag it to widen the panel */
+.edit-handle { cursor: col-resize; touch-action: none; background: linear-gradient(var(--line), var(--line)) center / 1px 100% no-repeat; }
+.edit-handle:hover, .edit-handle:focus-visible, .edit-handle.dragging { background-image: linear-gradient(var(--signal), var(--signal)); outline: none; }
+.edit-side { display: flex; flex-direction: column; gap: 12px; min-height: 0; padding: 18px 22px; background: var(--panel); overflow-y: auto; }
+.edit-side .eyebrow { margin: 6px 0 0; }
+.edit-guide { display: flex; flex-direction: column; gap: 10px; }
+.edit-guide .next { padding: 8px 10px; border: 1px solid var(--signal); background: rgba(127, 231, 242, 0.04); }
+.edit-guide b { font-weight: 500; }
+.edit-guide p { margin: 2px 0 0; font-size: 13px; line-height: 1.4; color: var(--muted); }
+.edit-guide .next p { color: var(--phosphor); }
+.edit-keys { margin-top: auto; }
+.edit-keys summary { cursor: pointer; list-style: none; }
+.edit-keys summary::-webkit-details-marker { display: none; }
+.edit-keys summary::before { content: "▸"; letter-spacing: 0; }
+.edit-keys[open] summary::before { content: "▾"; }
+.edit-keys summary:focus-visible { outline: 1px solid var(--signal); outline-offset: 2px; }
+.edit-keys .edit-help { margin-top: 10px; }
 .edit-things[hidden] { display: none; }
-.edit-things { display: flex; flex-direction: column; gap: 8px; }
+.edit-things { display: flex; flex-direction: column; gap: 8px; flex: 1 0 auto; min-height: 0; }
 .edit-filter, .thing-detail input { font: 14px/1 var(--body); color: var(--phosphor); background: transparent; border: 1px solid var(--line); padding: 8px 9px; min-width: 0; }
 .edit-filter:focus, .thing-detail input:focus { border-color: var(--signal); outline: none; }
-.edit-list { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; border: 1px solid var(--line); }
+.edit-list { list-style: none; margin: 0; padding: 0; flex: 1 1 0; min-height: 180px; overflow-y: auto; border: 1px solid var(--line); }
 .edit-list button { all: unset; box-sizing: border-box; cursor: pointer; display: grid; grid-template-columns: 1fr auto; gap: 1px 8px; width: 100%; padding: 6px 9px; font-size: 13px; color: var(--phosphor); }
 .edit-list button:hover, .edit-list button:focus-visible { background: rgba(127, 231, 242, 0.06); }
 .edit-list button[aria-pressed="true"] { background: rgba(127, 231, 242, 0.14); }
@@ -139,9 +149,10 @@ canvas#edit-plan:focus-visible { outline: 1px solid var(--signal); outline-offse
 .edit-rooms .del { all: unset; cursor: pointer; width: 34px; text-align: center; font-size: 18px; color: var(--muted); border: 1px solid var(--line); }
 .edit-rooms .del:hover, .edit-rooms .del:focus-visible { color: var(--heat); border-color: var(--heat); }
 #edit-status { margin: 0; font: 13px/1.4 var(--mono); color: var(--phosphor); }
+.edit-rooms-part[hidden] { display: none; }
+.edit-rooms-part { display: flex; flex-direction: column; gap: 8px; }
 #edit-status:empty { display: none; }
 #edit-status.bad { color: var(--heat); }
-.edit-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: auto; }
 /* scanlines and a vignette over the plan */
 .map::after {
 	content: "";

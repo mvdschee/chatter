@@ -220,6 +220,15 @@ One reviewable commit each:
    round, rooms, doorways and image together, so what's traced stays on the
    image and the view shows the plan the way round the owner wants (the long
    side across); turning only the image would leave traced rooms behind.
+   Later (2026-10-21) the list grew twice the screen's height, the devices
+   to place below the fold, so the steps became a bar across the top (each
+   step's number and its buttons, Cancel and Save at the end) and the panel
+   shows only what the tool needs: its step's text (after the next step's,
+   lit, while the plan is being set up), the rooms with Box, Lines and
+   Doors, the things with Place, and the keys folded at the bottom. The
+   panel's edge drags wider, up to 60% of the editor, so a device's vendor,
+   IP and MAC fit; the width is kept in the browser, and a double-click on
+   the edge brings back 340 px.
    Then the owner's traced rooms came out about 11% too big: on a plan that
    writes each size between two walls, with no ticks at its ends, the first
    measurement had been clicked to the front of a kitchen counter instead of

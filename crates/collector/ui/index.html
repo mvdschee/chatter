@@ -31,55 +31,37 @@
 			<button class="top-btn" id="view-reset">Reset</button>
 		</div>
 		<div class="editor" id="editor" hidden>
+			<ol class="edit-steps" id="edit-steps" aria-label="Steps">
+				<li data-step="image" title="Load the floor plan">
+					<button class="tl-btn" id="underlay-load">Image</button>
+					<button class="tl-btn" id="underlay-show" aria-pressed="true" disabled>Show</button>
+					<button class="tl-btn" id="underlay-remove" disabled>Remove</button>
+				</li>
+				<li data-step="scale" title="Measure a wall">
+					<button class="tl-btn" data-tool="scale" aria-pressed="false" disabled>Scale</button>
+				</li>
+				<li data-step="turn" title="Turn it">
+					<button class="tl-btn" id="turn-left" disabled title="A quarter turn anticlockwise">Left</button>
+					<button class="tl-btn" id="turn-right" disabled title="A quarter turn clockwise">Right</button>
+				</li>
+				<li data-step="rooms" title="Trace the rooms">
+					<button class="tl-btn" data-tool="box" aria-pressed="true">Box</button>
+					<button class="tl-btn" data-tool="lines" aria-pressed="false">Lines</button>
+					<button class="tl-btn" data-tool="door" aria-pressed="false">Doors</button>
+				</li>
+				<li data-step="place" title="Place things">
+					<button class="tl-btn" data-tool="place" aria-pressed="false">Place</button>
+				</li>
+				<li data-step="save" title="Name them and save">
+					<button class="tl-btn" id="edit-cancel">Cancel</button>
+					<button class="tl-btn" id="edit-save">Save</button>
+				</li>
+			</ol>
 			<canvas id="edit-plan" tabindex="0" aria-label="The floor plan from above, for drawing rooms. The panel beside it says how."></canvas>
+			<div class="edit-handle" id="edit-handle" role="separator" aria-orientation="vertical" aria-label="Panel width: drag, or the arrow keys; double-click for the usual width" tabindex="0"></div>
 			<aside class="edit-side" aria-label="Edit plan">
-				<h2 class="eyebrow">Steps</h2>
-				<ol class="edit-steps" id="edit-steps">
-					<li data-step="image">
-						<b>Load the floor plan</b>
-						<p>An image of it to trace over: PNG, JPEG or WebP (export a PDF page as PNG). No floor plan? Skip to step 4.</p>
-						<div class="edit-tools">
-							<button class="tl-btn" id="underlay-load">Image</button>
-							<button class="tl-btn" id="underlay-show" aria-pressed="true" disabled>Show</button>
-							<button class="tl-btn" id="underlay-remove" disabled>Remove</button>
-						</div>
-					</li>
-					<li data-step="scale">
-						<b>Measure a wall</b>
-						<p>Zoom in. If the plan has a scale bar, click its 0 and its last mark and type that length. Otherwise pick the longest size the plan gives, click the inside faces of the two walls it runs between, and type it in metres (4200 mm is 4.2). Press Enter. Measuring again later moves the traced rooms along.</p>
-						<div class="edit-tools">
-							<button class="tl-btn" data-tool="scale" aria-pressed="false" disabled>Scale</button>
-						</div>
-					</li>
-					<li data-step="turn">
-						<b>Turn it</b>
-						<p>If you like: turn the plan a quarter at a time until it's the way round you want to see it, the long side across. The app shows it this way. Or go on to step 4.</p>
-						<div class="edit-tools">
-							<button class="tl-btn" id="turn-left" disabled title="A quarter turn anticlockwise">Left</button>
-							<button class="tl-btn" id="turn-right" disabled title="A quarter turn clockwise">Right</button>
-						</div>
-					</li>
-					<li data-step="rooms">
-						<b>Trace the rooms</b>
-						<p>Box for rectangular rooms, Lines for the rest, along the middle of the walls. Rooms that touch share their corners. Drag a corner to move it. Doors: click a wall where a doorway is, drag its ends to size it.</p>
-						<div class="edit-tools">
-							<button class="tl-btn" data-tool="box" aria-pressed="true">Box</button>
-							<button class="tl-btn" data-tool="lines" aria-pressed="false">Lines</button>
-							<button class="tl-btn" data-tool="door" aria-pressed="false">Doors</button>
-						</div>
-					</li>
-					<li data-step="place">
-						<b>Place things</b>
-						<p>Put the router, the sensors and the devices where they stand: pick one in the list, click its spot. A laptop or phone that moves around: say who carries it. What you don't place waits in front of the house.</p>
-						<div class="edit-tools">
-							<button class="tl-btn" data-tool="place" aria-pressed="false">Place</button>
-						</div>
-					</li>
-					<li data-step="save">
-						<b>Name them and save</b>
-						<p>Draw the rest of the rooms, give each its name in the list below, then press Save.</p>
-					</li>
-				</ol>
+				<p id="edit-status" role="status"></p>
+				<div class="edit-guide" id="edit-guide"></div>
 				<input type="file" id="underlay-file" accept="image/png,image/jpeg,image/webp" hidden>
 				<section class="edit-things" id="edit-things" hidden aria-label="Things to place">
 					<h2 class="eyebrow">Things</h2>
@@ -88,15 +70,14 @@
 					<ul class="edit-list" id="things-list"></ul>
 					<datalist id="carriers"></datalist>
 				</section>
-				<h2 class="eyebrow">Keys</h2>
-				<dl class="edit-help" id="edit-help"></dl>
-				<h2 class="eyebrow">Rooms</h2>
-				<ul class="edit-rooms" id="edit-rooms"></ul>
-				<p id="edit-status" role="status"></p>
-				<div class="edit-actions">
-					<button class="top-btn" id="edit-cancel">Cancel</button>
-					<button class="top-btn" id="edit-save">Save</button>
-				</div>
+				<section class="edit-rooms-part" id="edit-rooms-part" aria-label="Rooms">
+					<h2 class="eyebrow">Rooms</h2>
+					<ul class="edit-rooms" id="edit-rooms"></ul>
+				</section>
+				<details class="edit-keys">
+					<summary class="eyebrow">Keys</summary>
+					<dl class="edit-help" id="edit-help"></dl>
+				</details>
 			</aside>
 		</div>
 	</main>

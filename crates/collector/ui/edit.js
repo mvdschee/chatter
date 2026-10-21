@@ -8,7 +8,8 @@
 // lines on the dark canvas. Scale: click both ends of a wall the image gives
 // the length of, type it. The image goes to PUT /v1/plan/underlay on save,
 // where it lies goes in the plan. Turn: the whole plan a quarter round. The
-// panel lists the steps, the next one lit.
+// steps are a bar across the top, the next one lit; the panel shows what the
+// tool needs, and is as wide as its edge is dragged.
 // Placing (chunk 7): the router, the sensors and the devices, each placed,
 // carried by someone, or waiting; saved in the plan as `places`. Things whose
 // names would overlap stack, and a stack fans out as a column (chunk 8).
@@ -29,6 +30,9 @@ const ctx = canvas.getContext("2d");
 const statusEl = document.getElementById("edit-status");
 const roomsEl = document.getElementById("edit-rooms");
 const helpEl = document.getElementById("edit-help");
+const guideEl = document.getElementById("edit-guide");
+const roomsPart = document.getElementById("edit-rooms-part");
+const handle = document.getElementById("edit-handle");
 const toolBtns = document.querySelectorAll("#editor [data-tool]");
 const fileInput = document.getElementById("underlay-file");
 const scaleBtn = document.querySelector('#editor [data-tool="scale"]');
@@ -61,6 +65,22 @@ const MAX_UNDO = 100;
 // A new doorway's width, and the steps a doorway moves and sizes in, metres.
 const DOOR_W = 0.9;
 const DOOR_STEP = 0.05;
+// The panel's usual and least width, pixels; the CSS keeps it to 60% of the
+// editor at most. Where its width is kept between visits.
+const SIDE_W = 340;
+const SIDE_MIN = 300;
+const SIDE_KEY = "chatter.edit-side";
+
+// Each step's name and how to do it, for the top of the panel.
+const GUIDE = {
+	image: ["Load the floor plan", "An image of it to trace over: PNG, JPEG or WebP (export a PDF page as PNG). No floor plan? Skip to step 4."],
+	scale: ["Measure a wall", "Zoom in. If the plan has a scale bar, click its 0 and its last mark and type that length. Otherwise pick the longest size the plan gives, click the inside faces of the two walls it runs between, and type it in metres (4200 mm is 4.2). Press Enter. Measuring again later moves the traced rooms along."],
+	turn: ["Turn it", "If you like: turn the plan a quarter at a time until it's the way round you want to see it, the long side across. The app shows it this way. Or go on to step 4."],
+	rooms: ["Trace the rooms", "Box for rectangular rooms, Lines for the rest, along the middle of the walls. Rooms that touch share their corners. Drag a corner to move it. Doors: click a wall where a doorway is, drag its ends to size it. Name each room in the list below."],
+	place: ["Place things", "Put the router, the sensors and the devices where they stand: pick one in the list, click its spot. A laptop or phone that moves around: say who carries it. What you don't place waits in front of the house."],
+};
+// The step each tool belongs to.
+const STEP_OF = { box: "rooms", lines: "rooms", door: "rooms", scale: "scale", place: "place" };
 
 const HELP = {
 	box: [
@@ -190,6 +210,7 @@ function openEditor() {
 	}
 	editing = true;
 	editor.hidden = false;
+	setSideWidth(Number(localStorage.getItem(SIDE_KEY)) || SIDE_W);
 	// the timeline makes room for the editor
 	app.classList.add("editing");
 	resize();
@@ -214,10 +235,19 @@ function setTool(t) {
 	[tool, chain, typed, door] = [t, [], "", null];
 	toolBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.tool === t)));
 	thingsEl.hidden = t !== "place";
+	roomsPart.hidden = STEP_OF[t] !== "rooms";
 	// into Place with nothing picked: the first one waiting
 	if (t === "place" && !picked) pick(things().find((x) => !placeOf(x.key))?.key ?? null);
 	helpEl.replaceChildren(...[...HELP[t], ...HELP.both].flatMap(([key, what]) => [el("dt", key), el("dd", what)]));
 	aim();
+}
+
+// The panel as wide as asked, from SIDE_MIN on; the plan keeps its place.
+function setSideWidth(w) {
+	w = Math.round(Math.min(Math.max(w, SIDE_MIN), editor.clientWidth * 0.6));
+	editor.style.setProperty("--edit-side-w", `${w}px`);
+	localStorage.setItem(SIDE_KEY, String(w));
+	resize();
 }
 
 function el(tag, text) {
@@ -475,9 +505,18 @@ function updateSteps() {
 		: !anyPlaced() ? "place"
 		: "save";
 	const done = { image: Boolean(underlay), scale: Boolean(underlay) && measured, turn: turned, rooms: rooms.length > 0, place: anyPlaced(), save: false };
-	const key = JSON.stringify([now, done, shown]);
+	const key = JSON.stringify([now, done, shown, tool]);
 	if (key === stepsKey) return;
 	stepsKey = key;
+	// the tool's step, after the next one while the plan is being set up
+	const own = STEP_OF[tool];
+	const guide = ["image", "scale", "turn"].includes(now) && now !== own ? [now, own] : [own];
+	guideEl.replaceChildren(...guide.map((step) => {
+		const d = el("div");
+		d.classList.toggle("next", step === now);
+		d.append(el("b", GUIDE[step][0]), el("p", GUIDE[step][1]));
+		return d;
+	}));
 	stepEls.forEach((li) => {
 		li.classList.toggle("now", li.dataset.step === now);
 		li.classList.toggle("done", li.dataset.step !== now && done[li.dataset.step]);
@@ -1347,3 +1386,17 @@ toolBtns.forEach((b) => b.addEventListener("click", () => {
 	setTool(b.dataset.tool);
 	canvas.focus();
 }));
+handle.addEventListener("pointerdown", (ev) => {
+	handle.setPointerCapture(ev.pointerId);
+	handle.classList.add("dragging");
+});
+handle.addEventListener("pointermove", (ev) => {
+	if (handle.hasPointerCapture(ev.pointerId)) setSideWidth(editor.getBoundingClientRect().right - ev.clientX - handle.offsetWidth / 2);
+});
+handle.addEventListener("lostpointercapture", () => handle.classList.remove("dragging"));
+handle.addEventListener("dblclick", () => setSideWidth(SIDE_W));
+handle.addEventListener("keydown", (ev) => {
+	if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+	ev.preventDefault();
+	setSideWidth(document.querySelector(".edit-side").offsetWidth + (ev.key === "ArrowLeft" ? 20 : -20));
+});
