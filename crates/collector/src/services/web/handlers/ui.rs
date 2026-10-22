@@ -16,7 +16,7 @@ macro_rules! js {
 
 /// The monitoring page's files, built into the binary: name, content type,
 /// content. The scripts are ES modules, main.js imports the rest.
-const FILES: [(&str, &str, &str); 18] = [
+const FILES: [(&str, &str, &str); 19] = [
 	("index.html", "text/html; charset=utf-8", include_str!("../../../../ui/index.html")),
 	("style.css", "text/css; charset=utf-8", include_str!("../../../../ui/style.css")),
 	("icons.svg", "image/svg+xml", include_str!("../../../../ui/icons.svg")),
@@ -29,6 +29,7 @@ const FILES: [(&str, &str, &str); 18] = [
 	js!("draw.js"),
 	js!("playback.js"),
 	js!("timeline.js"),
+	js!("labels.js"),
 	js!("panel.js"),
 	js!("sensors.js"),
 	js!("identify.js"),

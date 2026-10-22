@@ -1,8 +1,8 @@
 # Tidying the UI (research and plan)
 
 Status, 2026-10-22: the mockup is approved, with two changes: icons from
-Lucide, and technical wording. Chunks 2 (the layout check) and 3 (buttons
-and the top bar) are built.
+Lucide, and technical wording. Chunks 2 (the layout check), 3 (buttons
+and the top bar) and 5 (the timeline) are built.
 The owner finds the home page and the identify page busy and badly
 organised: controls were added one feature at a time, each one the same
 bordered, uppercase button.
@@ -132,9 +132,12 @@ One reviewable chunk each, with its check:
    timeline head off the screen (one wide row widens the whole page), and
    on a wide screen the device list, a device and a sensor's panel over the
    camera's buttons. Identify passed at both widths.
-   It can't see text drawn on a canvas: the HUD's readouts and the timeline's
-   labels. A phone also widens its page to fit what runs off it, so the
-   check measures against the screen's width, not `innerWidth`.
+   Text drawn on a canvas isn't in the page: the timeline hands the check
+   the labels it drew (`drawnLabels`), the HUD's readouts aren't seen. A
+   phone also widens its page to fit what runs off it, so the check
+   measures against the screen's width, not `innerWidth`; and something cut
+   off by `overflow: hidden` (the plan cutting off the top bar) is a fault,
+   unless an ellipsis says so.
 3. **Buttons and the top bar** _(built)_: the three levels in `style.css`,
    the top bar's groups, the sensors as one status item (a list of them in
    the side panel when there's more than one), the camera's buttons as
@@ -143,9 +146,26 @@ One reviewable chunk each, with its check:
 4. **Keep-clear areas from the DOM:** `drawCallouts` and `resize` take the
    controls' rectangles instead of fixed numbers.
    Check: a callout never lands under a control, at both widths.
-5. **The timeline:** the head as above, the axis labels inside the canvas,
+5. **The timeline** _(built)_: the head as above, the axis labels inside the canvas,
    the labels' collision rule.
    Check: no two labels overlap at 1h to 30d, at both widths.
+   The head: Play and Live as one pair, the ranges as one segmented
+   control, the readout (live in short: "last 5 min at 10× · next in 30
+   s"), the peak as a ghost link at the end. It wraps on a phone: the
+   readout and the peak each get a row, the peak cut short with an
+   ellipsis. The graph's left margin comes from its widest amount, so the
+   y axis is never cut off. Every label on the graph goes through
+   `placeLabels` (`ui/labels.js`): in order of importance (the axes, port
+   scans with alerts, the peaks, the other port scans and identify
+   sessions), each at the first of its spots that is on the canvas and
+   clear of those before it, else left out. A peak tries above its dot,
+   then right, left and under it; a band's label starts at the band, else
+   ends at it. The page's grid column is `minmax(0, 1fr)`, so a row that
+   can't wrap no longer widens the whole page.
+   After it, the layout check passes every range at both widths. What still
+   fails is for later chunks: the phone's top bar cut off by the plan
+   (6), and on both widths a tall side panel over the camera's buttons, and
+   on a phone over the timeline head (4 and 6).
 6. **The phone:** the home page's phone layout, the bottom sheet.
    Check: the layout check at 390 px; the owner on the phone.
 7. **Identify:** as above.

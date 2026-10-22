@@ -96,12 +96,14 @@
 
 	<section class="timeline" aria-label="Traffic over the last 24 hours">
 		<div class="tl-head">
-			<button class="tl-btn" id="play">Play</button>
-			<button class="tl-btn" id="live" aria-pressed="true">Live</button>
-			<span class="ranges" id="ranges"></span>
-			<button class="tl-btn" id="zoom-out-tl" hidden title="back to the whole range (double-click, Esc)">Zoom out</button>
+			<div class="seg" role="group" aria-label="Playback">
+				<button id="play">Play</button>
+				<button id="live" aria-pressed="true">Live</button>
+			</div>
+			<div class="seg ranges" id="ranges" role="group" aria-label="Range"></div>
+			<button class="ghost" id="zoom-out-tl" hidden title="back to the whole range (double-click, Esc)">Zoom out</button>
 			<span id="tl-at"></span>
-			<button class="tl-btn peak" id="peak"></button>
+			<button class="ghost peak" id="peak"></button>
 		</div>
 		<canvas id="heat" tabindex="0" aria-label="The network's traffic over the chosen range. Drag, or use the arrow keys, to replay a moment on the plan; shift-drag to zoom in."></canvas>
 	</section>

@@ -230,31 +230,40 @@ async function openTab(browser, width, height) {
 // --- what's checked, in the page --------------------------------------------
 
 // Runs in the page. Ink is what's drawn: each line of text and each icon.
+// Text drawn on a canvas isn't in the page: the timeline's labels come from
+// timeline.js, the HUD's aren't seen.
 // Fails: a control or ink past the left or right edge, the page scrolling
 // sideways, a control whose middle is under something else, and two inks of
 // the same layer overlapping by more than a sliver (a line's box is taller
 // than its line height, so wrapped lines touch). Ink under another layer (the plan under the side
 // panel) is covered, not overlapping; that layer covering a control is the fault.
 // `vw`, `vh`: the screen's size. Not innerWidth: a phone widens the page to
-// fit what runs off it, so nothing would ever be off the screen.
-function probe(vw, vh) {
+// fit what runs off it, so nothing would ever be off the screen. `drawn`: the
+// timeline's labels, boxes on its canvas (timeline.js `drawnLabels`).
+function probe(vw, vh, drawn) {
 	const LAYERS = "#side, #identify, #editor";
 	const PLACES = [[".top", "top bar"], [".view-ctl", "camera"], [".tl-head", "timeline head"], ["#side", "side panel"], ["#identify", "identify"]];
 	const place = (el) => PLACES.find(([s]) => el.closest(s))?.[1] ?? el.tagName.toLowerCase();
 	const layer = (el) => el.closest(LAYERS) ?? document.body;
 	// not in a closed <details>, hidden or see-through (the camera's hint)
 	const shown = (el) => el.checkVisibility({ opacityProperty: true, visibilityProperty: true });
-	// a box cut to what its scrolling or clipping ancestors let through
+	// A box cut to what its scrolling or clipping ancestors let through.
+	// `cut`: the ancestor that hides part of it without a way to scroll to
+	// it or an ellipsis to say so (the plan cutting off the top bar).
 	const clip = (r, el) => {
 		let { left, top, right, bottom } = r;
+		let cut = null;
 		for (let e = el; e && e !== document.documentElement; e = e.parentElement) {
 			const s = getComputedStyle(e);
 			if (s.overflowX === "visible" && s.overflowY === "visible") continue;
 			const c = e.getBoundingClientRect();
+			const before = [left, top, right, bottom].join();
 			if (s.overflowX !== "visible") [left, right] = [Math.max(left, c.left), Math.min(right, c.right)];
 			if (s.overflowY !== "visible") [top, bottom] = [Math.max(top, c.top), Math.min(bottom, c.bottom)];
+			const hides = [s.overflowX, s.overflowY].some((o) => o === "hidden" || o === "clip") && s.textOverflow !== "ellipsis";
+			if (hides && !cut && [left, top, right, bottom].join() !== before) cut = e;
 		}
-		return right - left > 0.5 && bottom - top > 0.5 ? { left, top, right, bottom } : null;
+		return right - left > 0.5 && bottom - top > 0.5 ? { left, top, right, bottom, cut } : null;
 	};
 	// What's over its middle, or another layer over a corner (2 px in): a
 	// panel over a button's edge. Not a neighbour over a corner: a heading's
@@ -289,19 +298,32 @@ function probe(vw, vh) {
 		if (box) ink.push({ el, node: el, box, what: `icon ${el.querySelector("use")?.getAttribute("href") ?? ""} (${place(el)})` });
 	}
 
+	const heat = document.getElementById("heat");
+	if (shown(heat)) {
+		const r = heat.getBoundingClientRect();
+		for (const l of drawn) {
+			const box = { left: r.left + l.left, top: r.top + l.top, right: r.left + l.right, bottom: r.top + l.bottom };
+			ink.push({ el: heat, node: l, box, what: `"${l.text}" (timeline graph)` });
+		}
+	}
+
 	const faults = [];
 	if (document.documentElement.scrollWidth > vw + 1) faults.push(`the page scrolls sideways: ${document.documentElement.scrollWidth} px wide`);
 	const off = (b) => b.left < -1 || b.right > vw + 1;
 	const controls = [...document.querySelectorAll("button, input, select, textarea, summary, [role=separator]")]
 		.map((el) => ({ el, box: shown(el) && clip(el.getBoundingClientRect(), el) }))
 		.filter((c) => c.box);
+	const cutBy = (box) => box.cut && `cut off by ${box.cut.className ? `.${box.cut.className.split(" ")[0]}` : box.cut.tagName.toLowerCase()}`;
 	for (const c of controls) {
+		if (cutBy(c.box)) faults.push(`${name(c.el)} is ${cutBy(c.box)}`);
 		if (off(c.box)) faults.push(`${name(c.el)} runs off the screen: ${Math.round(c.box.left)} to ${Math.round(c.box.right)} px`);
 		const hit = covered(c.el, c.box);
 		if (hit) faults.push(`${name(c.el)} is under ${name(hit.closest("button, [id]") ?? hit)}`);
 	}
 	for (const i of ink) {
-		if (off(i.box) && !i.el.closest("button")) faults.push(`${i.what} runs off the screen: ${Math.round(i.box.left)} to ${Math.round(i.box.right)} px`);
+		if (i.el.closest("button")) continue;
+		if (cutBy(i.box)) faults.push(`${i.what} is ${cutBy(i.box)}`);
+		if (off(i.box)) faults.push(`${i.what} runs off the screen: ${Math.round(i.box.left)} to ${Math.round(i.box.right)} px`);
 	}
 	// ink under another layer is covered, and only its own layer can clash
 	const top = ink.filter((i) => {
@@ -324,7 +346,10 @@ function probe(vw, vh) {
 
 // --- the scenes ---------------------------------------------------------------
 
-// `act`: what to click, in order; `ready`: what to wait for after.
+// `act`: what to click, in order; `zoom`: then shift-drag across the middle
+// of the graph; `ready`: what to wait for after. The page opens live here
+// (reduced motion doesn't play), so the other states of the timeline's head
+// are scenes of their own.
 const panel = (name, act, ready = "document.querySelector('#side.open')") => ({ name, act, ready });
 const range = (r) => ({
 	name: `range ${r}`, act: [`#ranges [data-range="${r}"]`],
@@ -339,6 +364,9 @@ const SCENES = [
 	panel("sensors", ["#sensors-btn"]),
 	panel("a sensor", ["#sensors-btn", "#side [data-sensor]"], "document.querySelector('#sensor-mode p')"),
 	...["1h", "6h", "7d", "30d"].map(range),
+	{ name: "a moment", act: ["#peak"], ready: "document.querySelector('#live[aria-pressed=false]')" },
+	{ name: "playing", act: ["#play"], ready: "document.querySelector('#play').textContent === 'Pause'" },
+	{ name: "zoomed in", zoom: true, ready: "document.querySelector('#zoom-out-tl:not([hidden])')" },
 	id("sensor", "none", [], ".id-pick"),
 	id("move", "move", [], "[data-act=find]"),
 	id("what's here", "find", [], "#id-body .id-list"),
@@ -376,11 +404,20 @@ async function main() {
 					await tab.evaluate(`document.querySelector('${sel}').click()`);
 					await tab.evaluate(frames);
 				}
+				if (scene.zoom) {
+					const r = await tab.evaluate("(({ left, top, width, height }) => ({ left, top, width, height }))(document.getElementById('heat').getBoundingClientRect())");
+					const y = r.top + r.height / 2;
+					const mouse = (type, x) => tab.send("Input.dispatchMouseEvent", { type, x, y, button: "left", buttons: type === "mouseReleased" ? 0 : 1, clickCount: 1, modifiers: 8 });
+					await mouse("mousePressed", r.left + r.width * 0.4);
+					await mouse("mouseMoved", r.left + r.width * 0.6);
+					await mouse("mouseReleased", r.left + r.width * 0.6);
+				}
 				if (scene.ready) await tab.waitFor(scene.ready);
 				// let fetches that follow a click land, and the canvas draw
 				await new Promise((ok) => setTimeout(ok, 300));
 				await tab.evaluate(frames);
-				const faults = await tab.evaluate(`(${probe})(${width}, ${height})`);
+				const drawn = await tab.evaluate(`import("/timeline.js").then((m) => m.drawnLabels)`);
+				const faults = await tab.evaluate(`(${probe})(${width}, ${height}, ${JSON.stringify(drawn)})`);
 				if (shots) {
 					const { data } = await tab.send("Page.captureScreenshot", { format: "png" });
 					writeFileSync(join(shots, `${title.replace(/[^\w]+/g, "-")}.png`), Buffer.from(data, "base64"));

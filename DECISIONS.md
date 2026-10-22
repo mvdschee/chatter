@@ -279,3 +279,8 @@
 **Decision:** `ui-tests/layout.mjs` starts headless Chrome and drives it over the DevTools protocol with node's own WebSocket, and serves `ui/` with a small node server that answers `/v1` from made-up data. No packages, no collector, no database.
 **Why:** The checks it needs (boxes, what's under a point, a screenshot) are a handful of protocol calls, and made-up data can be made busy on purpose and published, where the real database can't.
 **Alternatives:** Puppeteer or Playwright (a dependency and a browser download for a few calls); running it against the collector and a database copy (real data, but tidy data passes anything, and it can't be in a public repo).
+
+## 2026-10-22 - The timeline's labels are placed, not offset
+**Decision:** Every label on the timeline's graph goes through one function (`ui/labels.js` `placeLabels`): in order of importance, each takes the first of its spots that is on the canvas and clear of the labels before it, or is left out.
+**Why:** The overlaps (peaks, stacked identify bands, the cut-off axis) came from labels drawn at fixed offsets without knowing about each other; placing them in one pass makes an overlap impossible rather than unlikely, and a node test checks it over random bunched-up labels.
+**Alternatives:** Moving the offsets (fixes today's data only); merging labels that collide into one ("port scan ×2", more to read and to test); a force-directed layout (overkill for a dozen labels).

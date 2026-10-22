@@ -4,6 +4,7 @@
 import { heat, heatColor } from "./colour.js";
 import { DEVICES, LOOP, PORT_SCANS, SESSIONS, TL, bucketOf, bucketTime, buckets, busiestAt, loadTimeline, peakAt, seriesAt, sum, totalAt } from "./data.js";
 import { DAY_MONTH, MiB, fmtBytes, hhmm, whenLabel } from "./format.js";
+import { ASCENT, DESCENT, placeLabels } from "./labels.js";
 import { MINUTE_MS, play } from "./playback.js";
 import { dpr, reduced } from "./view.js";
 
@@ -22,8 +23,16 @@ const playBtn = document.getElementById("play");
 const liveBtn = document.getElementById("live");
 const peakBtn = document.getElementById("peak");
 const atEl = document.getElementById("tl-at");
-const GUTTER = 70, TOP = 22, AXIS = 16;
+const TOP = 22, AXIS = 16;
+const FONT = "10px ui-monospace, Menlo, monospace";
+const MUTED = "rgba(92,122,134,0.9)";
+// The graph starts right of the y axis's widest amount: `gutter` px in.
+const LEFT = 6;
+let gutter = 70;
 export let heatDirty = true, hover = null, dragging = false, peak = 0;
+// The labels drawn, as boxes on the canvas, for the layout check
+// (ui-tests/layout.mjs).
+export let drawnLabels = [];
 let graphMax = 1; // the y axis's top, bytes a minute
 let picking = null; // shift-drag: the stretch being picked, [from, to] buckets
 
@@ -34,10 +43,10 @@ export function redrawGraph() {
 
 function heatGeom() {
 	const r = heatEl.getBoundingClientRect();
-	return { w: r.width, h: r.height, cw: (r.width - GUTTER) / Math.max(1, buckets()), ph: r.height - TOP - AXIS };
+	return { w: r.width, h: r.height, gutter, cw: (r.width - gutter) / Math.max(1, buckets()), ph: r.height - TOP - AXIS };
 }
 
-const colX = (g, i) => GUTTER + i * g.cw;
+const colX = (g, i) => g.gutter + i * g.cw;
 const valY = (g, v) => TOP + g.ph * (1 - v / graphMax);
 
 // A round amount at or above `v` bytes: 1, 2 or 5 times a power of ten, in
@@ -64,7 +73,7 @@ function hotspots(values, n, apart) {
 const TICK_STEPS_MIN = [15, 30, 60, 180, 360, 720, 1440, 2880, 7200, 10_080];
 function timeTicks(g) {
 	const span = TL.to * 1000 - TL.from * 1000;
-	const px = (g.w - GUTTER) / span; // pixels a millisecond
+	const px = (g.w - g.gutter) / span; // pixels a millisecond
 	const step = TICK_STEPS_MIN.find((m) => m * 60_000 * px >= 70) ?? TICK_STEPS_MIN.at(-1);
 	const ticks = [];
 	const t = new Date(TL.from * 1000);
@@ -74,7 +83,7 @@ function timeTicks(g) {
 		const minuteOfDay = t.getHours() * 60 + t.getMinutes();
 		const dayNo = Math.floor((t - new Date(2000, 0, 1)) / 86_400_000);
 		const on = step < 1440 ? minuteOfDay % step === 0 : minuteOfDay === 0 && dayNo % (step / 1440) === 0;
-		if (on) ticks.push({ x: GUTTER + (t - TL.from * 1000) * px, label: step < 1440 ? hhmm(t) : DAY_MONTH.format(t) });
+		if (on) ticks.push({ x: g.gutter + (t - TL.from * 1000) * px, label: step < 1440 ? hhmm(t) : DAY_MONTH.format(t) });
 	}
 	return ticks;
 }
@@ -83,14 +92,18 @@ function timeTicks(g) {
 // with the area under it, a faint band up to each bucket's busiest minute (so
 // a short spike survives a long range), coloured by how close it comes to the
 // peak. Drawn once per change into `heatCache`; each frame adds the playhead,
-// the hover readout and a shift-drag selection.
+// the hover readout and a shift-drag selection. The labels are placed last,
+// most important first, and one that would overlap another is left out
+// (labels.js).
 function renderHeat() {
-	const g = heatGeom();
-	heatCache.width = Math.round(g.w * dpr);
-	heatCache.height = Math.round(g.h * dpr);
+	const r = heatEl.getBoundingClientRect();
+	heatCache.width = Math.round(r.width * dpr);
+	heatCache.height = Math.round(r.height * dpr);
 	const c = heatCache.getContext("2d");
 	c.setTransform(dpr, 0, 0, dpr, 0, 0);
-	c.clearRect(0, 0, g.w, g.h);
+	c.clearRect(0, 0, r.width, r.height);
+	c.font = FONT;
+	const measure = (text) => c.measureText(text).width;
 	const n = buckets();
 
 	const averages = TL.total.map(([a]) => a);
@@ -98,17 +111,23 @@ function renderHeat() {
 	const best = Math.max(0, ...peaks);
 	peak = peaks.indexOf(best);
 	graphMax = niceCeil(best * 1.15);
+	const amounts = [0, 0.5, 1].map((f) => [graphMax * f, f ? `${fmtBytes(graphMax * f)}/min` : "0"]);
+	gutter = LEFT + Math.ceil(Math.max(...amounts.map(([, text]) => measure(text)))) + 8;
+	const g = heatGeom();
+	// in order of importance: the axes, the port scans with alerts, the
+	// hotspots, then the other port scans and the identify sessions
+	const axes = [], alerts = [], hot = [], bands = [];
 
 	// the y axis: gridlines with their amount
-	c.font = "10px ui-monospace, Menlo, monospace";
-	for (const f of [0, 0.5, 1]) {
-		const v = graphMax * f, y = valY(g, v);
+	for (const [v, text] of amounts) {
+		const y = valY(g, v);
 		c.fillStyle = "rgba(127,231,242,0.08)";
-		c.fillRect(GUTTER, Math.round(y), g.w - GUTTER, 1);
-		c.fillStyle = "rgba(92,122,134,0.9)";
-		const text = f ? `${fmtBytes(v)}/min` : "0";
-		c.fillText(text, GUTTER - 8 - c.measureText(text).width, y + 3.5);
+		c.fillRect(g.gutter, Math.round(y), g.w - g.gutter, 1);
+		axes.push({ text, color: MUTED, at: [[g.gutter - 8, y + 3.5, "right"]] });
 	}
+
+	// a band's label: from its start, else ending at its end
+	const bandLabel = (text, color, x1, x2) => ({ text, color, at: [[x1, TOP - 5], [x2, TOP - 5, "right"]] });
 
 	// the port scans: a band over their span, labelled, red with alerts
 	for (const p of PORT_SCANS) {
@@ -120,7 +139,7 @@ function renderHeat() {
 		c.fillStyle = p.alerts ? "rgba(255,59,59,0.9)" : "rgba(127,231,242,0.55)";
 		c.fillRect(x1, TOP - 2, x2 - x1, 1);
 		const text = p.alerts ? `port scan · ${p.alerts} alert${p.alerts > 1 ? "s" : ""}` : "port scan";
-		c.fillText(text, Math.min(x1, g.w - c.measureText(text).width), TOP - 5);
+		(p.alerts ? alerts : bands).push(bandLabel(text, c.fillStyle, x1, x2));
 	}
 
 	// identify sessions: a muted band, the sensor didn't count during them
@@ -130,10 +149,9 @@ function renderHeat() {
 		const x1 = colX(g, from), x2 = Math.max(x1 + 2, colX(g, to));
 		c.fillStyle = "rgba(92,122,134,0.12)";
 		c.fillRect(x1, TOP, x2 - x1, g.ph);
-		c.fillStyle = "rgba(92,122,134,0.9)";
+		c.fillStyle = MUTED;
 		c.fillRect(x1, TOP - 2, x2 - x1, 1);
-		const text = `identify · ${s.sensor}`;
-		c.fillText(text, Math.min(x1, g.w - c.measureText(text).width), TOP - 5);
+		bands.push(bandLabel(`identify · ${s.sensor}`, MUTED, x1, x2));
 	}
 
 	if (best > 0) {
@@ -157,24 +175,29 @@ function renderHeat() {
 	for (const t of timeTicks(g)) {
 		c.fillStyle = "rgba(127,231,242,0.18)";
 		c.fillRect(t.x, g.h - AXIS, 1, 5);
-		if (t.x > GUTTER + 12 && t.x < g.w - 30) {
-			c.fillStyle = "rgba(92,122,134,0.9)";
-			c.fillText(t.label, t.x - c.measureText(t.label).width / 2, g.h - 2);
-		}
+		axes.push({ text: t.label, color: MUTED, at: [[t.x, g.h - 2, "center"]] });
 	}
 
-	// the hotspots: the busiest minutes, a dot at the peak with when and how much
+	// the hotspots: the busiest minutes, a dot at the peak with when and how
+	// much above it, else beside or under it
 	for (const i of hotspots(peaks, 3, Math.max(1, Math.round(n / 12)))) {
 		const x = colX(g, i + 0.5), y = valY(g, peaks[i]);
 		c.fillStyle = heatColor(peaks[i] / best);
 		c.beginPath();
 		c.arc(x, y, 2.5, 0, Math.PI * 2);
 		c.fill();
-		const text = `${whenLabel(bucketTime(i))} · ${fmtBytes(peaks[i])}/min`;
-		const w = c.measureText(text).width;
-		c.fillStyle = "rgba(232,244,246,0.9)";
-		c.fillText(text, Math.max(GUTTER, Math.min(x - w / 2, g.w - w)), Math.max(10, y - 7));
+		hot.push({
+			text: `${whenLabel(bucketTime(i))} · ${fmtBytes(peaks[i])}/min`, color: "rgba(232,244,246,0.9)", left: g.gutter,
+			at: [[x, y - 7, "center"], [x + 7, y + 3.5], [x - 7, y + 3.5, "right"], [x, y + 14, "center"]],
+		});
 	}
+
+	const placed = placeLabels([...axes, ...alerts, ...hot, ...bands], measure, g);
+	for (const l of placed) {
+		c.fillStyle = l.color;
+		c.fillText(l.text, l.x, l.y);
+	}
+	drawnLabels = placed.map((l) => ({ text: l.text, left: l.x, top: l.y - ASCENT, right: l.x + l.w, bottom: l.y + DESCENT }));
 
 	// a mark above the line: the outlier
 	if (DEVICES.some((d) => d.outlier && d.minutes.some((m) => heat(m[0]) > 0.9))) {
@@ -198,7 +221,7 @@ export function drawTimeline(now) {
 	hctx.clearRect(0, 0, heatEl.width, heatEl.height);
 	hctx.drawImage(heatCache, 0, 0);
 	hctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-	hctx.font = "10px ui-monospace, Menlo, monospace";
+	hctx.font = FONT;
 	if (!buckets()) return;
 
 	// shift-drag: the stretch being picked
@@ -235,7 +258,7 @@ export function drawTimeline(now) {
 
 	if (live) {
 		const left = Math.ceil((MINUTE_MS * LOOP - (now - play.loopStart)) / 1000);
-		atEl.innerHTML = `<b>live</b> · replaying the last ${LOOP} minutes · next minute in ${left} s (played ${60_000 / MINUTE_MS}× faster)`;
+		atEl.innerHTML = `<b>live</b> · last ${LOOP} min at ${60_000 / MINUTE_MS}× · next in ${left} s`;
 	} else {
 		const i = Math.floor(play.cursor);
 		const d = busiestAt(i);
@@ -251,7 +274,7 @@ export function renderControls() {
 	playBtn.textContent = play.playing ? "Pause" : "Play";
 	liveBtn.setAttribute("aria-pressed", String(play.mode === "live"));
 	rangesEl.innerHTML = RANGES.map(([r, label]) =>
-		`<button class="tl-btn range" data-range="${r}" aria-pressed="${!zoomed && r === range}" title="the last ${label}">${r}</button>`).join("");
+		`<button data-range="${r}" aria-pressed="${!zoomed && r === range}" title="the last ${label}">${r}</button>`).join("");
 	rangesEl.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => setRange(b.dataset.range)));
 	zoomOutBtn.hidden = !zoomed;
 }
@@ -304,9 +327,9 @@ function togglePlay() {
 }
 
 function bucketAt(ev) {
-	const r = heatEl.getBoundingClientRect();
-	const n = Math.max(1, buckets());
-	return Math.max(0, Math.min(n - 1, Math.floor((ev.clientX - r.left - GUTTER) / ((r.width - GUTTER) / n))));
+	const g = heatGeom();
+	const x = ev.clientX - heatEl.getBoundingClientRect().left;
+	return Math.max(0, Math.min(Math.max(1, buckets()) - 1, Math.floor((x - g.gutter) / g.cw)));
 }
 
 // Drag: replay a moment. Shift-drag: pick a stretch to zoom in to.
