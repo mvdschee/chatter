@@ -16,6 +16,7 @@ help:
 	@echo "  make test          host tests: core and collector"
 	@echo "  make check         clippy and fmt for every crate"
 	@echo "  make icons         rebuild the page's icon sprite (crates/collector/icons.sh)"
+	@echo "  make layout        the page in headless Chrome, phone and wide: nothing off screen or overlapping"
 	@echo "Board (the one .env names):"
 	@echo "  make run           flash it, reporting to CHATTER_COLLECTOR_ADDR"
 	@echo "  make test-device   firmware tests on it"
@@ -41,6 +42,12 @@ port-scan:
 # the icons the page uses, from Lucide; the list is in the script
 icons:
 	crates/collector/icons.sh
+
+# the page in headless Chrome at a phone's width and a wide screen's, on
+# made-up data; FILTER=phone keeps the scenes whose name has it, SHOTS=dir
+# saves a screenshot of each
+layout:
+	$(if $(SHOTS),SHOTS=$(SHOTS)) node crates/collector/ui-tests/layout.mjs "$(FILTER)"
 
 test:
 	cargo test -p chatter-core

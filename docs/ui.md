@@ -1,7 +1,8 @@
 # Tidying the UI (research and plan)
 
 Status, 2026-10-22: the mockup is approved, with two changes: icons from
-Lucide, and technical wording. Chunk 3 (buttons and the top bar) is built.
+Lucide, and technical wording. Chunks 2 (the layout check) and 3 (buttons
+and the top bar) are built.
 The owner finds the home page and the identify page busy and badly
 organised: controls were added one feature at a time, each one the same
 bordered, uppercase button.
@@ -117,11 +118,23 @@ One reviewable chunk each, with its check:
    the plan: the home page on a wide screen and on a phone, and identify's
    Find step on a phone.
    Check: the owner says what feels right or wrong.
-2. **Layout check:** a script that opens the page in headless Chrome at
+2. **Layout check** _(built)_: a script that opens the page in headless Chrome at
    390 and 1440 px wide, on home, with a panel open, and on each identify
    step, and fails when a control leaves the viewport or two text boxes in
    the top bar, the timeline head or identify overlap.
    Check: it fails on the page as it is now (the defects above).
+   `make layout` (`ui-tests/layout.mjs`; `FILTER=phone`, `SHOTS=dir`). It
+   serves `ui/` itself with made-up data, busy on purpose, so it needs no
+   collector. It fails on: the page scrolling sideways, a control or a line
+   of text past the screen's edge, a control under another layer (a
+   corner is enough), and two lines of text overlapping in the same layer.
+   On the page as it was, it found the phone's top bar, camera buttons and
+   timeline head off the screen (one wide row widens the whole page), and
+   on a wide screen the device list, a device and a sensor's panel over the
+   camera's buttons. Identify passed at both widths.
+   It can't see text drawn on a canvas: the HUD's readouts and the timeline's
+   labels. A phone also widens its page to fit what runs off it, so the
+   check measures against the screen's width, not `innerWidth`.
 3. **Buttons and the top bar** _(built)_: the three levels in `style.css`,
    the top bar's groups, the sensors as one status item (a list of them in
    the side panel when there's more than one), the camera's buttons as

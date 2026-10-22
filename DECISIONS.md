@@ -274,3 +274,8 @@
 **Decision:** The top bar shows one item for all sensors: the worst state and how many are in it ("1 offline"), else "2/2 online"; it opens a list of them, or the sensor itself when there's one.
 **Why:** A pill per sensor doesn't fit a household with four sensors, and the worst state is what needs noticing.
 **Alternatives:** A pill per sensor (as before), a dot per sensor with no words.
+
+## 2026-10-22 - The layout check drives Chrome itself, on made-up data
+**Decision:** `ui-tests/layout.mjs` starts headless Chrome and drives it over the DevTools protocol with node's own WebSocket, and serves `ui/` with a small node server that answers `/v1` from made-up data. No packages, no collector, no database.
+**Why:** The checks it needs (boxes, what's under a point, a screenshot) are a handful of protocol calls, and made-up data can be made busy on purpose and published, where the real database can't.
+**Alternatives:** Puppeteer or Playwright (a dependency and a browser download for a few calls); running it against the collector and a database copy (real data, but tidy data passes anything, and it can't be in a public repo).
