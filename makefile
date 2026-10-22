@@ -15,6 +15,7 @@ help:
 	@echo "  make collector     run the collector here (page and reports on CHATTER_BIND); SUDO=1 to sweep"
 	@echo "  make test          host tests: core and collector"
 	@echo "  make check         clippy and fmt for every crate"
+	@echo "  make icons         rebuild the page's icon sprite (crates/collector/icons.sh)"
 	@echo "Board (the one .env names):"
 	@echo "  make run           flash it, reporting to CHATTER_COLLECTOR_ADDR"
 	@echo "  make test-device   firmware tests on it"
@@ -36,6 +37,10 @@ collector:
 port-scan:
 	cargo build -q $(COLLECTOR_CRATE)
 	$(if $(SUDO),sudo) target/debug/chatter-collector port-scan
+
+# the icons the page uses, from Lucide; the list is in the script
+icons:
+	crates/collector/icons.sh
 
 test:
 	cargo test -p chatter-core

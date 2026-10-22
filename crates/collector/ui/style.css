@@ -39,7 +39,7 @@ html, body {
 	z-index: 2;
 	display: flex;
 	align-items: center;
-	gap: 14px;
+	gap: 18px;
 }
 .top-btn {
 	all: unset;
@@ -53,17 +53,36 @@ html, body {
 }
 .top-btn:hover, .top-btn[aria-expanded="true"] { border-color: var(--signal); }
 .top-btn:focus-visible { outline: 1px solid var(--signal); outline-offset: 2px; }
-/* a sensor's heartbeat: live, late or silent */
-#sensor-pills { display: contents; }
-.sensor-pill { display: inline-flex; align-items: center; gap: 7px; letter-spacing: 0.12em; }
-.sensor-pill .ago { font: 11px/1 var(--mono); letter-spacing: 0; text-transform: none; color: var(--muted); }
+/* The button levels (docs/ui.md): ghost, the label alone, for most actions;
+   a segmented control for a choice of a few; icons from the sprite. */
+.icon { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ghost, .status { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; padding: 7px 2px; font: 11px/1 var(--display); letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); }
+.ghost .icon { color: var(--signal); }
+.ghost:hover, .status:hover, .status[aria-expanded="true"] { color: var(--signal); }
+.ghost:focus-visible, .status:focus-visible { outline: 1px solid var(--signal); outline-offset: 2px; }
+.seg { display: inline-flex; border: 1px solid var(--line); }
+.seg > button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; font: 11px/1 var(--display); letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+.seg > button + button { border-left: 1px solid var(--line); }
+.seg > button:hover { color: var(--signal); }
+.seg > button[aria-expanded="true"], .seg > button[aria-pressed="true"] { background: var(--signal); color: var(--void); }
+.seg > button:focus-visible { outline: 1px solid var(--signal); outline-offset: 2px; }
+.icon-group { display: inline-flex; border: 1px solid var(--line); background: var(--void); }
+.icon-group > button { all: unset; cursor: pointer; width: 32px; height: 30px; display: grid; place-items: center; color: var(--signal); }
+.icon-group > button + button { border-left: 1px solid var(--line); }
+.icon-group > button:hover { background: rgba(127, 231, 242, 0.08); }
+.icon-group > button:focus-visible { outline: 1px solid var(--signal); outline-offset: 2px; }
+.rule { width: 1px; height: 16px; background: var(--line); }
+/* the sensors at a glance: the worst state, and how many are in it */
+.status { color: var(--phosphor); }
+.status .sub { margin-left: 2px; color: var(--muted); }
+/* a sensor's heartbeat: live, late or offline */
 .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .dot.live { background: var(--signal); box-shadow: 0 0 6px var(--signal); animation: beat 2s ease-in-out infinite; }
 .dot.late { background: #f2c14e; }
-.dot.silent { background: var(--heat); }
+.dot.offline { background: var(--heat); box-shadow: 0 0 6px var(--heat); }
 @keyframes beat { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .dot.live { animation: none; } }
-.badge { margin-left: 6px; padding: 1px 5px; background: var(--heat); color: var(--void); letter-spacing: 0; }
+.badge { margin-left: 2px; padding: 2px 4px; background: var(--heat); color: var(--void); font: 600 10px/1 var(--mono); letter-spacing: 0; }
 .clock { font: 13px/1 var(--mono); color: var(--phosphor); font-variant-numeric: tabular-nums; }
 
 /* --- the plan ------------------------------------------------------ */
@@ -80,8 +99,9 @@ canvas#plan.dragging { cursor: grabbing; }
 	align-items: center;
 	gap: 6px;
 }
-.view-ctl .top-btn { min-width: 12px; text-align: center; padding: 6px 8px; }
-.view-ctl .hint { font: 11px/1 var(--mono); color: var(--muted); margin-right: 8px; }
+/* the hint only while the camera's controls are in use */
+.view-ctl .hint { font: 11px/1 var(--mono); color: var(--muted); margin-right: 8px; opacity: 0; transition: opacity 0.2s; }
+.view-ctl:hover .hint, .view-ctl:focus-within .hint { opacity: 1; }
 canvas#plan:focus-visible { outline: 1px solid var(--signal); outline-offset: -1px; }
 /* drawing rooms: over the plan, straight from above (edit.js) */
 .app.editing { grid-template-rows: 1fr; }

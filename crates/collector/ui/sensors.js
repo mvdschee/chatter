@@ -1,43 +1,66 @@
-// The sensors: their state, a pill each in the top bar, and their panel with
-// the heartbeat.
+// The sensors: their state, one status item for all of them in the top bar,
+// their list, and a sensor's panel with the heartbeat.
 
 import { SENSORS } from "./data.js";
-import { DATE_TIME, fmtAgo, fmtDuration, hhmm } from "./format.js";
+import { DATE_TIME, esc, fmtAgo, fmtDuration, hhmm } from "./format.js";
 import { showMode } from "./identify.js";
 import { CLOSE, closePanel, panel, showPanel, side, wireClose } from "./panel.js";
 import { dpr } from "./view.js";
 
 // The firmware reports once a minute. Live: a report within two and a half
-// of those; late: within ten minutes; else silent.
+// of those; late: within ten minutes; else offline.
 const REPORT_PERIOD_S = 60;
 export function sensorState(s) {
 	const age = Date.now() / 1000 - s.last_seen;
-	return age <= 2.5 * REPORT_PERIOD_S ? "live" : age <= 600 ? "late" : "silent";
+	return age <= 2.5 * REPORT_PERIOD_S ? "live" : age <= 600 ? "late" : "offline";
 }
-export const STATE_COLOR = { live: "#7fe7f2", late: "#f2c14e", silent: "#ff3b3b" };
+export const STATE_COLOR = { live: "#7fe7f2", late: "#f2c14e", offline: "#ff3b3b" };
+const STATE_WORD = { live: "online", late: "late", offline: "offline" };
 
-const pillsEl = document.getElementById("sensor-pills");
+const statusBtn = document.getElementById("sensors-btn");
+const statusSub = document.getElementById("sensors-sub");
 
-export function renderSensorPills() {
-	pillsEl.innerHTML = SENSORS.map((s) =>
-		`<button class="top-btn sensor-pill" data-sensor="${s.name}" aria-controls="side">`
-		+ `<span class="dot ${sensorState(s)}"></span>${s.name}<span class="ago"></span></button>`).join("");
-	pillsEl.querySelectorAll("button").forEach((b) => b.addEventListener("click", () =>
-		(panel === "sensor" && openSensorName === b.dataset.sensor ? closePanel() : openSensor(b.dataset.sensor))));
-	updateSensorAges();
+// The status item: the worst state and how many are in it ("1 offline"),
+// else how many are online ("2/2 online"). Every tick.
+export function renderSensorStatus() {
+	const states = SENSORS.map(sensorState);
+	const worst = ["offline", "late"].find((x) => states.includes(x));
+	const n = states.filter((x) => x === worst).length;
+	statusBtn.querySelector(".dot").className = `dot ${worst ?? (SENSORS.length ? "live" : "")}`;
+	statusSub.textContent = !SENSORS.length ? "none yet" : worst ? `${n} ${worst}` : `${SENSORS.length}/${SENSORS.length} online`;
 }
 
-// The "… ago" texts, the dots and the open panel's line, every tick.
+// One sensor goes straight to its panel; more to the list first.
+statusBtn.addEventListener("click", () => {
+	if (panel === "sensor" || panel === "sensors") closePanel();
+	else if (SENSORS.length === 1) openSensor(SENSORS[0].name);
+	else openSensors();
+});
+
+const ago = (s) => fmtAgo(Date.now() / 1000 - s.last_seen);
+
+export function openSensors() {
+	side.innerHTML = `${CLOSE}<div class="eyebrow">Sensors</div><ul class="list">${SENSORS.map((s) =>
+		`<li><button data-sensor="${esc(s.name)}"><span class="dot ${sensorState(s)}"></span><span>${esc(s.name)}</span>`
+		+ `<span class="rate" data-ago="${esc(s.name)}">${ago(s)}</span></button></li>`).join("")}</ul>`;
+	wireClose();
+	side.querySelectorAll("[data-sensor]").forEach((b) => b.addEventListener("click", () => openSensor(b.dataset.sensor)));
+	showPanel("sensors");
+}
+
+// The status item, the list's ages and dots, and the open panel's line, every
+// tick.
 export function updateSensorAges() {
-	for (const b of pillsEl.querySelectorAll("button")) {
-		const s = SENSORS.find((x) => x.name === b.dataset.sensor);
+	renderSensorStatus();
+	for (const el of side.querySelectorAll("[data-ago]")) {
+		const s = SENSORS.find((x) => x.name === el.dataset.ago);
 		if (!s) continue;
-		b.querySelector(".ago").textContent = fmtAgo(Date.now() / 1000 - s.last_seen);
-		b.querySelector(".dot").className = `dot ${sensorState(s)}`;
+		el.textContent = ago(s);
+		el.parentElement.querySelector(".dot").className = `dot ${sensorState(s)}`;
 	}
 	const line = document.getElementById("sensor-ago");
 	const s = SENSORS.find((x) => x.name === openSensorName);
-	if (line && s) line.innerHTML = `<span class="dot ${sensorState(s)}"></span> ${sensorState(s)} · last report ${fmtAgo(Date.now() / 1000 - s.last_seen)}`;
+	if (line && s) line.innerHTML = `<span class="dot ${sensorState(s)}"></span> ${STATE_WORD[sensorState(s)]} · last report ${ago(s)}`;
 }
 
 export let openSensorName = null;
@@ -47,8 +70,10 @@ export function openSensor(name) {
 	if (!s) return;
 	openSensorName = name;
 	const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+	const back = SENSORS.length > 1 ? `<button class="back" id="sensors-back">← All sensors</button>` : "";
 	side.innerHTML = `
 		${CLOSE}
+		${back}
 		<div class="eyebrow">Sensor</div>
 		<h2 class="name">${s.name}</h2>
 		<div class="where" id="sensor-ago"></div>
@@ -76,6 +101,7 @@ export function openSensor(name) {
 		<div class="eyebrow">Mode</div>
 		<div class="mode" id="sensor-mode"></div>`;
 	wireClose();
+	document.getElementById("sensors-back")?.addEventListener("click", openSensors);
 	showPanel("sensor");
 	updateSensorAges();
 	drawHeartbeat(s);

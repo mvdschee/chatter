@@ -264,3 +264,13 @@
 **Decision:** The phone's identify page is a full-screen layer in the same page (`ui/identify.js`), opened from the top bar or at `#identify`, under the device panel and the editor, with the plan and timeline hidden while it's open.
 **Why:** A device picked in it opens the same panel for renaming and the editor's Place step, with no second page to keep in step. Hiding what it covers also stops the page, wider than a phone, from widening the view.
 **Alternatives:** A page of its own (`identify.html`), lighter on the phone but with no panel or Place unless they were shared or rebuilt.
+
+## 2026-10-22 - Icons: a Lucide sprite built by a script
+**Decision:** The page's icons are one SVG sprite (`ui/icons.svg`) of `<symbol>`s from Lucide, built by `crates/collector/icons.sh` from a list of names at a pinned version; the page draws them with `<use>` and styles the stroke in CSS.
+**Why:** One file for every icon, no dependency or build step for the page, and an icon takes its colour from the text around it; the script makes adding one a name in a list.
+**Alternatives:** Inline SVG per button (repeats the drawings), the Lucide JS package (a dependency for a dozen icons), an icon font (blurry, worse for accessibility).
+
+## 2026-10-22 - The sensors are one status item
+**Decision:** The top bar shows one item for all sensors: the worst state and how many are in it ("1 offline"), else "2/2 online"; it opens a list of them, or the sensor itself when there's one.
+**Why:** A pill per sensor doesn't fit a household with four sensors, and the worst state is what needs noticing.
+**Alternatives:** A pill per sensor (as before), a dot per sensor with no words.

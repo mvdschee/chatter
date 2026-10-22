@@ -16,21 +16,26 @@
 <div class="app">
 	<main class="map">
 		<header class="top">
-			<span id="sensor-pills"></span>
-			<button class="top-btn" id="identify-btn">Identify</button>
-			<button class="top-btn" id="devices-btn" aria-expanded="false" aria-controls="side">Devices</button>
-			<button class="top-btn" id="events-btn" aria-expanded="false" aria-controls="side">Timeline</button>
-			<button class="top-btn" id="edit-btn">Edit plan</button>
+			<div class="seg" role="group" aria-label="Panels">
+				<button id="devices-btn" aria-expanded="false" aria-controls="side">Devices</button>
+				<button id="events-btn" aria-expanded="false" aria-controls="side">Events</button>
+			</div>
+			<button class="ghost" id="identify-btn"><svg class="icon" aria-hidden="true"><use href="icons.svg#crosshair"/></svg>Identify</button>
+			<button class="ghost" id="edit-btn"><svg class="icon" aria-hidden="true"><use href="icons.svg#pencil-ruler"/></svg>Edit plan</button>
+			<span class="rule" aria-hidden="true"></span>
+			<button class="status" id="sensors-btn" aria-expanded="false" aria-controls="side"><span class="dot"></span>Sensors<span class="sub" id="sensors-sub"></span></button>
 			<div class="clock" id="clock">--:--:--</div>
 		</header>
 		<canvas id="plan" tabindex="0" aria-label="Floor plan with devices and their traffic. Drag to move, shift-drag to rotate, scroll to zoom; or the arrow keys, + and -. Use the device list to pick one."></canvas>
 		<div class="view-ctl">
 			<span class="hint">drag: move · shift-drag: rotate · scroll: zoom</span>
-			<button class="top-btn" id="rot-left" aria-label="Rotate left">⟲</button>
-			<button class="top-btn" id="rot-right" aria-label="Rotate right">⟳</button>
-			<button class="top-btn" id="zoom-out" aria-label="Zoom out">−</button>
-			<button class="top-btn" id="zoom-in" aria-label="Zoom in">+</button>
-			<button class="top-btn" id="view-reset">Reset</button>
+			<div class="icon-group" role="group" aria-label="Camera">
+				<button id="rot-left" aria-label="Rotate left" title="Rotate left"><svg class="icon" aria-hidden="true"><use href="icons.svg#rotate-ccw"/></svg></button>
+				<button id="rot-right" aria-label="Rotate right" title="Rotate right"><svg class="icon" aria-hidden="true"><use href="icons.svg#rotate-cw"/></svg></button>
+				<button id="zoom-out" aria-label="Zoom out" title="Zoom out"><svg class="icon" aria-hidden="true"><use href="icons.svg#zoom-out"/></svg></button>
+				<button id="zoom-in" aria-label="Zoom in" title="Zoom in"><svg class="icon" aria-hidden="true"><use href="icons.svg#zoom-in"/></svg></button>
+				<button id="view-reset" aria-label="Reset the view" title="Reset the view"><svg class="icon" aria-hidden="true"><use href="icons.svg#scan"/></svg></button>
+			</div>
 		</div>
 		<div class="editor" id="editor" hidden>
 			<ol class="edit-steps" id="edit-steps" aria-label="Steps">

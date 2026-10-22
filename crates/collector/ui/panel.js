@@ -1,18 +1,19 @@
-// The side panel: the device list, a device, the Timeline's events (a sensor's
-// panel is in sensors.js), and what they show refreshed when the data changes.
+// The side panel: the device list, a device, the events (the sensors'
+// panels are in sensors.js), and what they show refreshed when the data changes.
 
 import { score, scoreColor } from "./colour.js";
 import { DEVICES, EVENTS, LOOP, TL, bucketOf, loopHours, renameDevice, sum } from "./data.js";
 import { DATE_TIME, esc, fmtBytes, hhmm } from "./format.js";
 import { hourNow, play, shownMoment } from "./playback.js";
-import { openSensor, openSensorName } from "./sensors.js";
+import { openSensor, openSensorName, openSensors } from "./sensors.js";
 import { RANGES, range, redrawGraph, seek, zoomed } from "./timeline.js";
 import { dpr } from "./view.js";
 
 export const side = document.getElementById("side");
 const devicesBtn = document.getElementById("devices-btn");
 const eventsBtn = document.getElementById("events-btn");
-export let panel = null; // null, "list", "device", "events" or "sensor"
+const sensorsBtn = document.getElementById("sensors-btn");
+export let panel = null; // null, "list", "device", "events", "sensors" or "sensor"
 // The device the panel shows, also marked on the plan.
 export let selected = null;
 
@@ -53,6 +54,7 @@ export function onData() {
 	renderEventsBtn();
 	if (panel === "list") renderList();
 	if (panel === "events") renderEvents();
+	if (panel === "sensors") openSensors();
 	if (panel === "sensor") openSensor(openSensorName);
 }
 
@@ -62,6 +64,7 @@ export function showPanel(which) {
 	side.classList.toggle("open", which !== null);
 	devicesBtn.setAttribute("aria-expanded", String(which === "list"));
 	eventsBtn.setAttribute("aria-expanded", String(which === "events"));
+	sensorsBtn.setAttribute("aria-expanded", String(which === "sensors" || which === "sensor"));
 }
 
 export function closePanel() {
@@ -246,7 +249,7 @@ function renderEvents() {
 	const rows = sorted.map((e, i) =>
 		`<li><button data-event="${i}"><time>${hhmm(e.time)}</time><span class="${e.hot ? "hot" : ""}">${esc(e.text)}</span></button></li>`);
 	const empty = rows.length ? "" : `<p class="note">No events yet.</p>`;
-	side.innerHTML = `${CLOSE}<div class="eyebrow">Timeline</div><ul class="list events">${rows.join("")}</ul>${empty}`;
+	side.innerHTML = `${CLOSE}<div class="eyebrow">Events</div><ul class="list events">${rows.join("")}</ul>${empty}`;
 	wireClose();
 	side.querySelectorAll("button[data-event]").forEach((b) => b.addEventListener("click", () => {
 		const e = sorted[Number(b.dataset.event)];
@@ -260,7 +263,7 @@ function renderEvents() {
 // The button counts the day's alerts.
 function renderEventsBtn() {
 	const hot = EVENTS.filter((e) => e.hot).length;
-	eventsBtn.innerHTML = `Timeline${hot ? `<span class="badge">${hot}</span>` : ""}`;
+	eventsBtn.innerHTML = `Events${hot ? `<span class="badge">${hot}</span>` : ""}`;
 }
 
 devicesBtn.addEventListener("click", () => (panel === "list" ? closePanel() : openList()));

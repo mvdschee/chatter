@@ -6,7 +6,7 @@ import { closePanel, onData, selected } from "./panel.js";
 import { arrange } from "./plan.js";
 import { play } from "./playback.js";
 import { rand } from "./random.js";
-import { renderSensorPills } from "./sensors.js";
+import { renderSensorStatus } from "./sensors.js";
 import { range, renderControls, zoomed } from "./timeline.js";
 
 export const LOOP = 5; // minutes in the replay loop
@@ -119,7 +119,7 @@ function applyOverview(o) {
 		return { ...x, beatAt };
 	});
 	arrange();
-	renderSensorPills();
+	renderSensorStatus();
 	const newest = o.sensors.reduce((a, b) => (b.last_seen > a.last_seen ? b : a), o.sensors[0]);
 	Object.assign(STATUS, {
 		sensors: o.sensors.length,
