@@ -259,3 +259,8 @@
 **Why:** The window failed a second time: a reboot minutes after the last one reaches the same `seq` at the same uptime, and identify reboots the sensor twice per session. A boot id makes that match impossible instead of unlikely.
 **Alternatives:** Uptime in milliseconds (only unlikely); only matching copies newer than the sensor's last restart (no firmware change, but fails when a boot's first report is lost).
 
+## 2026-10-22 - Identify's view is a layer over the monitoring page
+
+**Decision:** The phone's identify view is a full-screen layer in the same page (`ui/identify.js`), under the device panel and the editor, with the plan and timeline hidden while it's open.
+**Why:** A device picked in it opens the same panel for renaming and the editor's Place step, with no second page to keep in step. Hiding what it covers also stops the page, wider than a phone, from widening the view.
+**Alternatives:** A page of its own (`identify.html`), lighter on the phone but with no panel or Place unless they were shared or rebuilt.

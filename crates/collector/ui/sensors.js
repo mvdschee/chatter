@@ -3,6 +3,7 @@
 
 import { SENSORS } from "./data.js";
 import { DATE_TIME, fmtAgo, fmtDuration, hhmm } from "./format.js";
+import { showMode } from "./identify.js";
 import { CLOSE, closePanel, panel, showPanel, side, wireClose } from "./panel.js";
 import { dpr } from "./view.js";
 
@@ -73,12 +74,12 @@ export function openSensor(name) {
 		</dl>
 
 		<div class="eyebrow">Mode</div>
-		<p>Normal: counting, and reporting every minute.</p>
-		<p class="note">Identify mode (hold the sensor next to a device to tell which one it is) comes after the floor plan.</p>`;
+		<div class="mode" id="sensor-mode"></div>`;
 	wireClose();
 	showPanel("sensor");
 	updateSensorAges();
 	drawHeartbeat(s);
+	showMode(name);
 }
 
 // A sensor's heartbeat as status bars (docs/timeline.md): the last hour a

@@ -66,7 +66,7 @@ export let SESSIONS = [];
 
 // A MAC with the "locally administered" bit set is made up (a phone's private
 // address per network), so no vendor can be known.
-const vendorless = (mac) => (parseInt(mac[1], 16) & 2 ? "private address (made-up MAC)" : "unknown");
+export const vendorless = (mac) => (parseInt(mac[1], 16) & 2 ? "private address (made-up MAC)" : "unknown");
 
 // Each flow starts partway to its next train of packets, or every arc stays
 // empty for the first seconds and then they all fire at once.

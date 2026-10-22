@@ -2,8 +2,9 @@
 
 Status, 2026-10-22: planned; chunk 1 (the dev board) built and checked,
 and the resend fix it turned up is in. Chunks 2 (core), 3 (firmware) and
-4 (the collector) are built and checked on the board; 5 (sessions) is
-built. The plan changed: the sensor stops counting while it
+4 (the collector) are built and checked on the board; 5 (sessions) and
+6 (the page) are built, waiting for a walk with the sensor on a phone. The
+plan changed: the sensor stops counting while it
 identifies, rather than doing both. This is the identify
 part of `docs/monitoring.md` plan step 6.
 
@@ -233,6 +234,20 @@ One commit each.
    by `own_mac` already marked).
    Check: the owner walks around with the sensor on the phone and finds a
    few devices with it.
+   Built: the sensor's panel starts a ten-minute session, says what that
+   costs (no counting until it's plugged back in, even when stopped early),
+   and opens the view; "+10 min" asks for what's left plus ten, at most an
+   hour. The view covers the page, which stops drawing the plan meanwhile,
+   and reads `/v1/identify` every 1.5 s. It says what to do: move the
+   sensor before its first post, "being moved?" when the posts stop, and
+   plug it back once the session is gone (stopped, run out, or forgotten by
+   a collector restart). What's here marks the strongest "next to it" when
+   it's 6 dB above the next; a guess for the walk to check. Find lists every
+   device seen in 24 hours plus anything online, online first, the rest
+   greyed. A device the overview doesn't know shows its MAC and can't open a
+   panel. The carried list lives in the browser's `localStorage`; the
+   collector's `own_mac` shows as "this phone" and can't be unmarked, since
+   the collector leaves it out of what's heard anyway.
 
 ## Validation
 

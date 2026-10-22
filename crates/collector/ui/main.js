@@ -5,6 +5,7 @@ import { DEVICES, LOOP, buckets, loadOverview, loadTimeline } from "./data.js";
 import { draw } from "./draw.js";
 import { drawEditor, editing } from "./edit.js";
 import { TIME_S } from "./format.js";
+import { identifyOpen } from "./identify.js";
 import { onData, updateMoment } from "./panel.js";
 import { loadPlan } from "./plan.js";
 import { MINUTE_MS, PASS_S, newMinute, outlierNow, play } from "./playback.js";
@@ -31,9 +32,10 @@ function step(now) {
 		play.cursor += ((now - play.lastFrame) / 1000) * (buckets() / PASS_S);
 		if (play.cursor >= buckets() - 1) play.cursor = 0;
 	}
-	// drawing rooms covers the view and hides the timeline: draw only the editor
+	// drawing rooms covers the view and hides the timeline: draw only the
+	// editor; identify's view covers both
 	if (editing) drawEditor();
-	else {
+	else if (!identifyOpen) {
 		moveCamera(now);
 		draw(now);
 		drawTimeline(now);

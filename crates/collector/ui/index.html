@@ -7,7 +7,8 @@
 <!--
   The monitoring page (docs/monitoring.md). The collector serves it with
   style.css and the scripts, ES modules from main.js on; they load the data
-  from /v1/overview, /v1/timeline and /v1/plan, and save the plan there.
+  from /v1/overview, /v1/timeline, /v1/plan and /v1/identify, and save the
+  plan there.
 -->
 <link rel="stylesheet" href="style.css">
 </head>
@@ -100,6 +101,25 @@
 	</section>
 
 	<aside class="side" id="side" aria-label="Device details"></aside>
+
+	<section class="identify" id="identify" hidden aria-label="Identify">
+		<header class="id-head">
+			<div class="eyebrow">Identify</div>
+			<h2 class="name" id="id-sensor"></h2>
+			<button class="close" id="id-close" aria-label="Close">×</button>
+		</header>
+		<p class="id-status" id="id-status" role="status"></p>
+		<div class="id-ctl" id="id-ctl">
+			<button class="tl-btn" id="id-more">+10 min</button>
+			<button class="tl-btn" id="id-stop">Stop</button>
+		</div>
+		<div class="id-tabs">
+			<button class="tl-btn" data-tab="here" aria-pressed="true">What's here</button>
+			<button class="tl-btn" data-tab="find" aria-pressed="false">Find</button>
+		</div>
+		<input class="edit-filter" id="id-find" type="search" placeholder="Find: name, vendor, IP or MAC" aria-label="Find a device" hidden>
+		<div class="id-body" id="id-body"></div>
+	</section>
 
 </div>
 
