@@ -29,10 +29,15 @@ fn load_env() {
 		}
 	}
 
-	// goes into the report's JSON as is
+	// goes into the report's JSON and the `GET /mode` path as is; the
+	// collector's `SensorName` takes the same
 	let name = lookup(SENSOR_NAME_KEY, &file).unwrap_or_else(|| SENSOR_NAME_DEFAULT.into());
-	if !name.bytes().all(|b| b.is_ascii_graphic() && b != b'"' && b != b'\\') {
-		panic!("{SENSOR_NAME_KEY}: plain ASCII without spaces, quotes or backslashes: {name}");
+	let ok = (1..=32).contains(&name.len())
+		&& name
+			.bytes()
+			.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_');
+	if !ok {
+		panic!("{SENSOR_NAME_KEY}: 1 to 32 of a-z, 0-9, - and _: {name}");
 	}
 	println!("cargo:rustc-env={SENSOR_NAME_KEY}={name}");
 }

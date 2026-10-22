@@ -34,6 +34,9 @@ pub enum Error {
 	#[error("device: {0}")]
 	Device(String),
 
+	#[error("identify: {0}")]
+	Identify(String),
+
 	#[error("HTTP error: {0}")]
 	Http(String),
 }

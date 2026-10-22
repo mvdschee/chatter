@@ -1,9 +1,10 @@
 # Identify mode (research and plan)
 
 Status, 2026-10-22: planned; chunk 1 (the dev board) built and checked,
-and the resend fix it turned up is in. Chunk 2 (core) is built, chunk 3
-(firmware) built but only checked on the board once chunk 4 answers. The plan changed: the sensor stops
-counting while it identifies, rather than doing both. This is the identify
+and the resend fix it turned up is in. Chunks 2 (core), 3 (firmware) and
+4a (the collector's sessions and answers) are built; the board check of 3
+and 4a is next. The plan changed: the sensor stops counting while it
+identifies, rather than doing both. This is the identify
 part of `docs/monitoring.md` plan step 6.
 
 ## Goal
@@ -59,7 +60,7 @@ which ones are.
      session, so the gap after it has a reason.
   3. The page says what to do: unplug the sensor and plug it into the phone.
   4. The sensor boots on the phone. Before it counts anything it asks the
-     collector what to do (`GET /mode`, the same answers), hears
+     collector what to do (`GET /mode/{sensor}`, the same answers), hears
      `identify`, and goes straight to it. If the collector can't be
      reached, it counts.
   5. In identify mode the sensor fills a small table instead of the device
@@ -69,7 +70,7 @@ which ones are.
      more minutes" lands within 3 s.
   6. When the session ends (stopped or timed out) the sensor stops posting
      and waits; it only counts again after a reboot. The page says to plug
-     it back in its place, and that boot asks `GET /mode`, hears "count",
+     it back in its place, and that boot asks `GET /mode/{sensor}`, hears "count",
      and counts.
 - **Identify readings aren't stored.** The collector keeps the newest ones in
   memory, per sensor, and the page reads them from `GET /v1/identify`. They
@@ -179,16 +180,27 @@ One commit each.
    Built: every request reads the whole answer (it sends `Connection:
    close`, so the collector's close ends it) and applies it, whichever
    request it answers. A boot waits up to 30 s for an address, asks
-   `GET /mode`, and counts if that fails, as it does until chunk 4 adds the
-   endpoint. A switch mid-minute drops that part of a minute, since the
+   `GET /mode/{sensor}` (the sensor's name in the path, since a GET has no
+   body; the firmware takes the collector's rule for names), and counts if
+   that fails. A switch mid-minute drops that part of a minute, since the
    collector would store it as a whole one. The board check needs chunk 4.
-4. **Collector:** the mode per sensor (until when), the answers on
-   `/report`, `/mode` and `/identify`, `POST /v1/sensors/{name}/identify` to start or
-   stop it, `GET /v1/identify` (readings, who is online, which device is
-   the page's own), and the host discovery every few seconds while it runs.
-   Check: tests for the answers (on, off, expired), for readings that go
-   stale and for the page's own device left out; on the dev board, an idle
-   plug held against it comes first.
+4. **Collector:** in two commits.
+   - **4a, sessions and answers:** the mode per sensor (until when, in
+     memory), the answers on `/report`, `/mode/{sensor}` and `/identify`,
+     the newest readings per sensor, and
+     `POST /v1/sensors/{name}/identify` with `{"secs": 600}` to start or
+     extend it, `0` to stop.
+     Check: tests for the answers (on, off, expired) and the bytes the
+     firmware reads; on the dev board, a session started with `curl`
+     switches it within a minute, a phone held against it comes first in
+     the logged posts, no minute reports arrive during it, it waits when
+     stopped, and counts again after a reboot. Built.
+   - **4b, the page's data:** `GET /v1/identify` (readings, who is online,
+     which device is the page's own), and the host discovery every few
+     seconds while a session runs.
+     Check: tests for readings that go stale and for the page's own device
+     left out; on the dev board, an idle plug held against it comes
+     first.
 5. **Sessions:** identify sessions stored with their start and end, and a
    band on the day graph and in the Timeline.
    Check: a session shows as a band over the gap in the minute reports.

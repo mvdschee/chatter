@@ -44,6 +44,7 @@ async fn main() -> Result<()> {
 		db,
 		ui_dir: config.ui_dir.clone(),
 		data_dir: config.data_dir(),
+		identify: Default::default(),
 	};
 	HandleServerApi::new(&config, state).await?.run().await?;
 

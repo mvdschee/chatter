@@ -3,6 +3,7 @@ use axum::{Router, http::StatusCode, routing::get};
 use super::HttpServerState;
 
 pub mod device;
+pub mod identify;
 pub mod overview;
 pub mod plan;
 pub mod report;

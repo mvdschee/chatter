@@ -32,7 +32,7 @@ use static_cell::ConstStaticCell;
 
 use crate::{
 	Error,
-	config::{COLLECTOR_ADDR, IDENTIFY_SECS, PERIOD_SECS, SENSOR_NAME},
+	config::{COLLECTOR_ADDR, IDENTIFY_SECS, MODE_PATH, PERIOD_SECS, SENSOR_NAME},
 	services::{
 		report::{self, Collector},
 		sniffer, wifi,
@@ -272,7 +272,7 @@ pub async fn send_reports(stack: Stack<'static>) {
 
 	// without an answer the sensor counts
 	if with_timeout(Duration::from_secs(BOOT_NET_SECS), stack.wait_config_up()).await.is_ok() {
-		send(&mut collector, "GET", "/mode", &[]).await;
+		send(&mut collector, "GET", MODE_PATH, &[]).await;
 	}
 	STARTED.signal(());
 

@@ -47,7 +47,8 @@ async fn ui_get_handler(
 	name: String,
 ) -> Result<impl IntoResponse, StatusCode> {
 	// only the files above, so a name can't reach anything else on disk
-	let Some((name, content_type, built_in)) = FILES.iter().find(|(file, _, _)| *file == name) else {
+	let Some((name, content_type, built_in)) = FILES.iter().find(|(file, _, _)| *file == name)
+	else {
 		return Err(StatusCode::NOT_FOUND);
 	};
 	// CHATTER_UI_DIR: read the file from disk on every request, so a refresh
@@ -76,6 +77,9 @@ mod tests {
 		let mut served: Vec<String> = FILES.iter().map(|(name, _, _)| name.to_string()).collect();
 		on_disk.sort();
 		served.sort();
-		assert_eq!(served, on_disk, "a file in ui/ that FILES doesn't list (or the other way round)");
+		assert_eq!(
+			served, on_disk,
+			"a file in ui/ that FILES doesn't list (or the other way round)"
+		);
 	}
 }

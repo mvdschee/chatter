@@ -3,7 +3,9 @@ use std::path::PathBuf;
 use axum::Router;
 use tokio::{net::TcpListener, signal};
 
-use crate::{Error, Result, info, repository::db::DatabaseRepository};
+use crate::{
+	Error, Result, core::models::identify::SharedIdentify, info, repository::db::DatabaseRepository,
+};
 
 pub mod handlers;
 
@@ -19,6 +21,7 @@ pub struct HttpServerState {
 	pub ui_dir: Option<String>,
 	/// Where the collector keeps its files (the plan's underlay image).
 	pub data_dir: PathBuf,
+	pub identify: SharedIdentify,
 }
 
 pub struct HttpServer {
@@ -33,11 +36,13 @@ impl HttpServer {
 		let app = Router::new()
 			.merge(handlers::root_routes())
 			.merge(handlers::report::routes())
+			.merge(handlers::identify::routes())
 			.merge(handlers::ui::routes())
 			.nest(
 				"/v1",
 				handlers::overview::routes()
 					.merge(handlers::device::routes())
+					.merge(handlers::identify::v1_routes())
 					.merge(handlers::plan::routes())
 					.merge(handlers::timeline::routes()),
 			)

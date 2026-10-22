@@ -2,6 +2,7 @@ pub mod baseline;
 pub mod config;
 pub mod device;
 pub mod floorplan;
+pub mod identify;
 pub mod overview;
 pub mod report;
 pub mod scan;
