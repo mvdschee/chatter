@@ -104,20 +104,22 @@ impl HandleScans {
 
 /// The fast sweeps while an identify session runs.
 pub struct HandleIdentify {
+	db: DatabaseRepository,
 	config: Config,
 	identify: SharedIdentify,
 }
 
 impl HandleIdentify {
-	pub fn new(config: &Config, identify: SharedIdentify) -> Self {
+	pub fn new(db: DatabaseRepository, config: &Config, identify: SharedIdentify) -> Self {
 		Self {
+			db,
 			config: config.clone(),
 			identify,
 		}
 	}
 
 	pub fn run(self) {
-		tokio::spawn(identify_sweep_loop(self.identify, self.config.scan_targets));
+		tokio::spawn(identify_sweep_loop(self.db, self.identify, self.config.scan_targets));
 	}
 }
 

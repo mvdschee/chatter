@@ -43,7 +43,7 @@ async fn main() -> Result<()> {
 	HandleScans::new(db.clone(), &config, vendors).run();
 	HandleBaselines::new(db.clone()).run();
 	let identify = SharedIdentify::default();
-	HandleIdentify::new(&config, identify.clone()).run();
+	HandleIdentify::new(db.clone(), &config, identify.clone()).run();
 
 	let state = HttpServerState {
 		db,

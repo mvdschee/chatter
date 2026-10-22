@@ -89,8 +89,10 @@ which ones are.
 - **Online is what answered the newest sweep.** Each sweep says which
   devices are up; the page marks those online and greys the rest, and a
   device the sensor heard in the last few seconds is online too.
-- **A page for the phone.** Identify starts from the sensor's panel, where
-  the mode already shows, and opens a view of its own that fits a phone:
+- **A page for the phone.** Identify opens from the top bar, without
+  starting anything, as a page of its own that fits a phone and walks
+  through the steps: pick the sensor, move it to the phone, find devices,
+  put it back. Each step shows what the sensor is doing. The find step has:
   - "What's here": the devices heard, strongest first, each with its name
     and a signal bar, the top one marked when it stands clearly above the
     next.
@@ -134,6 +136,12 @@ which ones are.
   can't decode (`docs/streams.md`). Their ARP answers and management
   frames are usually sent at basic rates the sensor does decode, but that
   isn't checked.
+- **Online isn't findable.** The sweep reaches every device on the LAN,
+  but the sensor only hears 2.4 GHz on the router's channel. A device on
+  5 GHz, on a cable or on another access point answers the sweep and is
+  never heard, so it's never counted or in the overview either. The
+  collector gives them the hostname from the stored sweeps and the vendor
+  from the sweep, and Find keeps them apart.
 - **Private MACs:** a phone may show up under a MAC it made up for this
   network, which is still the MAC the page knows it by. One that rotates
   shows up as a new device anyway.
@@ -234,20 +242,37 @@ One commit each.
    by `own_mac` already marked).
    Check: the owner walks around with the sensor on the phone and finds a
    few devices with it.
-   Built: the sensor's panel starts a ten-minute session, says what that
-   costs (no counting until it's plugged back in, even when stopped early),
-   and opens the view; "+10 min" asks for what's left plus ten, at most an
-   hour. The view covers the page, which stops drawing the plan meanwhile,
-   and reads `/v1/identify` every 1.5 s. It says what to do: move the
-   sensor before its first post, "being moved?" when the posts stop, and
-   plug it back once the session is gone (stopped, run out, or forgotten by
-   a collector restart). What's here marks the strongest "next to it" when
-   it's 6 dB above the next; a guess for the walk to check. Find lists every
-   device seen in 24 hours plus anything online, online first, the rest
-   greyed. A device the overview doesn't know shows its MAC and can't open a
-   panel. The carried list lives in the browser's `localStorage`; the
-   collector's `own_mac` shows as "this phone" and can't be unmarked, since
-   the collector leaves it out of what's heard anyway.
+   Built: Identify in the top bar opens the page (also at `#identify`, so a
+   reload keeps it), which walks through four steps, each with what the
+   sensor is doing now:
+   - **Sensor:** pick one, with what starting costs (no counting until
+     it's plugged back in, even when stopped early). Start asks for ten
+     minutes.
+   - **Move it:** unplug it and plug it into the phone, then three checks:
+     identify on, switched (with when its next minute report is due, if
+     it's left in place), and posting (or "booting?" when the posts stop).
+     "It's on the phone" opens once it's posting.
+   - **Find:** what it hears now, the time left with "+10 min" (what's
+     left plus ten, at most an hour) and Stop, and What's here and Find.
+     Find lists what the sensor can hear (now, or in the last 24 hours)
+     first, and folds the rest away as out of its reach, with why.
+   - **Put back:** plug it back in its place, ticked off when its first
+     minute report after the session comes in.
+
+   The page covers the plan, which stops drawing meanwhile, and reads
+   `/v1/identify` every 1.5 s, and the overview every 10 s while a step
+   waits on a minute report. Opened during a session it carries on with
+   it. A session that goes (stopped, run out, or forgotten by a collector
+   restart) moves it to Put back. A new session starts with nothing heard,
+   so the last one's readings don't look like this one's. What's here
+   marks the strongest "next to it" when it's 6 dB above the next; a guess
+   for the walk to check. Find lists every device seen in 24 hours plus
+   anything online, online first, the rest greyed. A device the overview
+   doesn't know shows its MAC and can't open a panel. The carried list
+   lives in the browser's `localStorage`; the collector's `own_mac` shows
+   as "this phone" and can't be unmarked, since the collector leaves it
+   out of what's heard anyway. The sensor's panel only says the mode, and
+   opens the page during a session.
 
 ## Validation
 

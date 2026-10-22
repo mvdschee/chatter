@@ -17,6 +17,7 @@
 	<main class="map">
 		<header class="top">
 			<span id="sensor-pills"></span>
+			<button class="top-btn" id="identify-btn">Identify</button>
 			<button class="top-btn" id="devices-btn" aria-expanded="false" aria-controls="side">Devices</button>
 			<button class="top-btn" id="events-btn" aria-expanded="false" aria-controls="side">Timeline</button>
 			<button class="top-btn" id="edit-btn">Edit plan</button>
@@ -104,21 +105,26 @@
 
 	<section class="identify" id="identify" hidden aria-label="Identify">
 		<header class="id-head">
-			<div class="eyebrow">Identify</div>
-			<h2 class="name" id="id-sensor"></h2>
-			<button class="close" id="id-close" aria-label="Close">×</button>
+			<button class="id-back" id="id-close">← Back</button>
+			<h1 class="name">Identify</h1>
 		</header>
-		<p class="id-status" id="id-status" role="status"></p>
-		<div class="id-ctl" id="id-ctl">
-			<button class="tl-btn" id="id-more">+10 min</button>
-			<button class="tl-btn" id="id-stop">Stop</button>
+		<ol class="id-steps" id="id-steps" aria-label="Steps">
+			<li>Sensor</li><li>Move it</li><li>Find</li><li>Put back</li>
+		</ol>
+		<div class="id-main" id="id-main" role="status"></div>
+		<div class="id-ctl" id="id-ctl" hidden>
+			<span id="id-left"></span>
+			<button class="tl-btn" data-act="more">+10 min</button>
+			<button class="tl-btn" data-act="stop">Stop</button>
 		</div>
-		<div class="id-tabs">
-			<button class="tl-btn" data-tab="here" aria-pressed="true">What's here</button>
-			<button class="tl-btn" data-tab="find" aria-pressed="false">Find</button>
+		<div class="id-find-part" id="id-find-part" hidden>
+			<div class="id-tabs">
+				<button class="tl-btn" data-tab="here" aria-pressed="true">What's here</button>
+				<button class="tl-btn" data-tab="find" aria-pressed="false">Find</button>
+			</div>
+			<input class="edit-filter" id="id-find" type="search" placeholder="Find: name, vendor, IP or MAC" aria-label="Find a device" hidden>
+			<div class="id-body" id="id-body"></div>
 		</div>
-		<input class="edit-filter" id="id-find" type="search" placeholder="Find: name, vendor, IP or MAC" aria-label="Find a device" hidden>
-		<div class="id-body" id="id-body"></div>
 	</section>
 
 </div>

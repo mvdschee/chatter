@@ -119,11 +119,16 @@ pub struct Session {
 	pub ended_at: i64,
 }
 
-/// A host that answered a sweep.
+/// A host that answered a sweep, with what's known of it: its vendor from
+/// the sweep, its hostname from the stored sweeps (the fast ones skip DNS).
+/// Many are never in the overview: the sensor can't hear a device on 5 GHz,
+/// on a cable or on another access point, so it never counts it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Online {
 	pub mac: Mac,
 	pub ip: IpAddr,
+	pub hostname: Option<String>,
+	pub vendor: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -176,6 +181,8 @@ pub struct HeardView {
 #[derive(Debug, Serialize, PartialEq)]
 pub struct OnlineView {
 	pub mac: String,
-	/// `None` when it's only heard, not swept.
+	/// `None` when it's only heard, not swept; so are the two below.
 	pub ip: Option<String>,
+	pub hostname: Option<String>,
+	pub vendor: Option<String>,
 }

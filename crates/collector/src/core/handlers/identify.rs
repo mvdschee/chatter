@@ -4,10 +4,12 @@
 //! online.
 
 use std::{
-	collections::BTreeMap,
+	collections::{BTreeMap, HashMap},
 	net::IpAddr,
 	time::{Duration, SystemTime, UNIX_EPOCH},
 };
+
+use sqlx::Row;
 
 use crate::{
 	Result,
@@ -25,7 +27,7 @@ use crate::{
 	error, info,
 	repository::{
 		db::{DatabaseRepository, DbValue},
-		schemas::IDENTIFY_SESSIONS_UPSERT,
+		schemas::{IDENTIFY_SESSIONS_UPSERT, SCAN_HOSTS_LATEST},
 	},
 	services::cmd::nmap,
 };
@@ -50,6 +52,11 @@ pub fn start_identify(state: &mut Identify, start: &Start, now: i64) -> Option<S
 		});
 	}
 	info!("identify {sensor}: on for {} s", start.secs);
+	// a new session starts with nothing heard: the last one's readings stay
+	// until the sensor next asks, and would look like this one's
+	if running.is_none() {
+		state.readings.remove(&sensor);
+	}
 	let session = Session {
 		ended_at: now + start.secs as i64,
 		..running.unwrap_or(Session {
@@ -105,8 +112,20 @@ pub fn identify_view(state: &Identify, own_ip: Option<IpAddr>, now: i64) -> Iden
 	let own_mac =
 		own_ip.and_then(|ip| swept_hosts.iter().find(|h| h.ip == ip)).map(|h| h.mac.to_string());
 
-	let mut online: BTreeMap<String, Option<String>> =
-		swept_hosts.iter().map(|h| (h.mac.to_string(), Some(h.ip.to_string()))).collect();
+	let mut online: BTreeMap<String, OnlineView> = swept_hosts
+		.iter()
+		.map(|h| {
+			(
+				h.mac.to_string(),
+				OnlineView {
+					mac: h.mac.to_string(),
+					ip: Some(h.ip.to_string()),
+					hostname: h.hostname.clone(),
+					vendor: h.vendor.clone(),
+				},
+			)
+		})
+		.collect();
 	let mut sensors: Vec<SensorIdentify> = state
 		.sessions
 		.iter()
@@ -126,7 +145,12 @@ pub fn identify_view(state: &Identify, own_ip: Option<IpAddr>, now: i64) -> Iden
 				})
 				.collect();
 			for h in &heard {
-				online.entry(h.mac.clone()).or_insert(None);
+				online.entry(h.mac.clone()).or_insert_with(|| OnlineView {
+					mac: h.mac.clone(),
+					ip: None,
+					hostname: None,
+					vendor: None,
+				});
 			}
 			SensorIdentify {
 				sensor: sensor.clone(),
@@ -140,13 +164,7 @@ pub fn identify_view(state: &Identify, own_ip: Option<IpAddr>, now: i64) -> Iden
 
 	IdentifyView {
 		sensors,
-		online: online
-			.into_iter()
-			.map(|(mac, ip)| OnlineView {
-				mac,
-				ip,
-			})
-			.collect(),
+		online: online.into_values().collect(),
 		own_mac,
 	}
 }
@@ -154,7 +172,11 @@ pub fn identify_view(state: &Identify, own_ip: Option<IpAddr>, now: i64) -> Iden
 /// While a session runs, sweeps the LAN every few seconds and keeps who
 /// answered. A failed sweep is logged and the loop goes on, like the
 /// regular sweeps.
-pub async fn identify_sweep_loop(shared: SharedIdentify, configured: Option<ScanTargets>) {
+pub async fn identify_sweep_loop(
+	db: DatabaseRepository,
+	shared: SharedIdentify,
+	configured: Option<ScanTargets>,
+) {
 	loop {
 		tokio::time::sleep(Duration::from_secs(SWEEP_EVERY_S)).await;
 		let now = unix_now();
@@ -165,7 +187,7 @@ pub async fn identify_sweep_loop(shared: SharedIdentify, configured: Option<Scan
 		if !active {
 			continue;
 		}
-		match sweep_online(configured.as_ref()).await {
+		match sweep_online(&db, configured.as_ref()).await {
 			Ok(online) => {
 				let mut state = shared.lock().unwrap_or_else(|e| e.into_inner());
 				state.online = online;
@@ -176,17 +198,29 @@ pub async fn identify_sweep_loop(shared: SharedIdentify, configured: Option<Scan
 	}
 }
 
-/// Who answers ARP now. Not stored: the regular sweeps do that.
-async fn sweep_online(configured: Option<&ScanTargets>) -> Result<Vec<Online>> {
+/// Who answers ARP now, with their hostnames from the stored sweeps. Not
+/// stored: the regular sweeps do that.
+async fn sweep_online(
+	db: &DatabaseRepository,
+	configured: Option<&ScanTargets>,
+) -> Result<Vec<Online>> {
 	let targets = current_targets(configured)?;
 	let xml = nmap::arp_sweep(&targets).await?;
 	let scan = Scan::from(NmapRun::from_xml(&xml)?);
+	let mut hostnames: HashMap<String, String> = HashMap::new();
+	for row in db.get_records(SCAN_HOSTS_LATEST, vec![]).await? {
+		if let Some(hostname) = row.try_get::<Option<String>, _>("hostname")? {
+			hostnames.insert(row.try_get("mac")?, hostname);
+		}
+	}
 	Ok(scan
 		.hosts
 		.into_iter()
 		.map(|h| Online {
+			hostname: hostnames.remove(&*h.mac),
 			mac: h.mac,
 			ip: h.ip,
+			vendor: h.vendor,
 		})
 		.collect())
 }
@@ -268,10 +302,26 @@ mod tests {
 		assert_eq!(s.readings["c6-test"].received_at, 1006);
 	}
 
+	#[test]
+	fn a_new_session_starts_with_nothing_heard() {
+		let mut s = Identify::default();
+		start_identify(&mut s, &start(600), 1000);
+		record_readings(&mut s, readings(1003), 1003);
+		// it ran out, and the sensor hasn't asked since
+		start_identify(&mut s, &start(600), 1700);
+		assert!(s.readings.is_empty());
+		// extending keeps what it hears
+		record_readings(&mut s, readings(1703), 1703);
+		start_identify(&mut s, &start(600), 1704);
+		assert_eq!(s.readings["c6-test"].received_at, 1703);
+	}
+
 	fn online(mac: &str, ip: &str) -> Online {
 		Online {
 			mac: Mac::new(mac).unwrap(),
 			ip: ip.parse().unwrap(),
+			hostname: None,
+			vendor: None,
 		}
 	}
 
@@ -280,7 +330,11 @@ mod tests {
 		start_identify(&mut s, &start(600), 1000);
 		s.online = vec![
 			online("02:5e:a1:07:3c:9d", "192.0.2.41"),
-			online("06:c4:18:9b:e2:50", "192.0.2.42"),
+			Online {
+				hostname: Some("printer.lan".into()),
+				vendor: Some("Example Corp".into()),
+				..online("06:c4:18:9b:e2:50", "192.0.2.42")
+			},
 		];
 		s.swept_at = Some(1000);
 		let mut r = readings(1000);
@@ -313,6 +367,9 @@ mod tests {
 				("0a:73:2f:d6:41:b8", None),
 			]
 		);
+		// what's known of a swept host goes with it
+		assert_eq!(v.online[1].hostname.as_deref(), Some("printer.lan"));
+		assert_eq!(v.online[1].vendor.as_deref(), Some("Example Corp"));
 		assert_eq!(v.own_mac, None);
 	}
 
