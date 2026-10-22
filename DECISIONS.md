@@ -292,6 +292,6 @@
 
 
 ## 2026-10-22 - On a phone, the side panel takes the timeline's place
-**Decision:** At 900 px wide and under, the page is one screen (`100dvh`, no page scroll): the top bar above the plan rather than on it, the plan, and below it either the timeline or the side panel as a bottom sheet of half the screen, never both. The plan fits again into what's left. The tasks (Identify, Edit plan) go in a menu.
+**Decision:** At 900 px wide and under, the page is one screen (`100dvh`, no page scroll): the top bar above the plan rather than on it, the plan, and below it either the timeline or the side panel as a bottom sheet of half the screen, never both. The plan fits again into what's left. Identify goes in a menu; the editor (Edit plan, a device's Place) isn't on a phone at all, as drawing a plan wants a bigger screen.
 **Why:** A sheet over the plan would cover the camera's buttons and the timeline's head, and the plan's canvas takes every swipe, so a page that scrolls can't be scrolled from it. In flow, nothing can sit under anything, and the layout check needs no exceptions.
 **Alternatives:** A sheet over the plan with what it covers made inert (the plan keeps its size, the camera can't be used); a draggable sheet with snap points (left until it's been used on a phone).

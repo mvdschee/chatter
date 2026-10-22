@@ -6,7 +6,7 @@ import { DEVICES, LOOP, PORT_SCANS, SESSIONS, TL, bucketOf, bucketTime, buckets,
 import { DAY_MONTH, MiB, fmtBytes, hhmm, whenLabel } from "./format.js";
 import { ASCENT, DESCENT, placeLabels } from "./labels.js";
 import { MINUTE_MS, play } from "./playback.js";
-import { dpr, reduced } from "./view.js";
+import { dpr, narrow, reduced } from "./view.js";
 
 // The ranges to pick from, the one picked, and a stretch zoomed in to on the
 // graph (`{ from, to }`, unix seconds) or null.
@@ -111,7 +111,8 @@ function renderHeat() {
 	const best = Math.max(0, ...peaks);
 	peak = peaks.indexOf(best);
 	graphMax = niceCeil(best * 1.15);
-	const amounts = [0, 0.5, 1].map((f) => [graphMax * f, f ? `${fmtBytes(graphMax * f)}/min` : "0"]);
+	// on a phone without "/min", which the readout and the peak say
+	const amounts = [0, 0.5, 1].map((f) => [graphMax * f, f ? `${fmtBytes(graphMax * f)}${narrow.matches ? "" : "/min"}` : "0"]);
 	gutter = LEFT + Math.ceil(Math.max(...amounts.map(([, text]) => measure(text)))) + 8;
 	const g = heatGeom();
 	// in order of importance: the axes, the port scans with alerts, the

@@ -143,14 +143,27 @@ function resetView() {
 	Object.assign(camT, { zoom: 1, panX: 0, panY: 0 });
 }
 
-// Drag to pan; shift-drag or right-drag to rotate. A drag isn't a click.
+// Drag to pan; shift-drag or right-drag to rotate. Two fingers pinch to
+// zoom, move to pan and twist to rotate, about their middle. A drag or a
+// pinch isn't a click.
+const pointers = new Map();
 let drag = null, dragged = false;
 canvas.addEventListener("pointerdown", (ev) => {
-	drag = { x: ev.clientX, y: ev.clientY, rotate: ev.shiftKey || ev.button === 2, moved: false };
 	canvas.setPointerCapture(ev.pointerId);
+	pointers.set(ev.pointerId, [ev.clientX, ev.clientY]);
+	if (pointers.size === 1) drag = { x: ev.clientX, y: ev.clientY, rotate: ev.shiftKey || ev.button === 2, moved: false };
+	else if (drag) drag.moved = true;
 });
 canvas.addEventListener("pointermove", (ev) => {
-	if (!drag) return;
+	if (!drag || !pointers.has(ev.pointerId)) return;
+	if (pointers.size > 1) {
+		const [a, b] = [...pointers.values()];
+		pointers.set(ev.pointerId, [ev.clientX, ev.clientY]);
+		const [a1, b1] = [...pointers.values()];
+		pinch(a, b, a1, b1);
+		return;
+	}
+	pointers.set(ev.pointerId, [ev.clientX, ev.clientY]);
 	const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
 	if (!drag.moved && Math.hypot(dx, dy) < 4) return;
 	if (!drag.moved) canvas.classList.add("dragging");
@@ -164,11 +177,34 @@ canvas.addEventListener("pointermove", (ev) => {
 	}
 	[drag.x, drag.y] = [ev.clientX, ev.clientY];
 });
-canvas.addEventListener("pointerup", () => {
+const lift = (ev) => {
+	pointers.delete(ev.pointerId);
+	// the finger left after a pinch drags on from where it is
+	if (pointers.size === 1 && drag) [drag.x, drag.y] = [...pointers.values()][0];
+	if (pointers.size) return;
 	dragged = drag?.moved ?? false;
 	drag = null;
 	canvas.classList.remove("dragging");
-});
+};
+canvas.addEventListener("pointerup", lift);
+canvas.addEventListener("pointercancel", lift);
+
+// Two fingers from a, b to a1, b1 (client px): the zoom, the twist and the
+// move of their middle, applied at once so the plan follows the fingers.
+function pinch([ax, ay], [bx, by], [ax1, ay1], [bx1, by1]) {
+	const d0 = Math.hypot(bx - ax, by - ay), d1 = Math.hypot(bx1 - ax1, by1 - ay1);
+	if (d0 < 1 || d1 < 1) return;
+	const r = canvas.getBoundingClientRect();
+	const [mx, my] = [(ax + bx) / 2 - r.left, (ay + by) / 2 - r.top];
+	const [mx1, my1] = [(ax1 + bx1) / 2 - r.left, (ay1 + by1) / 2 - r.top];
+	zoomAt(mx, my, d1 / d0);
+	camT.panX += mx1 - mx;
+	camT.panY += my1 - my;
+	// the shorter way round: across ±180° the angles jump by a full turn
+	const twist = Math.atan2(by1 - ay1, bx1 - ax1) - Math.atan2(by - ay, bx - ax);
+	camT.yaw += twist - Math.round(twist / (2 * Math.PI)) * 2 * Math.PI;
+	[cam.zoom, cam.panX, cam.panY, yaw] = [camT.zoom, camT.panX, camT.panY, camT.yaw];
+}
 canvas.addEventListener("contextmenu", (ev) => ev.preventDefault());
 canvas.addEventListener("wheel", (ev) => {
 	ev.preventDefault();

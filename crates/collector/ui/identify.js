@@ -10,7 +10,7 @@ import { editing } from "./edit.js";
 import { esc, fmtAgo, hhmm } from "./format.js";
 import { closePanel, panel, select } from "./panel.js";
 import { sensorState } from "./sensors.js";
-import { resize } from "./view.js";
+import { narrow, resize } from "./view.js";
 
 // A session's length, and what "+10 min" adds; the collector takes at most
 // an hour.
@@ -308,7 +308,7 @@ function findHtml(s) {
 		return `<button class="id-back" data-pick="">← All devices</button>
 			<h2 class="name">${esc(name)}</h2><div class="where">${esc(vendor)}${ip ? ` · ${esc(ip)}` : ""}</div>
 			${signal}
-			<div class="id-acts">${d ? `<button class="tl-btn" data-open="${picked}">Name or place it</button>` : ""}${carryBtn(picked)}</div>`;
+			<div class="id-acts">${d ? `<button class="tl-btn" data-open="${picked}">${narrow.matches ? "Name it" : "Name or place it"}</button>` : ""}${carryBtn(picked)}</div>`;
 	}
 	const q = findEl.value.trim().toLowerCase();
 	const macs = [...new Set([...online, ...DEVICES.map((d) => d.mac)])];

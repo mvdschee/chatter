@@ -19,6 +19,8 @@
 
 html, body {
 	margin: 0;
+	/* no zoom on a double tap */
+	touch-action: manipulation;
 	height: 100%;
 	background: var(--void);
 	color: var(--phosphor);
@@ -443,12 +445,13 @@ canvas#heat:focus-visible { outline: 1px solid var(--signal); }
 	.app {
 		grid-template-rows: minmax(0, 1fr) auto;
 		height: 100vh;
-		height: 100dvh;
+		height: var(--app-h, 100dvh);
 	}
 	.map { display: flex; flex-direction: column; }
 	canvas#plan { flex: 1; min-height: 0; }
 	.top { position: relative; top: auto; right: auto; justify-content: space-between; gap: 12px; padding: 10px 12px 6px 16px; }
-	.top .rule, .clock { display: none; }
+	/* drawing a plan wants a bigger screen: no editor on a phone */
+	.top .rule, .clock, #edit-btn, .place-btn { display: none; }
 	.tasks-btn { display: inline-flex; order: 1; padding: 7px 6px; }
 	.tasks { position: absolute; top: 100%; right: 8px; z-index: 7; display: flex; flex-direction: column; align-items: stretch; padding: 4px 14px; border: 1px solid var(--line); background: var(--panel); backdrop-filter: blur(6px); }
 	.tasks > button { padding: 12px 2px; }

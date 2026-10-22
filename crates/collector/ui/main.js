@@ -62,6 +62,12 @@ document.addEventListener("keydown", (ev) => {
 	if (ev.key === "Escape") openTasks(false);
 });
 
+// the page's height on a phone (style.css --app-h): what the browser shows,
+// which 100vh isn't under a toolbar on older iOS or in an in-app browser
+const fitPage = () => document.documentElement.style.setProperty("--app-h", `${window.innerHeight}px`);
+window.addEventListener("resize", fitPage);
+fitPage();
+
 resize();
 renderControls();
 onData();

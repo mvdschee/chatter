@@ -187,8 +187,16 @@ One reviewable chunk each, with its check:
    At 900 px and under the page is one screen, no page scroll: the plan's
    canvas takes every swipe, so a page that scrolls couldn't be scrolled
    from it. The top bar sits above the plan, not on it: Devices and
-   Events, the sensors' status, and a menu with Identify and Edit plan;
-   the clock goes (the phone shows the time). The side panel is a bottom
+   Events, the sensors' status, and a menu with Identify; the clock goes
+   (the phone shows the time). The editor isn't on a phone at all, Edit
+   plan nor a device's Place: drawing a plan wants a bigger screen (the
+   owner's call, after using it). The page's height is the browser's
+   `innerHeight` (`--app-h`), as `100vh` runs under the toolbar on older
+   iOS and in some in-app browsers; a double tap doesn't zoom the page
+   (`touch-action: manipulation`). On the plan, two fingers pinch to zoom,
+   move to pan and twist to rotate, about their middle (`view.js`
+   `pinch`). The timeline's amounts drop "/min" on a phone, so the graph
+   gets the width. The side panel is a bottom
    sheet of half the screen that takes the timeline's place while it's
    open, so it covers nothing; the plan fits again into what's left (the
    ResizeObserver watches the canvas too). The HUD folds into one line at
@@ -228,6 +236,6 @@ Only the owner can judge:
 ## Still unsure
 
 1. Whether the editor's toolbar is part of this, or stays as it is.
-2. On a phone, whether Edit plan should be there at all: drawing a floor
-   plan wants a bigger screen.
+2. ~~On a phone, whether Edit plan should be there at all~~: it isn't
+   (chunk 6).
 3. Whether the HUD's readouts stay on the phone, folded, or go.
