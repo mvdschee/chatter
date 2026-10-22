@@ -60,6 +60,10 @@ export const EVENTS = [];
 // The day's port scans, as `{ from, to }` dates, marked on the day graph.
 export let PORT_SCANS = [];
 
+// The day's identify sessions, as `{ from, to, sensor }`, marked on the day
+// graph: the sensor didn't count during them.
+export let SESSIONS = [];
+
 // A MAC with the "locally administered" bit set is made up (a phone's private
 // address per network), so no vendor can be known.
 const vendorless = (mac) => (parseInt(mac[1], 16) & 2 ? "private address (made-up MAC)" : "unknown");
@@ -144,6 +148,14 @@ function applyTimeline(t) {
 		});
 	}
 	for (const c of t.changes) EVENTS.push(changeEvent(c));
+	SESSIONS = t.identify_sessions.map((s) => ({ from: new Date(s.started_at * 1000), to: new Date(s.ended_at * 1000), sensor: s.sensor }));
+	for (const s of SESSIONS) {
+		const end = s.to > Date.now() ? "until now" : `–${hhmm(s.to)}`;
+		EVENTS.push({
+			time: s.to, from: s.from, to: s.to, hot: false,
+			text: `Identify on ${s.sensor}, ${whenLabel(s.from)} ${end}: it didn't count meanwhile.`,
+		});
+	}
 	if (play.mode === "live") play.cursor = buckets() - 1;
 	else play.cursor = Math.max(0, Math.min(bucketOf(at), buckets() - 1));
 	renderControls();

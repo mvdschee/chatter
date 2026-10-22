@@ -11,7 +11,7 @@ use axum::{
 use crate::{
 	core::{
 		handlers::identify::{
-			identify_left, identify_view, record_readings, start_identify, unix_now,
+			identify_left, identify_view, record_readings, start_identify, store_session, unix_now,
 		},
 		models::{
 			identify::{IdentifyView, Readings, ReadingsPayload, Start, StartPayload},
@@ -133,8 +133,16 @@ async fn identify_start_post_handler(
 	let Json(mut payload) = payload.map_err(|e| (e.status(), e.body_text()))?;
 	payload.sensor = sensor;
 	let start = Start::try_from(payload).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-	let mut identify = state.identify.lock().unwrap_or_else(|e| e.into_inner());
-	start_identify(&mut identify, &start, unix_now());
+	let session = {
+		let mut identify = state.identify.lock().unwrap_or_else(|e| e.into_inner());
+		start_identify(&mut identify, &start, unix_now())
+	};
+	if let Some(session) = session {
+		store_session(&state.db, &session).await.map_err(|e| {
+			error!("identify session: {e}");
+			(StatusCode::INTERNAL_SERVER_ERROR, String::new())
+		})?;
+	}
 	Ok(StatusCode::NO_CONTENT)
 }
 

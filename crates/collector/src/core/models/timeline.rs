@@ -5,7 +5,10 @@
 
 use serde::Serialize;
 
-use crate::core::models::baseline::{UsualTraffic, hour_of};
+use crate::core::models::{
+	baseline::{UsualTraffic, hour_of},
+	identify::Session,
+};
 
 /// The ranges the page offers, ending at the newest report.
 pub const RANGES: [(&str, i64); 5] =
@@ -101,6 +104,9 @@ pub struct Timeline {
 	pub port_scans: Vec<PortScanSummary>,
 	/// What those port scans found changed, in order.
 	pub changes: Vec<ChangeOverview>,
+	/// The identify sessions that overlap the stretch, oldest first: the
+	/// sensor didn't count during them.
+	pub identify_sessions: Vec<Session>,
 }
 
 #[derive(Debug, Serialize)]

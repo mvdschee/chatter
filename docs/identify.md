@@ -2,8 +2,8 @@
 
 Status, 2026-10-22: planned; chunk 1 (the dev board) built and checked,
 and the resend fix it turned up is in. Chunks 2 (core), 3 (firmware) and
-4 (the collector) are built; 3 and 4a are checked on the board, 4b's board
-check is next. The plan changed: the sensor stops counting while it
+4 (the collector) are built and checked on the board; 5 (sessions) is
+built. The plan changed: the sensor stops counting while it
 identifies, rather than doing both. This is the identify
 part of `docs/monitoring.md` plan step 6.
 
@@ -125,9 +125,10 @@ which ones are.
   at 0 and reaches its first report at about the same second, so the
   collector took a new boot's reports for resends of the last boot's and
   dropped them. Identify reboots the sensor twice per session, so this had
-  to go first: a report is a resend only when its copy came in within the
-  hour around it. A real resend is never older than the outbox (16 reports,
-  16 minutes).
+  to go first. A resend window of an hour fixed it only for reboots an hour
+  apart; identify's reboots are minutes apart and still matched. Now each
+  boot picks a random id and puts it in every report, and a resend is the
+  same `seq` from the same boot. Firmware without it keeps the window.
 - **Multi-stream devices** send most of their data in frames the sensor
   can't decode (`docs/streams.md`). Their ARP answers and management
   frames are usually sent at basic rates the sensor does decode, but that
@@ -218,6 +219,13 @@ One commit each.
 5. **Sessions:** identify sessions stored with their start and end, and a
    band on the day graph and in the Timeline.
    Check: a session shows as a band over the gap in the minute reports.
+   Built: one row per session (`identify_sessions`), written when it
+   starts and its end moved when it's extended or stopped early; a muted
+   band labelled with the sensor on the day graph, and an event in the
+   Timeline. The band covers the session, not the whole gap: the gap starts
+   at the next minute report and lasts until the sensor is back in its
+   place. A collector restart forgets a running session, so its row keeps
+   the planned end although the sensor was told to stop.
 6. **Page:** Identify from the sensor's panel, the steps (move the sensor
    to the phone, plug it back after), a phone-sized view with "What's here"
    and "Find", online and offline marked, a click opening the device's

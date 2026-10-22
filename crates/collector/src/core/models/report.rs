@@ -9,6 +9,8 @@ use crate::{Error, Result};
 #[derive(Debug, Deserialize)]
 pub struct ReportPayload {
 	pub sensor: String,
+	/// Random per boot; missing from firmware older than 2026-10-22.
+	pub boot: Option<u32>,
 	pub seq: u64,
 	pub uptime_s: u64,
 	pub channel: u8,
@@ -100,6 +102,7 @@ fn count(name: &str, value: u64) -> Result<i64> {
 #[derive(Debug, Clone)]
 pub struct Report {
 	pub sensor: SensorName,
+	pub boot: Option<i64>,
 	pub seq: i64,
 	pub uptime_s: i64,
 	pub received_at: i64,
@@ -169,6 +172,7 @@ impl TryFrom<ReportPayload> for Report {
 		}
 		Ok(Self {
 			sensor: SensorName::new(&p.sensor)?,
+			boot: p.boot.map(i64::from),
 			seq: count("seq", p.seq)?,
 			uptime_s: count("uptime_s", p.uptime_s)?,
 			received_at: p.received_at,

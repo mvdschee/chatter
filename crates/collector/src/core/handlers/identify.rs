@@ -16,13 +16,17 @@ use crate::{
 		models::{
 			identify::{
 				HeardView, Identify, IdentifyView, Online, OnlineView, Readings, STALE_S,
-				SWEEP_EVERY_S, SWEEP_STALE_S, SensorIdentify, SharedIdentify, Start,
+				SWEEP_EVERY_S, SWEEP_STALE_S, SensorIdentify, Session, SharedIdentify, Start,
 			},
 			report::SensorName,
 			scan::{NmapRun, Scan, ScanTargets},
 		},
 	},
 	error, info,
+	repository::{
+		db::{DatabaseRepository, DbValue},
+		schemas::IDENTIFY_SESSIONS_UPSERT,
+	},
 	services::cmd::nmap,
 };
 
@@ -30,25 +34,49 @@ pub fn unix_now() -> i64 {
 	SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
-/// Starts or extends a session, or ends it when `secs` is 0.
-pub fn start_identify(state: &mut Identify, start: &Start, now: i64) {
+/// Starts or extends a session, or ends it when `secs` is 0. Returns the
+/// session to store as it now stands; `None` for stopping a sensor that
+/// isn't in one.
+pub fn start_identify(state: &mut Identify, start: &Start, now: i64) -> Option<Session> {
 	let sensor = start.sensor.to_string();
+	let running = state.sessions.get(&sensor).filter(|s| s.ended_at > now).cloned();
 	if start.secs == 0 {
-		state.until.remove(&sensor);
+		state.sessions.remove(&sensor);
 		state.readings.remove(&sensor);
 		info!("identify {sensor}: stopped");
-		return;
+		return running.map(|s| Session {
+			ended_at: now,
+			..s
+		});
 	}
-	state.until.insert(sensor.clone(), now + start.secs as i64);
 	info!("identify {sensor}: on for {} s", start.secs);
+	let session = Session {
+		ended_at: now + start.secs as i64,
+		..running.unwrap_or(Session {
+			sensor: sensor.clone(),
+			started_at: now,
+			ended_at: now,
+		})
+	};
+	state.sessions.insert(sensor, session.clone());
+	Some(session)
+}
+
+/// Stores a session, or its new end: one row per session.
+pub async fn store_session(db: &DatabaseRepository, s: &Session) -> Result<()> {
+	db.execute_all(vec![(
+		IDENTIFY_SESSIONS_UPSERT,
+		vec![DbValue::Text(s.sensor.clone()), DbValue::Int(s.started_at), DbValue::Int(s.ended_at)],
+	)])
+	.await
 }
 
 /// How many seconds the sensor has left to identify, `None` when it should
 /// count. A session that ran out is forgotten here.
 pub fn identify_left(state: &mut Identify, sensor: &SensorName, now: i64) -> Option<u64> {
-	let until = *state.until.get(&**sensor)?;
+	let until = state.sessions.get(&**sensor)?.ended_at;
 	if until <= now {
-		state.until.remove(&**sensor);
+		state.sessions.remove(&**sensor);
 		state.readings.remove(&**sensor);
 		info!("identify {}: time is up", &**sensor);
 		return None;
@@ -80,10 +108,10 @@ pub fn identify_view(state: &Identify, own_ip: Option<IpAddr>, now: i64) -> Iden
 	let mut online: BTreeMap<String, Option<String>> =
 		swept_hosts.iter().map(|h| (h.mac.to_string(), Some(h.ip.to_string()))).collect();
 	let mut sensors: Vec<SensorIdentify> = state
-		.until
+		.sessions
 		.iter()
-		.filter(|&(_, &until)| until > now)
-		.map(|(sensor, &until)| {
+		.filter(|(_, s)| s.ended_at > now)
+		.map(|(sensor, s)| {
 			let readings = state.readings.get(sensor);
 			let fresh = readings.filter(|r| now - r.received_at <= STALE_S);
 			let heard: Vec<HeardView> = fresh
@@ -102,7 +130,7 @@ pub fn identify_view(state: &Identify, own_ip: Option<IpAddr>, now: i64) -> Iden
 			}
 			SensorIdentify {
 				sensor: sensor.clone(),
-				left_s: (until - now) as u64,
+				left_s: (s.ended_at - now) as u64,
 				received_at: readings.map(|r| r.received_at),
 				heard,
 			}
@@ -132,7 +160,7 @@ pub async fn identify_sweep_loop(shared: SharedIdentify, configured: Option<Scan
 		let now = unix_now();
 		let active = {
 			let state = shared.lock().unwrap_or_else(|e| e.into_inner());
-			state.until.values().any(|&until| until > now)
+			state.sessions.values().any(|s| s.ended_at > now)
 		};
 		if !active {
 			continue;
@@ -205,7 +233,7 @@ mod tests {
 		assert_eq!(identify_left(&mut s, &sensor(), 1599), Some(1));
 		assert_eq!(identify_left(&mut s, &sensor(), 1600), None);
 		// and stays off
-		assert!(s.until.is_empty());
+		assert!(s.sessions.is_empty());
 	}
 
 	#[test]
@@ -314,5 +342,32 @@ mod tests {
 		let s = view_state();
 		assert!(identify_view(&s, None, 1600).sensors.is_empty());
 		assert!(identify_view(&Identify::default(), None, 1000).sensors.is_empty());
+	}
+
+	#[test]
+	fn sessions_to_store() {
+		let mut s = Identify::default();
+		let started = |ended_at| Session {
+			sensor: "c6-test".into(),
+			started_at: 1000,
+			ended_at,
+		};
+		assert_eq!(start_identify(&mut s, &start(600), 1000), Some(started(1600)));
+		// extended: the same session, a later end
+		assert_eq!(start_identify(&mut s, &start(600), 1300), Some(started(1900)));
+		// stopped early: it ends now
+		assert_eq!(start_identify(&mut s, &start(0), 1400), Some(started(1400)));
+		assert_eq!(start_identify(&mut s, &start(0), 1410), None);
+	}
+
+	#[test]
+	fn a_start_after_one_ran_out_is_a_new_session() {
+		let mut s = Identify::default();
+		start_identify(&mut s, &start(600), 1000);
+		let again = start_identify(&mut s, &start(600), 2000).unwrap();
+		assert_eq!((again.started_at, again.ended_at), (2000, 2600));
+		// and stopping one that ran out stores nothing
+		start_identify(&mut s, &start(60), 3000);
+		assert_eq!(start_identify(&mut s, &start(0), 3100), None);
 	}
 }

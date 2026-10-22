@@ -6,21 +6,24 @@ use crate::{
 	Result,
 	core::{
 		handlers::baseline::load_usual_traffic,
-		models::timeline::{
-			ChangeOverview, DeviceSeries, PortScanSummary, Timeline, Window, consolidate,
+		models::{
+			identify::Session,
+			timeline::{
+				ChangeOverview, DeviceSeries, PortScanSummary, Timeline, Window, consolidate,
+			},
 		},
 	},
 	repository::{
 		db::{DatabaseRepository, DbValue},
 		schemas::{
-			DEVICE_MINUTES_PER_BUCKET_BETWEEN, REPORTS_TOTALS_BETWEEN, SCAN_CHANGES_BETWEEN,
-			SCANS_PORT_SCANS_BETWEEN,
+			DEVICE_MINUTES_PER_BUCKET_BETWEEN, IDENTIFY_SESSIONS_BETWEEN, REPORTS_TOTALS_BETWEEN,
+			SCAN_CHANGES_BETWEEN, SCANS_PORT_SCANS_BETWEEN,
 		},
 	},
 };
 
 /// The window's traffic in buckets (average and peak), every device's series,
-/// and its port scans and their changes.
+/// its port scans and their changes, and its identify sessions.
 pub async fn timeline(db: &DatabaseRepository, w: Window) -> Result<Timeline> {
 	let n = w.buckets();
 	let between = || vec![DbValue::Int(w.from), DbValue::Int(w.to)];
@@ -100,6 +103,19 @@ pub async fn timeline(db: &DatabaseRepository, w: Window) -> Result<Timeline> {
 		})
 		.collect::<Result<_>>()?;
 
+	let identify_sessions = db
+		.get_records(IDENTIFY_SESSIONS_BETWEEN, between())
+		.await?
+		.iter()
+		.map(|row| {
+			Ok(Session {
+				sensor: row.try_get("sensor")?,
+				started_at: row.try_get("started_at")?,
+				ended_at: row.try_get("ended_at")?,
+			})
+		})
+		.collect::<Result<_>>()?;
+
 	Ok(Timeline {
 		from: w.from,
 		to: w.to,
@@ -109,5 +125,6 @@ pub async fn timeline(db: &DatabaseRepository, w: Window) -> Result<Timeline> {
 		devices,
 		port_scans,
 		changes,
+		identify_sessions,
 	})
 }

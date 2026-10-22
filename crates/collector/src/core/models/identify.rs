@@ -110,6 +110,15 @@ impl TryFrom<ReadingsPayload> for Readings {
 	}
 }
 
+/// A session: when it started and when it ends (or ended), in unix seconds.
+/// Stored too, so the gap in the sensor's minute reports has a reason.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Session {
+	pub sensor: String,
+	pub started_at: i64,
+	pub ended_at: i64,
+}
+
 /// A host that answered a sweep.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Online {
@@ -119,8 +128,9 @@ pub struct Online {
 
 #[derive(Debug, Default)]
 pub struct Identify {
-	/// Per sensor, until when it identifies, in unix seconds.
-	pub until: HashMap<String, i64>,
+	/// Per sensor, its session; one that ran out is forgotten when it's next
+	/// looked up.
+	pub sessions: HashMap<String, Session>,
 	/// Per sensor, the newest readings.
 	pub readings: HashMap<String, Readings>,
 	/// Who answered the newest sweep, and when it finished.

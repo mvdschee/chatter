@@ -160,6 +160,7 @@ Every 60 s, one JSON document:
 ```json
 {
   "sensor": "c6-1",
+  "boot": 3141592653,
   "seq": 42,
   "uptime_s": 2520,
   "channel": 6,
@@ -182,6 +183,9 @@ Every 60 s, one JSON document:
 }
 ```
 
+- **`boot`** is random per boot, from the radio's true RNG. `seq` and
+  uptime start again at every boot, so a resend is the same `seq` from the
+  same boot.
 - **Broadcast and multicast** from the router count toward one total per
   network, not toward a device. A wireless sender's own broadcast already
   counts as its `tx` on the way up to the router; the totals catch storms and

@@ -3,11 +3,15 @@
 // --- reports ---------------------------------------------------------------
 
 pub const REPORTS_INSERT: &str = "INSERT INTO reports \
-	(sensor, seq, uptime_s, received_at, channel, dropped, overflow, nets_known) \
-	VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id";
+	(sensor, seq, uptime_s, received_at, channel, dropped, overflow, nets_known, boot) \
+	VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id";
 
-/// The same report stored before (a resend), received from `?4` up to `?5`:
-/// `id`.
+/// The same report stored before (a resend), from the same boot: `id`.
+pub const REPORTS_FIND_IN_BOOT: &str =
+	"SELECT id FROM reports WHERE sensor = ?1 AND boot = ?2 AND seq = ?3";
+
+/// For firmware without a boot id: the same report stored before (a
+/// resend), received from `?4` up to `?5`: `id`.
 pub const REPORTS_FIND: &str = "SELECT id FROM reports WHERE sensor = ?1 AND seq = ?2 \
 	AND uptime_s = ?3 AND received_at BETWEEN ?4 AND ?5";
 
@@ -197,3 +201,15 @@ pub const DEVICE_NAMES_UPSERT: &str = "INSERT INTO device_names (mac, name, name
 	VALUES (?1, ?2, ?3) ON CONFLICT (mac) DO UPDATE SET name = ?2, named_at = ?3";
 
 pub const DEVICE_NAMES_DELETE: &str = "DELETE FROM device_names WHERE mac = ?1";
+
+// --- identify sessions -----------------------------------------------------
+
+/// One row per identify session: started, or its end moved (extended or
+/// stopped early).
+pub const IDENTIFY_SESSIONS_UPSERT: &str = "INSERT INTO identify_sessions \
+	(sensor, started_at, ended_at) VALUES (?1, ?2, ?3) \
+	ON CONFLICT (sensor, started_at) DO UPDATE SET ended_at = ?3";
+
+/// The identify sessions that overlap `?1` up to `?2`, oldest first.
+pub const IDENTIFY_SESSIONS_BETWEEN: &str = "SELECT sensor, started_at, ended_at \
+	FROM identify_sessions WHERE ended_at >= ?1 AND started_at < ?2 ORDER BY started_at";

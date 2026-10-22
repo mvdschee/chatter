@@ -7,17 +7,19 @@ use crate::{
 	repository::{
 		db::{DatabaseRepository, DbValue},
 		schemas::{
-			BROADCAST_MINUTES_INSERT, DEVICE_MINUTES_INSERT, REPORTS_FIND, REPORTS_INSERT,
-			REPORTS_LAST_SEQ,
+			BROADCAST_MINUTES_INSERT, DEVICE_MINUTES_INSERT, REPORTS_FIND, REPORTS_FIND_IN_BOOT,
+			REPORTS_INSERT, REPORTS_LAST_SEQ,
 		},
 	},
 	warn,
 };
 
-/// How far apart a report and its resend can arrive. The sensor's outbox
-/// holds 16 reports, a minute each, so a resend is never more than about 16
-/// minutes late. A reboot repeats `seq` and uptime, so a match from further
-/// away is another boot's report, not a resend.
+/// For firmware without a boot id: how far apart a report and its resend can
+/// arrive. The sensor's outbox holds 16 reports, a minute each, so a resend
+/// is never more than about 16 minutes late. A reboot repeats `seq` and
+/// uptime, so a match from further away is another boot's report; one from
+/// a reboot within the hour is still taken for a resend, which the boot id
+/// rules out.
 const RESEND_WINDOW_S: i64 = 3600;
 
 #[derive(Debug, PartialEq)]
@@ -61,21 +63,35 @@ pub async fn ingest_report(db: &DatabaseRepository, report: Report) -> Result<In
 }
 
 /// Stores a report with its device and broadcast counters, unless it's
-/// stored already.
+/// stored already: the same `seq` from the same boot.
 pub async fn store_report(db: &DatabaseRepository, report: &Report) -> Result<Ingested> {
 	let sensor = DbValue::Text(report.sensor.to_string());
-	let found = db
-		.get_record(
-			REPORTS_FIND,
-			vec![
-				DbValue::Text(report.sensor.to_string()),
-				DbValue::Int(report.seq),
-				DbValue::Int(report.uptime_s),
-				DbValue::Int(report.received_at - RESEND_WINDOW_S),
-				DbValue::Int(report.received_at + RESEND_WINDOW_S),
-			],
-		)
-		.await?;
+	let found = match report.boot {
+		Some(boot) => {
+			db.get_record(
+				REPORTS_FIND_IN_BOOT,
+				vec![
+					DbValue::Text(report.sensor.to_string()),
+					DbValue::Int(boot),
+					DbValue::Int(report.seq),
+				],
+			)
+			.await?
+		},
+		None => {
+			db.get_record(
+				REPORTS_FIND,
+				vec![
+					DbValue::Text(report.sensor.to_string()),
+					DbValue::Int(report.seq),
+					DbValue::Int(report.uptime_s),
+					DbValue::Int(report.received_at - RESEND_WINDOW_S),
+					DbValue::Int(report.received_at + RESEND_WINDOW_S),
+				],
+			)
+			.await?
+		},
+	};
 	if found.is_some() {
 		return Ok(Ingested::Duplicate);
 	}
@@ -121,6 +137,7 @@ pub async fn store_report(db: &DatabaseRepository, report: &Report) -> Result<In
 				DbValue::Int(report.dropped),
 				DbValue::Int(report.overflow),
 				DbValue::Text(nets_known),
+				DbValue::IntOpt(report.boot),
 			],
 			children,
 		)
@@ -155,14 +172,45 @@ mod tests {
 	}
 
 	fn report_at(received_at: i64) -> Report {
+		report_in(None, received_at)
+	}
+
+	fn report_in(boot: Option<u32>, received_at: i64) -> Report {
 		let mut payload: ReportPayload = serde_json::from_str(
 			r#"{"sensor":"c6-1","seq":0,"uptime_s":60,"channel":6,"dropped":0,"overflow":0,"nets_known":[0],
 			"devices":[{"mac":"aa:bb:cc:00:00:01","net":0,"tx_frames":1,"tx_bytes":100,"rx_frames":1,"rx_bytes":100,"retries":0,"rssi_max":-50}],
 			"broadcast":[]}"#,
 		)
 		.unwrap();
+		payload.boot = boot;
 		payload.received_at = received_at;
 		Report::try_from(payload).unwrap()
+	}
+
+	#[tokio::test]
+	async fn a_reboot_within_the_hour_is_stored_with_a_boot_id() {
+		let path =
+			std::env::temp_dir().join(format!("chatter-test-boot-{}.db", std::process::id()));
+		let _ = std::fs::remove_file(&path);
+		let db = DatabaseRepository::new(path.to_str().unwrap()).await.unwrap();
+		db.init().await.unwrap();
+
+		let t = 1_700_000_000;
+		let stored = |i: Ingested| matches!(i, Ingested::Stored { .. });
+		assert!(stored(store_report(&db, &report_in(Some(7), t)).await.unwrap()));
+		assert_eq!(
+			store_report(&db, &report_in(Some(7), t + 300)).await.unwrap(),
+			Ingested::Duplicate
+		);
+		// rebooted minutes later: the same seq and uptime, another boot
+		assert!(stored(store_report(&db, &report_in(Some(8), t + 300)).await.unwrap()));
+
+		let reports = db
+			.get_records(REPORTS_BETWEEN, vec![DbValue::Int(0), DbValue::Int(i64::MAX)])
+			.await
+			.unwrap();
+		assert_eq!(reports.len(), 2);
+		let _ = std::fs::remove_file(&path);
 	}
 
 	#[tokio::test]

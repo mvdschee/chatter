@@ -14,6 +14,9 @@ pub const REPORT_BUF: usize = 24 * 1024;
 pub struct ReportHeader<'a> {
 	/// Plain ASCII, no quotes or backslashes: it's written as-is.
 	pub sensor: &'a str,
+	/// Random per boot: `seq` and uptime start again at every boot, so only
+	/// this tells a resend from another boot's report.
+	pub boot: u32,
 	pub seq: u32,
 	pub uptime_s: u64,
 	pub channel: u8,
@@ -53,8 +56,8 @@ fn write_all(
 ) -> fmt::Result {
 	write!(
 		out,
-		r#"{{"sensor":"{}","seq":{},"uptime_s":{},"channel":{},"dropped":{},"overflow":{},"nets_known":["#,
-		h.sensor, h.seq, h.uptime_s, h.channel, h.dropped, h.overflow
+		r#"{{"sensor":"{}","boot":{},"seq":{},"uptime_s":{},"channel":{},"dropped":{},"overflow":{},"nets_known":["#,
+		h.sensor, h.boot, h.seq, h.uptime_s, h.channel, h.dropped, h.overflow
 	)?;
 	let mut first = true;
 	for net in (0..MAX_NETS).filter(|&net| h.nets_known[net]) {
@@ -134,6 +137,7 @@ mod tests {
 	fn header() -> ReportHeader<'static> {
 		ReportHeader {
 			sensor: "c6-1",
+			boot: u32::MAX,
 			seq: 42,
 			uptime_s: 2520,
 			channel: 6,
@@ -171,6 +175,7 @@ mod tests {
 	#[test]
 	fn empty_report() {
 		let v = render(vec![], [Counters::EMPTY; MAX_NETS]);
+		assert_eq!(v["boot"], u32::MAX);
 		assert_eq!(v["seq"], 42);
 		assert_eq!(v["channel"], 6);
 		assert_eq!(v["dropped"], 1);

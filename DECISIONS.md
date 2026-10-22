@@ -252,3 +252,10 @@
 **Decision:** The collector switches the sensor with `identify <secs>\n` (digits only, `0` means count) or an empty body (`204`) for count. Anything else is "carry on": the sensor keeps the mode it's in.
 **Why:** Without the newline, `identify 600` cut short reads as `identify 60`, a valid shorter session. If anything unreadable meant "count", one garbled answer would end a session, and the sensor then waits for a reboot.
 **Alternatives:** Checking the body against `Content-Length` (also catches it, but the firmware has to read and pass the header); treating anything but `identify` as count (the plan's first wording, which lets a garbled answer stop a session).
+
+## 2026-10-22 - A resend is the same seq from the same boot
+
+**Decision:** Each boot picks a random `boot` id (the C6's RNG, true random with the radio on) and puts it in every report. The collector takes a report as a resend only when one with the same sensor, `boot` and `seq` is stored; migration 10 adds the column and an index. Reports without it (older firmware) keep the hour's window. This replaces the resend window of the same day.
+**Why:** The window failed a second time: a reboot minutes after the last one reaches the same `seq` at the same uptime, and identify reboots the sensor twice per session. A boot id makes that match impossible instead of unlikely.
+**Alternatives:** Uptime in milliseconds (only unlikely); only matching copies newer than the sensor's last restart (no firmware change, but fails when a boot's first report is lost).
+

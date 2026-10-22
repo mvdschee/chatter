@@ -2,7 +2,7 @@
 // traffic over a range, its playhead, and play, live and zoom.
 
 import { heat, heatColor } from "./colour.js";
-import { DEVICES, LOOP, PORT_SCANS, TL, bucketOf, bucketTime, buckets, busiestAt, loadTimeline, peakAt, seriesAt, sum, totalAt } from "./data.js";
+import { DEVICES, LOOP, PORT_SCANS, SESSIONS, TL, bucketOf, bucketTime, buckets, busiestAt, loadTimeline, peakAt, seriesAt, sum, totalAt } from "./data.js";
 import { DAY_MONTH, MiB, fmtBytes, hhmm, whenLabel } from "./format.js";
 import { MINUTE_MS, play } from "./playback.js";
 import { dpr, reduced } from "./view.js";
@@ -120,6 +120,19 @@ function renderHeat() {
 		c.fillStyle = p.alerts ? "rgba(255,59,59,0.9)" : "rgba(127,231,242,0.55)";
 		c.fillRect(x1, TOP - 2, x2 - x1, 1);
 		const text = p.alerts ? `port scan · ${p.alerts} alert${p.alerts > 1 ? "s" : ""}` : "port scan";
+		c.fillText(text, Math.min(x1, g.w - c.measureText(text).width), TOP - 5);
+	}
+
+	// identify sessions: a muted band, the sensor didn't count during them
+	for (const s of SESSIONS) {
+		const from = Math.max(0, bucketOf(s.from)), to = Math.min(n, bucketOf(s.to));
+		if (to <= 0 || from >= n) continue;
+		const x1 = colX(g, from), x2 = Math.max(x1 + 2, colX(g, to));
+		c.fillStyle = "rgba(92,122,134,0.12)";
+		c.fillRect(x1, TOP, x2 - x1, g.ph);
+		c.fillStyle = "rgba(92,122,134,0.9)";
+		c.fillRect(x1, TOP - 2, x2 - x1, 1);
+		const text = `identify · ${s.sensor}`;
 		c.fillText(text, Math.min(x1, g.w - c.measureText(text).width), TOP - 5);
 	}
 

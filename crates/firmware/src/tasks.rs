@@ -27,6 +27,7 @@ use embassy_sync::{
 	signal::Signal,
 };
 use embassy_time::{Duration, Instant, Timer, with_deadline, with_timeout};
+use esp_hal::rng::Rng;
 use esp_radio::wifi::sniffer::Sniffer;
 use static_cell::ConstStaticCell;
 
@@ -134,6 +135,8 @@ pub async fn aggregate(sniffer: Sniffer) {
 /// until the collector says to identify.
 async fn count_minutes(table: &mut DeviceTable, scratch: &mut [u8; REPORT_BUF]) {
 	let mut known = Watched::new();
+	// the radio is on, so the RNG is true random
+	let boot = Rng::new().random();
 	let mut seq: u32 = 0;
 	loop {
 		let deadline = Instant::now() + Duration::from_secs(PERIOD_SECS);
@@ -150,7 +153,7 @@ async fn count_minutes(table: &mut DeviceTable, scratch: &mut [u8; REPORT_BUF]) 
 			return;
 		}
 		log_learned(&mut known);
-		finish_period(table, scratch, seq).await;
+		finish_period(table, scratch, boot, seq).await;
 		seq = seq.wrapping_add(1);
 	}
 }
@@ -202,10 +205,16 @@ fn log_learned(known: &mut Watched) {
 }
 
 /// Logs the period, adds its report to the outbox, and empties the table.
-async fn finish_period(table: &mut DeviceTable, scratch: &mut [u8; REPORT_BUF], seq: u32) {
+async fn finish_period(
+	table: &mut DeviceTable,
+	scratch: &mut [u8; REPORT_BUF],
+	boot: u32,
+	seq: u32,
+) {
 	let (broadcast, overflow) = aggregate::take_totals(table);
 	let header = ReportHeader {
 		sensor: SENSOR_NAME,
+		boot,
 		seq,
 		uptime_s: Instant::now().as_secs(),
 		channel: wifi::channel(),
