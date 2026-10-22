@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-	atLength, box, canAdd, corner, crossesItself, doorAt, doorSpan, doorsOverlap, cutsRow, fanColumn, fitsEdge, followImage, fromImage, frontAreas, openingAt, inside, labelAt, measure, middleOf, mm, moveCorner, nearestEdge, resizeDoor, roomAt, roomWidth, snap, stacks, toImage, toUnits, turnPlan, wallPieces,
+	atLength, box, canAdd, corner, crossesItself, doorAt, doorSpan, doorsOverlap, cutsRow, fanColumn, fitFrame, fitsEdge, followImage, fromImage, frontAreas, openingAt, inside, labelAt, measure, middleOf, mm, moveCorner, nearestEdge, resizeDoor, roomAt, roomWidth, snap, stacks, toImage, toUnits, turnPlan, wallPieces,
 } from "../ui/geometry.js";
 
 // Made-up plans: a row of two rooms over a row of three, and an L.
@@ -446,4 +446,36 @@ test("a fanned stack's rows: right of its spots, apart, centred on them", () => 
 	assert.ok(edge.rows.every(([, y]) => y - 9 >= 0));
 	// below a bar along the top
 	assert.ok(fanColumn([[900, 5], [920, 8], [910, 12]], { top: 64, h: 600 }).rows.every(([, y]) => y - 9 >= 64));
+});
+
+test("the plan never lands under a control, and fills what's left", () => {
+	let seed = 11;
+	const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+	const pad = 16, gap = 12;
+	for (let round = 0; round < 500; round++) {
+		const w = 320 + rand() * 1400, h = 240 + rand() * 700;
+		const bw = 50 + rand() * 900, bh = 20 + rand() * 500;
+		// controls along the edges, as the top bar, the HUD and the camera's buttons are
+		const clear = Array.from({ length: Math.floor(rand() * 5) }, () => {
+			const cw = 20 + rand() * w * 0.6, ch = 20 + rand() * h * 0.3;
+			return { x: rand() < 0.5 ? rand() * 30 : w - cw - rand() * 30, y: rand() < 0.5 ? rand() * 30 : h - ch - rand() * 30, w: cw, h: ch };
+		});
+		const { fit, x, y } = fitFrame(bw, bh, { w, h, clear, pad, gap });
+		const b = { x0: x - (fit * bw) / 2, x1: x + (fit * bw) / 2, y0: y - (fit * bh) / 2, y1: y + (fit * bh) / 2 };
+		const e = 1e-6;
+		assert.ok(b.x0 >= pad - e && b.x1 <= w - pad + e && b.y0 >= pad - e && b.y1 <= h - pad + e, `round ${round}: off the canvas`);
+		for (const r of clear) {
+			const apart = b.x1 <= r.x - gap + e || b.x0 >= r.x + r.w + gap - e || b.y1 <= r.y - gap + e || b.y0 >= r.y + r.h + gap - e;
+			assert.ok(apart, `round ${round}: under a control`);
+		}
+	}
+	// nothing in the way: as big as the canvas allows, in the middle
+	const free = fitFrame(400, 200, { w: 1000, h: 600, pad, gap });
+	assert.equal(free.fit, Math.min((1000 - 2 * pad) / 400, (600 - 2 * pad) / 200));
+	assert.deepEqual([free.x, free.y], [500, 300]);
+	// a bar across the top: below it, and bigger than if it stayed in the middle
+	const bar = { x: 0, y: 0, w: 1000, h: 150 };
+	const low = fitFrame(400, 200, { w: 1000, h: 600, clear: [bar], pad, gap });
+	assert.ok(low.y > 300 && low.y - (low.fit * 200) / 2 >= 150 + gap - 1e-9);
+	assert.ok(low.fit > (300 - 150 - gap) / 100);
 });

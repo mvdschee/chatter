@@ -8,12 +8,12 @@ import { heat, redness, score, scoreColor } from "./colour.js";
 import { DEVICES, SENSORS, STATUS } from "./data.js";
 import { fmtBytes } from "./format.js";
 import { fanColumn, stacks } from "./geometry.js";
-import { panel, selected } from "./panel.js";
+import { selected } from "./panel.js";
 import { ROUTER, WALL_H, areas, floorDots, rooms, sensorAt, wallDots } from "./plan.js";
 import { current, outlierNow, play, scoreNow } from "./playback.js";
 import { rand } from "./random.js";
 import { STATE_COLOR, sensorState } from "./sensors.js";
-import { H, TILT, W, cam, cameraKey, canvas, ctx, dpr, fit, project, reduced, yaw } from "./view.js";
+import { H, TILT, W, cam, cameraKey, canvas, controls, ctx, dpr, fit, keepClear, project, reduced, yaw } from "./view.js";
 
 export function draw(now) {
 	const dt = Math.min(0.05, (now - play.lastFrame) / 1000);
@@ -418,7 +418,8 @@ function layOut() {
 	for (const s of layout) {
 		for (const t of s.things) stacked.add(t.device ?? t.sensor ?? t.router);
 		if (s.things.some((t) => t.key === fan)) {
-			Object.assign(s, fanColumn(s.things.map((t) => t.at), { row: FAN_ROW, nameW: rowWidth(s) + 9, w: panel ? W - 370 : W, top: 64, h: H - 64 }));
+			const { top, camera, side } = controls();
+			Object.assign(s, fanColumn(s.things.map((t) => t.at), { row: FAN_ROW, nameW: rowWidth(s) + 9, w: side ? side.x : W, top: top.y + top.h, h: camera.y }));
 		} else for (const t of s.things) folded.add(t.device ?? t.sensor ?? t.router);
 	}
 }
@@ -552,17 +553,19 @@ function brackets(x, y, s, color) {
 	}
 }
 
+// The callouts drawn this frame, boxes on the plan's canvas, for the layout
+// check (crates/collector/ui-tests/layout.mjs).
+export let drawnCallouts = [];
+
 // A floating "profiler" box next to the selected device, typed in.
 function drawCallouts(now) {
 	const show = selected ? [selected] : [];
 	for (const d of DEVICES) if (!show.includes(d)) d.shownAt = -1e9;
+	drawnCallouts = [];
 
 	const bw = 248, bh = 72, gap = 8;
-	// the HUD's readouts, the buttons, the view controls and the open panel are taken
-	const taken = [{ x: 0, y: 0, w: 290, h: 235 }];
-	taken.push(panel ? { x: W - 370, y: 0, w: 370, h: H } : { x: W - 320, y: 0, w: 320, h: 64 });
-	taken.push({ x: W - 520, y: H - 64, w: 520, h: 64 });
-	// and a fanned stack's column
+	// the HUD, the controls over the plan and a fanned stack's column are taken
+	const taken = keepClear(now);
 	for (const s of layout.filter((s) => s.rows)) taken.push(fanBox(s));
 	const overlaps = (a) => taken.some((b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h);
 
@@ -589,6 +592,7 @@ function drawCallouts(now) {
 		}
 		if (!box) return;
 		taken.push({ x: box.x - gap, y: box.y - gap, w: bw + 2 * gap, h: bh + 2 * gap });
+		drawnCallouts.push({ text: d.name, left: box.x, top: box.y, right: box.x + bw, bottom: box.y + bh });
 		const bx = box.x, by = box.y;
 		const hot = outlierNow(d, now);
 		const color = hot ? "255,59,59" : "127,231,242";
@@ -617,9 +621,42 @@ function drawCallouts(now) {
 	});
 }
 
+const HUD_M = 16, HUD_FONT = "10px ui-monospace, Menlo, monospace";
+
+function hudRows(now) {
+	const total = DEVICES.reduce((s, d) => { const [a, b] = current(d, now); return s + a + b; }, 0);
+	const fps = Math.round(total / 60 / 900) + 140;
+	return [
+		["SNIFFER", `CH ${STATUS.channel} · 2.4 GHZ · 20 MHZ`],
+		["FRAMES/S", String(fps)],
+		["THROUGHPUT", `${fmtBytes(total / 60)}/s`],
+		["SENSORS", String(STATUS.sensors)],
+		["DEVICES", String(DEVICES.length)],
+		["DROPPED", String(STATUS.dropped)],
+	];
+}
+
+const viewLine = () => `VIEW  YAW ${(yaw * 57.3).toFixed(1).padStart(6)}°  TILT ${(TILT * 57.3).toFixed(0)}°  ZOOM ${cam.zoom.toFixed(1)}×`;
+
+// What the HUD takes on the canvas, as drawHud draws it: the readouts and
+// the occupancy in the top left, the view line in the bottom left and the
+// corner brackets.
+export function hudBoxes(now) {
+	const m = HUD_M, rows = hudRows(now);
+	ctx.font = HUD_FONT;
+	const readouts = Math.max(...rows.map(([, v]) => m + 92 + ctx.measureText(v).width), m + 12 + 13 * 9, m + 12 + ctx.measureText("2.4 GHZ OCCUPANCY").width);
+	const view = m + 12 + ctx.measureText(viewLine()).width;
+	return [
+		{ x: 0, y: 0, w: readouts, h: m + 26 + rows.length * 15 + 14 + 30 },
+		{ x: 0, y: H - m - 20, w: view, h: m + 20 },
+		{ x: W - m - 22, y: m, w: 22, h: 22 },
+		{ x: W - m - 22, y: H - m - 22, w: 22, h: 22 },
+	];
+}
+
 // The HUD around the plan: corner brackets, readouts, channel occupancy.
 function drawHud(now) {
-	const m = 16;
+	const m = HUD_M;
 	ctx.strokeStyle = "rgba(127,231,242,0.5)";
 	ctx.lineWidth = 1;
 	for (const [x, y, sx, sy] of [[m, m, 1, 1], [W - m, m, -1, 1], [W - m, H - m, -1, -1], [m, H - m, 1, -1]]) {
@@ -630,17 +667,8 @@ function drawHud(now) {
 		ctx.stroke();
 	}
 
-	const total = DEVICES.reduce((s, d) => { const [a, b] = current(d, now); return s + a + b; }, 0);
-	const fps = Math.round(total / 60 / 900) + 140;
-	const rows = [
-		["SNIFFER", `CH ${STATUS.channel} · 2.4 GHZ · 20 MHZ`],
-		["FRAMES/S", String(fps)],
-		["THROUGHPUT", `${fmtBytes(total / 60)}/s`],
-		["SENSORS", String(STATUS.sensors)],
-		["DEVICES", String(DEVICES.length)],
-		["DROPPED", String(STATUS.dropped)],
-	];
-	ctx.font = "10px ui-monospace, Menlo, monospace";
+	const rows = hudRows(now);
+	ctx.font = HUD_FONT;
 	rows.forEach(([k, v], i) => {
 		ctx.fillStyle = "rgba(92,122,134,0.9)";
 		ctx.fillText(k, m + 12, m + 26 + i * 15);
@@ -661,8 +689,8 @@ function drawHud(now) {
 	}
 
 	ctx.fillStyle = "rgba(92,122,134,0.8)";
-	ctx.font = "10px ui-monospace, Menlo, monospace";
-	ctx.fillText(`VIEW  YAW ${(yaw * 57.3).toFixed(1).padStart(6)}°  TILT ${(TILT * 57.3).toFixed(0)}°  ZOOM ${cam.zoom.toFixed(1)}×`, m + 12, H - m - 8);
+	ctx.font = HUD_FONT;
+	ctx.fillText(viewLine(), m + 12, H - m - 8);
 }
 
 // The view tears: horizontal strips shift, with a red/cyan split.

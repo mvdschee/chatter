@@ -284,3 +284,9 @@
 **Decision:** Every label on the timeline's graph goes through one function (`ui/labels.js` `placeLabels`): in order of importance, each takes the first of its spots that is on the canvas and clear of the labels before it, or is left out.
 **Why:** The overlaps (peaks, stacked identify bands, the cut-off axis) came from labels drawn at fixed offsets without knowing about each other; placing them in one pass makes an overlap impossible rather than unlikely, and a node test checks it over random bunched-up labels.
 **Alternatives:** Moving the offsets (fixes today's data only); merging labels that collide into one ("port scan ×2", more to read and to test); a force-directed layout (overkill for a dozen labels).
+
+## 2026-10-22 - The plan's fit and the callout keep clear of measured boxes
+**Decision:** The canvas keeps clear of the controls' own rectangles (`view.js` `controls`) and the HUD's boxes worked out from what `drawHud` draws. The plan takes the largest scale whose box stays clear of them (`geometry.js` `fitFrame`), centred across, at the height of a few tried that lets it be largest. The fit leaves out the side panel; the callout and a fanned stack keep clear of it.
+**Why:** Fixed margins went stale whenever a control moved. Boxes measured each time can't drift, and a node test checks over random layouts that the plan never lands under one. If the fit counted the panel, the plan would jump every time the panel opened.
+**Alternatives:** Margins in bands (top bar, bottom, HUD width at the sides; wastes room where the HUD only takes a corner); fitting the plan's drawn outline instead of its box (tighter, more work than it's worth now).
+

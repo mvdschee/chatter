@@ -479,3 +479,32 @@ export function fanColumn(spots, { gap = 40, row = 18, nameW = 0, w = Infinity, 
 	const mid = Math.min(Math.max(spots.reduce((s, p) => s + p[1], 0) / spots.length, top + half + row), h - half - row);
 	return { left, rows: spots.map((_, i) => [x, mid - half + i * row]) };
 }
+
+// How big the 3D plan is drawn and where: the largest scale at which its
+// box, `bw` by `bh` at scale 1, stays `pad` inside the canvas, `w` by `h`,
+// and `gap` clear of each of `clear` ({ x, y, w, h }, the controls over
+// it). Centred across; of the heights tried, the one that lets it be
+// largest, the nearest the middle on a tie. { fit, x, y }: the scale and
+// the box's centre.
+export function fitFrame(bw, bh, { w, h, clear = [], pad = 16, gap = 12 }) {
+	const x = w / 2, hw = bw / 2, hh = bh / 2;
+	const fitAt = (y) => {
+		let f = Math.min((x - pad) / hw, (w - pad - x) / hw, (y - pad) / hh, (h - pad - y) / hh);
+		// clear of a box once apart from it across or down
+		for (const r of clear) {
+			const [x0, x1, y0, y1] = [r.x - gap, r.x + r.w + gap, r.y - gap, r.y + r.h + gap];
+			const fx = x0 >= x ? (x0 - x) / hw : x1 <= x ? (x - x1) / hw : 0;
+			const fy = y0 >= y ? (y0 - y) / hh : y1 <= y ? (y - y1) / hh : 0;
+			f = Math.min(f, Math.max(fx, fy));
+		}
+		return Math.max(0, f);
+	};
+	let best = { fit: fitAt(h / 2), x, y: h / 2 };
+	for (let k = 1; k <= 20; k++) {
+		for (const y of [h / 2 - (k * h) / 40, h / 2 + (k * h) / 40]) {
+			const fit = fitAt(y);
+			if (fit > best.fit + 1e-9) best = { fit, x, y };
+		}
+	}
+	return best;
+}

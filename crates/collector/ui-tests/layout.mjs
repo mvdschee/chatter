@@ -344,10 +344,43 @@ function probe(vw, vh, drawn) {
 	return faults;
 }
 
+// Runs in the page. The selected device's callout, drawn on the plan's
+// canvas (draw.js `drawnCallouts`), under a control, the clock or the open
+// side panel. elementFromPoint can't see into a canvas, so these are boxes.
+function calloutFaults(callouts) {
+	const plan = document.getElementById("plan").getBoundingClientRect();
+	const shown = (el) => el.checkVisibility({ opacityProperty: true, visibilityProperty: true });
+	// the panel as a whole, not each thing in it
+	const over = [...document.querySelectorAll("button, input, select, textarea, summary, [role=separator], .clock, #side")]
+		.filter((el) => shown(el) && (el.id === "side" || !el.closest("#side")));
+	const name = (el) => `"${(el.getAttribute("aria-label") || el.textContent.trim() || el.id).replace(/\s+/g, " ").slice(0, 32)}"`;
+	const faults = [];
+	for (const c of callouts) {
+		const a = { left: plan.left + c.left, top: plan.top + c.top, right: plan.left + c.right, bottom: plan.top + c.bottom };
+		for (const el of over) {
+			const r = el.getBoundingClientRect();
+			if (a.left < r.right && r.left < a.right && a.top < r.bottom && r.top < a.bottom) faults.push(`the callout "${c.text}" is under ${el.id === "side" ? "the side panel" : name(el)}`);
+		}
+	}
+	return faults;
+}
+
+// Runs in the page: selects each device in turn and checks its callout.
+const EVERY_CALLOUT = `Promise.all([import("/data.js"), import("/panel.js"), import("/draw.js")]).then(async ([data, panel, draw]) => {
+	const faults = new Set();
+	for (const d of data.DEVICES) {
+		panel.select(d);
+		await new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)));
+		for (const f of (${calloutFaults})(draw.drawnCallouts)) faults.add(f);
+	}
+	return [...faults];
+})`;
+
 // --- the scenes ---------------------------------------------------------------
 
 // `act`: what to click, in order; `zoom`: then shift-drag across the middle
-// of the graph; `ready`: what to wait for after. The page opens live here
+// of the graph; `ready`: what to wait for after; `every`: then select each
+// device in turn and check its callout. The page opens live here
 // (reduced motion doesn't play), so the other states of the timeline's head
 // are scenes of their own.
 const panel = (name, act, ready = "document.querySelector('#side.open')") => ({ name, act, ready });
@@ -360,6 +393,7 @@ const SCENES = [
 	{ name: "home" },
 	panel("devices", ["#devices-btn"]),
 	panel("a device", ["#devices-btn", "#side .list button"], "document.querySelector('#side .name')"),
+	{ ...panel("every device's callout", ["#devices-btn"]), every: true },
 	panel("events", ["#events-btn"]),
 	panel("sensors", ["#sensors-btn"]),
 	panel("a sensor", ["#sensors-btn", "#side [data-sensor]"], "document.querySelector('#sensor-mode p')"),
@@ -418,6 +452,8 @@ async function main() {
 				await tab.evaluate(frames);
 				const drawn = await tab.evaluate(`import("/timeline.js").then((m) => m.drawnLabels)`);
 				const faults = await tab.evaluate(`(${probe})(${width}, ${height}, ${JSON.stringify(drawn)})`);
+				faults.push(...await tab.evaluate(`import("/draw.js").then((m) => (${calloutFaults})(m.drawnCallouts))`));
+				if (scene.every) faults.push(...await tab.evaluate(EVERY_CALLOUT));
 				if (shots) {
 					const { data } = await tab.send("Page.captureScreenshot", { format: "png" });
 					writeFileSync(join(shots, `${title.replace(/[^\w]+/g, "-")}.png`), Buffer.from(data, "base64"));

@@ -2,7 +2,7 @@
 
 Status, 2026-10-22: the mockup is approved, with two changes: icons from
 Lucide, and technical wording. Chunks 2 (the layout check), 3 (buttons
-and the top bar) and 5 (the timeline) are built.
+and the top bar), 4 (keep-clear areas) and 5 (the timeline) are built.
 The owner finds the home page and the identify page busy and badly
 organised: controls were added one feature at a time, each one the same
 bordered, uppercase button.
@@ -143,9 +143,24 @@ One reviewable chunk each, with its check:
    the side panel when there's more than one), the camera's buttons as
    icons with the hint on hover, the icon sprite.
    Check: the layout check passes for the top bar; the owner's judgement.
-4. **Keep-clear areas from the DOM:** `drawCallouts` and `resize` take the
+4. **Keep-clear areas from the DOM** _(built)_: `drawCallouts` and `resize` take the
    controls' rectangles instead of fixed numbers.
    Check: a callout never lands under a control, at both widths.
+   `view.js` `controls()` measures the top bar, the camera's buttons (not
+   `.view-ctl`, whose see-through hint takes room too) and the side panel
+   while it's open, as boxes on the canvas. The HUD's boxes (the readouts,
+   the view line, the corner brackets) come from `drawHud`'s own geometry.
+   The callout and a fanned stack's column keep clear of all of them. The
+   plan's fit (`fitFrame` in `geometry.js`) keeps clear of all but the
+   panel, so it doesn't jump when the panel opens; a ResizeObserver
+   fits it again when the top bar or the buttons change size. On a wide
+   screen the camera's buttons move beside the open panel instead of under
+   it. The layout check gets the callouts drawn (`drawnCallouts`) and, in
+   "every device's callout", selects each device in turn; emptying the
+   keep-clear list makes it fail. After it, the wide screen passes every
+   scene. The phone still fails on the top bar and the side panel (6), and
+   there the camera's buttons cover the HUD's view line, which the check
+   can't see (canvas text).
 5. **The timeline** _(built)_: the head as above, the axis labels inside the canvas,
    the labels' collision rule.
    Check: no two labels overlap at 1h to 30d, at both widths.
@@ -163,7 +178,7 @@ One reviewable chunk each, with its check:
    ends at it. The page's grid column is `minmax(0, 1fr)`, so a row that
    can't wrap no longer widens the whole page.
    After it, the layout check passes every range at both widths. What still
-   fails is for later chunks: the phone's top bar cut off by the plan
+   failed was for later chunks: the phone's top bar cut off by the plan
    (6), and on both widths a tall side panel over the camera's buttons, and
    on a phone over the timeline head (4 and 6).
 6. **The phone:** the home page's phone layout, the bottom sheet.

@@ -1,8 +1,9 @@
 // The 3D view: plan units in, screen pixels out; the camera, and moving it
 // with the mouse, the keys and the buttons.
 
-import { fold, openStack, thingAt } from "./draw.js";
-import { select } from "./panel.js";
+import { fold, hudBoxes, openStack, thingAt } from "./draw.js";
+import { fitFrame } from "./geometry.js";
+import { select, side } from "./panel.js";
 import { PLAN, WALL_H } from "./plan.js";
 import { play } from "./playback.js";
 import { openSensor } from "./sensors.js";
@@ -10,6 +11,9 @@ import { redrawGraph } from "./timeline.js";
 
 export const canvas = document.getElementById("plan");
 export const ctx = canvas.getContext("2d");
+const topBar = document.querySelector(".top");
+// the buttons, not .view-ctl: its hint is see-through but still takes room
+const cameraBtns = document.querySelector(".view-ctl .icon-group");
 export const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 export const TILT = 0.88; // radians from looking straight down (about 50°)
@@ -43,8 +47,10 @@ export function resize() {
 	const r = canvas.getBoundingClientRect();
 	W = r.width;
 	H = r.height;
-	canvas.width = Math.round(W * dpr);
-	canvas.height = Math.round(H * dpr);
+	// setting a canvas's size clears it, even to the same size: a refit
+	// alone, after the frame is drawn, would blank it until the next
+	const [cw, ch] = [Math.round(W * dpr), Math.round(H * dpr)];
+	if (canvas.width !== cw || canvas.height !== ch) [canvas.width, canvas.height] = [cw, ch];
 	// fit the plan, walls included, with room for the camera drift
 	const saved = yaw;
 	let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -59,14 +65,37 @@ export function resize() {
 		}
 	}
 	yaw = saved;
-	// room at the sides for the HUD's readouts
-	const mx = W > 900 ? 175 : W * 0.05;
-	fit = Math.min((W - 2 * mx) / (maxX - minX), (H * 0.86) / (maxY - minY));
-	cx = W / 2 - ((minX + maxX) / 2) * fit;
-	cy = H / 2 - ((minY + maxY) / 2) * fit + H * 0.02;
+	// clear of the HUD and the controls, but not the side panel: the plan
+	// would jump each time it opens
+	const { top, camera } = controls();
+	const f = fitFrame(maxX - minX, maxY - minY, { w: W, h: H, clear: [...hudBoxes(performance.now()), top, camera] });
+	fit = f.fit;
+	cx = f.x - ((minX + maxX) / 2) * fit;
+	cy = f.y - ((minY + maxY) / 2) * fit;
 	redrawGraph();
 }
 window.addEventListener("resize", resize);
+// the top bar widens once the fonts and the sensors' status are in
+const watch = new ResizeObserver(() => resize());
+watch.observe(topBar);
+watch.observe(cameraBtns);
+
+// The controls over the plan, as boxes on its canvas ({ x, y, w, h }): the
+// top bar, the camera's buttons and the side panel while it's open.
+export function controls() {
+	const c = canvas.getBoundingClientRect();
+	const box = (el) => {
+		const r = el.getBoundingClientRect();
+		return { x: r.left - c.left, y: r.top - c.top, w: r.width, h: r.height };
+	};
+	return { top: box(topBar), camera: box(cameraBtns), side: side.classList.contains("open") ? box(side) : null };
+}
+
+// What a label on the plan keeps clear of: the HUD and the controls.
+export function keepClear(now) {
+	const { top, camera, side } = controls();
+	return [...hudBoxes(now), top, camera, ...(side ? [side] : [])];
+}
 
 export function moveCamera(now) {
 	if (!touched) camT.yaw = reduced ? 0 : Math.sin(now / 21000) * 0.12;

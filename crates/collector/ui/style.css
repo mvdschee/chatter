@@ -7,6 +7,8 @@
 	--muted: #5c7a86;
 	--panel: rgba(6, 14, 19, 0.9);
 	--line: rgba(127, 231, 242, 0.16);
+	--side-w: 340px;
+	--side-right: 18px;
 
 	--display: "Avenir Next Condensed", "DIN Alternate", "Roboto Condensed", "Arial Narrow", sans-serif;
 	--mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -100,6 +102,10 @@ canvas#plan.dragging { cursor: grabbing; }
 	display: flex;
 	align-items: center;
 	gap: 6px;
+}
+/* on a wide screen, beside the open side panel, not under it */
+@media (min-width: 901px) {
+	.app:has(.side.open) .view-ctl { right: calc(var(--side-right) + var(--side-w) + 12px); }
 }
 /* the hint only while the camera's controls are in use */
 .view-ctl .hint { font: 11px/1 var(--mono); color: var(--muted); margin-right: 8px; opacity: 0; transition: opacity 0.2s; }
@@ -238,8 +244,8 @@ canvas#heat:focus-visible { outline: 1px solid var(--signal); }
 .side {
 	position: fixed;
 	top: 64px; /* below the buttons */
-	right: 18px;
-	width: 340px;
+	right: var(--side-right);
+	width: var(--side-w);
 	max-height: calc(100vh - 246px); /* ends above the day graph */
 	overflow-y: auto;
 	padding: 18px 20px;
