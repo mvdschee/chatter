@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use axum::{Router, body::Bytes};
+use axum::Router;
 use tokio::{net::TcpListener, signal};
 
 use crate::{Error, Result, info, repository::db::DatabaseRepository};
@@ -15,8 +15,6 @@ pub struct HttpServerConfig<'a> {
 #[derive(Clone)]
 pub struct HttpServerState {
 	pub db: DatabaseRepository,
-	/// The test client's download; `None` serves no `GET /test.bin`.
-	pub test_file: Option<Bytes>,
 	/// Development: serve the page from this directory instead of the binary.
 	pub ui_dir: Option<String>,
 	/// Where the collector keeps its files (the plan's underlay image).
@@ -35,7 +33,6 @@ impl HttpServer {
 		let app = Router::new()
 			.merge(handlers::root_routes())
 			.merge(handlers::report::routes())
-			.merge(handlers::test_file::routes())
 			.merge(handlers::ui::routes())
 			.nest(
 				"/v1",

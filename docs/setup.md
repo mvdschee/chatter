@@ -97,7 +97,11 @@ tests, and `make check` runs clippy (host and riscv32imac) plus a fmt check.
   anything in core pulls in `std`.
 - firmware build, flash and log: `make run` _(works)_. It builds for
   riscv32imac, flashes over USB-JTAG, then streams `defmt` logs until Ctrl-C.
-  The first build takes about 20 s.
+  The first build takes about 20 s. Which board, where it reports and its
+  name come from `.env`: `CHATTER_PROBE` (the `VID:PID:serial` from
+  `probe-rs list`; the serial is the board's MAC, empty with one board
+  plugged in), `CHATTER_COLLECTOR_ADDR` and `CHATTER_SENSOR_NAME` (`c6-1` if
+  unset). Plain `make` lists the targets.
 - Not copied from the esp-generate template: `[unstable] build-std` (nightly
   only, and the target ships a prebuilt `core`), `rust-src`, and
   `force-frame-pointers` (only needed for `esp-backtrace`). It builds and runs
@@ -109,14 +113,13 @@ tests, and `make check` runs clippy (host and riscv32imac) plus a fmt check.
   SQLite). Its settings are environment variables, which it reads from `.env`
   when it runs locally; its container sets the same keys (see its
   `src/config.rs`):
-  - `CHATTER_BIND`: where it listens, e.g. `127.0.0.1:8080`. The page is on
-    `/`.
+  - `CHATTER_BIND`: where it listens, e.g. `0.0.0.0:8080` (unset:
+    `127.0.0.1:8080`, which a board can't reach). The page is on `/`.
   - `CHATTER_DB`: the SQLite file, e.g. `.local/chatter.db` (`.local/` is
     git-ignored).
   - `CHATTER_UI_DIR`: `crates/collector/ui` to read the page from disk on
     every request, so a refresh shows an edit. Unset, the binary's built-in
     copy is served.
-  - `CHATTER_TEST_FILE_MIB`: set (to 10) to serve the test client's download.
   - `CHATTER_SCAN_TARGETS`: the networks to sweep with nmap. Unset, the
     collector sweeps the /24 of the network it's on now. On a Mac the sweep
     needs nmap (`brew install nmap`) and root for its ARP requests
@@ -136,10 +139,6 @@ tests, and `make check` runs clippy (host and riscv32imac) plus a fmt check.
   and `CHATTER_BIND` must listen there too. SQLite is compiled from the C
   source that sqlx ships on crates.io, so nothing needs installing; `sqlite3`
   (part of macOS) is handy to look inside.
-- import: `make import` loads `.local/reports.jsonl` (or `FILE=...`), a copy
-  of the first collector's reports file, into `CHATTER_DB`
-  (`chatter-collector import <file>`). Reports already in the database are
-  skipped, so a newer copy can be imported again.
 - on-device tests: `make test-device` _(works)_. `embedded-test` flashes
   each file in `crates/firmware/tests/` and reports pass or fail like `cargo test`.
   Checked both ways: a broken assertion shows `FAILED` and exits 1.
@@ -147,25 +146,14 @@ tests, and `make check` runs clippy (host and riscv32imac) plus a fmt check.
   `--all-targets`: that would also build the binary as a test, which
   needs the `test` crate the C6 doesn't have.
 
-## 4. Test client on an ESP32-C3 _(works)_
+## 4. Test client on an ESP32-C3 _(removed 2026-10-22)_
 
-`crates/testclient` is a single-stream client that downloads a known file, so
-the sensor's counts can be checked against an exact number.
-
-- It's its own workspace (`exclude` in the root `Cargo.toml`), and so is
-  `crates/collector`. Inside the main one, the C3's `esp32c3` features would
-  merge with the firmware's `esp32c6` ones, and the collector's `std` can't
-  build for the C6 target rust-analyzer checks everything for. All three
-  workspaces share the repo's `target/` (`build.target-dir` in
-  `.cargo/config.toml`).
-- The target is `riscv32imc-unknown-none-elf` (the C3 has no atomics
-  extension), listed in `rust-toolchain.toml`. The mirror serves it.
-- `.env` gets `CHATTER_PROBE_C6` and `CHATTER_PROBE_C3` (the `VID:PID:serial`
-  from `probe-rs list`; the serial is the board's MAC). The makefile passes
-  them as `PROBE_RS_PROBE`. The client downloads from `CHATTER_COLLECTOR_ADDR`.
-- Three terminals: `make collector` with `CHATTER_TEST_FILE_MIB=10` in
-  `.env` (it then also serves a 10 MiB `GET /test.bin`), `make run` (sensor),
-  `make test-client` (C3).
+The C3 test client that downloaded a known file to check the counts is gone,
+with its target and the collector's `GET /test.bin`; only C6 boards are used.
+`crates/collector` is its own workspace (`exclude` in the root `Cargo.toml`):
+its `std` can't build for the C6 target rust-analyzer checks everything for.
+Both workspaces share the repo's `target/` (`build.target-dir` in
+`.cargo/config.toml`).
 
 ## 5. Collector image _(works)_
 
@@ -197,16 +185,21 @@ Mac: for that, point it at the Mac and reflash.
 A spare C6 runs the same firmware against the collector on the Mac, so
 testing never touches the sensor that counts (`docs/identify.md`).
 
-- `.env` gets `CHATTER_PROBE_C6_DEV` (its `VID:PID:serial` from
-  `probe-rs list`) and `CHATTER_DEV_COLLECTOR_ADDR` (the Mac's LAN address
-  and the collector's port).
-- `CHATTER_BIND=0.0.0.0:8080 make collector`: the board can't reach a
-  collector that only listens on `127.0.0.1`. The environment wins over
-  `.env`.
-- `make run-dev` flashes the spare C6 with `CHATTER_COLLECTOR_ADDR` set to the
-  Mac's collector, and stops if either key is missing. Antenna on first.
-- `make run` afterwards rebuilds with the server's address (`build.rs`
-  reruns when the environment changes).
+- `.env` has the board block `make run` reads (`CHATTER_PROBE`,
+  `CHATTER_COLLECTOR_ADDR`, `CHATTER_SENSOR_NAME`) and, commented out, the
+  same three for the other board. Switching boards is swapping them.
+- The spare one reports as `c6-dev` to the Mac's LAN address and
+  `CHATTER_BIND`'s port. Its own name keeps its reports apart from the
+  counting sensor's, which matters with a copy of the server's database in
+  `CHATTER_DB`.
+- Nothing stops the spare board from reporting to the server any more: with
+  both reporting there, every device would be counted twice. Check the block
+  before `make run`.
+- `.env`'s `CHATTER_BIND` is `0.0.0.0:8080`, so `make collector` is the one
+  collector for everything: a board can't reach one that only listens on
+  `127.0.0.1`.
+- Flash a board with its new name before the collector first listens on the
+  LAN: a board still running older firmware resends its outbox under `c6-1`.
 
 ## Start over
 
@@ -366,3 +359,10 @@ Then run steps 1 and 2 again.
   its newest report, a heartbeat ring on the plan for each new one, and a
   panel with the day's heartbeat, missing reports and restarts (from gaps in
   `seq`), and the newest report's details.
+- 2026-10-22: a copy of the server's database (`sqlite3 .backup` on the
+  server) replaced `CHATTER_DB` for local work; migration 8 ran on it with
+  every row kept. The Mac's collector now listens on the LAN from `.env`, the
+  dev board reports as `c6-dev`, and plain `make` lists the targets.
+- 2026-10-22: slimmed down: no more C3 test client (crate, target,
+  `GET /test.bin`), no `import`, and no `make run-dev`. `make run` flashes
+  the board `.env` names, reporting where `.env` says.

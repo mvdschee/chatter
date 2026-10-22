@@ -6,8 +6,8 @@ pub const WATCH_SSIDS: &str = env!("CHATTER_WATCH_SSIDS");
 /// `<ip>:<port>` of the collector; reports go to `POST /report`.
 pub const COLLECTOR_ADDR: &str = env!("CHATTER_COLLECTOR_ADDR");
 
-/// Names this sensor in its reports. Plain ASCII, no quotes.
-pub const SENSOR_NAME: &str = "c6-1";
+/// Names this sensor in its reports: `CHATTER_SENSOR_NAME`, or `c6-1`.
+pub const SENSOR_NAME: &str = env!("CHATTER_SENSOR_NAME");
 
 pub const RECONNECT_DELAY_SECS: u64 = 5;
 /// In 0.25 dBm steps: 60 is 15 dBm. esp-radio defaults to 20 (5 dBm), too weak

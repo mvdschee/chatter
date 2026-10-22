@@ -32,28 +32,15 @@ const SWEEP_EVERY_MIN_DEFAULT: u64 = 10;
 const PORT_SCAN_AT_KEY: &str = "CHATTER_PORT_SCAN_AT";
 const PORT_SCAN_AT_DEFAULT: &str = "18:00";
 
-/// With a size, `GET /test.bin` serves that many MiB for the ESP32-C3 test
-/// client. Unset: no test file.
-const TEST_FILE_MIB_KEY: &str = "CHATTER_TEST_FILE_MIB";
-
 impl Config {
 	pub fn init() -> Result<Self> {
 		// local runs: the repo's .env (cargo runs from the repo root); a
 		// container has no .env and sets the same keys in its environment.
 		// Keys already set win.
 		let _ = dotenvy::dotenv();
-		let test_file_bytes = match load_env(TEST_FILE_MIB_KEY) {
-			Ok(mib) => Some(
-				mib.parse::<usize>().map_err(|_| {
-					Error::Config(format!("{TEST_FILE_MIB_KEY}: not a number: {mib}"))
-				})? * 1024 * 1024,
-			),
-			Err(_) => None,
-		};
 		Ok(Self {
 			bind: load_env(BIND_KEY).unwrap_or_else(|_| BIND_DEFAULT.to_string()),
 			db_path: load_env(DB_KEY).unwrap_or_else(|_| DB_DEFAULT.to_string()),
-			test_file_bytes,
 			ui_dir: load_env(UI_DIR_KEY).ok(),
 			scan_targets: load_env(SCAN_TARGETS_KEY)
 				.ok()
@@ -78,17 +65,13 @@ impl Config {
 	}
 }
 
-/// No arguments runs the server; `import <file>` loads a file of reports,
-/// `port-scan` runs one port scan now.
+/// No arguments runs the server; `port-scan` runs one port scan now.
 fn command() -> Result<Command> {
 	let args: Vec<String> = env::args().skip(1).collect();
 	match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
 		[] => Ok(Command::Serve),
-		["import", path] => Ok(Command::Import(path.to_string())),
 		["port-scan"] => Ok(Command::PortScan),
-		_ => Err(Error::Config(
-			"usage: chatter-collector [import <reports.jsonl> | port-scan]".into(),
-		)),
+		_ => Err(Error::Config("usage: chatter-collector [port-scan]".into())),
 	}
 }
 

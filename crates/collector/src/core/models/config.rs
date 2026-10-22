@@ -7,8 +7,6 @@ use crate::core::models::scan::{PortScanAt, ScanTargets};
 pub enum Command {
 	/// The server, with the scans in the background.
 	Serve,
-	/// `import <file>`: load a file of reports, then exit.
-	Import(String),
 	/// `port-scan`: one port scan now, then exit.
 	PortScan,
 }
@@ -17,8 +15,6 @@ pub enum Command {
 pub struct Config {
 	pub bind: String,
 	pub db_path: String,
-	/// The test client's download, `GET /test.bin`; `None` serves none.
-	pub test_file_bytes: Option<usize>,
 	/// Development: serve the page from this directory, read on every request.
 	pub ui_dir: Option<String>,
 	/// What the host sweep covers; `None`: the /24 of this machine's network.

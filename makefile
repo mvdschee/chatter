@@ -1,30 +1,28 @@
 FIRMWARE = -p chatter-firmware --target riscv32imac-unknown-none-elf
-# crates/testclient and crates/collector are their own workspaces
-TESTCLIENT = --manifest-path crates/testclient/Cargo.toml --target riscv32imc-unknown-none-elf
+# crates/collector is its own workspace
 COLLECTOR_CRATE = --manifest-path crates/collector/Cargo.toml
 
-# With several boards plugged in, probe-rs needs to know which one: the probe
-# IDs live in .env (CHATTER_PROBE_C6, CHATTER_PROBE_C3), because they contain
-# the boards' MAC addresses.
-probe = $(shell grep '^CHATTER_PROBE_$(1)=' .env 2>/dev/null | cut -d= -f2-)
-C6_PROBE = $(if $(call probe,C6),PROBE_RS_PROBE=$(call probe,C6))
-C3_PROBE = $(if $(call probe,C3),PROBE_RS_PROBE=$(call probe,C3))
+# Which board, where it reports and its name all come from .env
+# (CHATTER_PROBE, CHATTER_COLLECTOR_ADDR, CHATTER_SENSOR_NAME). The probe ID
+# lives there because it contains the board's MAC address; with one board
+# plugged in it can stay empty.
+PROBE = $(shell grep '^CHATTER_PROBE=' .env 2>/dev/null | cut -d= -f2-)
+PROBE_ENV = $(if $(PROBE),PROBE_RS_PROBE=$(PROBE))
+
+# plain `make` lists the targets rather than flashing a board
+help:
+	@echo "Server:"
+	@echo "  make collector     run the collector here (page and reports on CHATTER_BIND); SUDO=1 to sweep"
+	@echo "  make test          host tests: core and collector"
+	@echo "  make check         clippy and fmt for every crate"
+	@echo "Board (the one .env names):"
+	@echo "  make run           flash it, reporting to CHATTER_COLLECTOR_ADDR"
+	@echo "  make test-device   firmware tests on it"
+	@echo "Data:"
+	@echo "  make port-scan     one port scan now, into CHATTER_DB (about half an hour); SUDO=1"
 
 run:
-	$(C6_PROBE) cargo run $(FIRMWARE)
-
-# The spare C6, reporting to the Mac's collector (CHATTER_BIND=0.0.0.0:8080
-# make collector) instead of the server's: two sensors reporting to one
-# collector would count every device twice. Both keys are required, so it
-# never flashes the counting sensor or falls back to the server.
-env = $(shell grep '^$(1)=' .env 2>/dev/null | cut -d= -f2-)
-run-dev:
-	$(if $(call probe,C6_DEV),,$(error CHATTER_PROBE_C6_DEV is not set in .env))
-	$(if $(call env,CHATTER_DEV_COLLECTOR_ADDR),,$(error CHATTER_DEV_COLLECTOR_ADDR is not set in .env))
-	PROBE_RS_PROBE=$(call probe,C6_DEV) CHATTER_COLLECTOR_ADDR=$(call env,CHATTER_DEV_COLLECTOR_ADDR) cargo run $(FIRMWARE)
-
-test-client:
-	$(C3_PROBE) cargo run $(TESTCLIENT)
+	$(PROBE_ENV) cargo run $(FIRMWARE)
 
 # The collector takes its settings from .env (CHATTER_BIND, CHATTER_DB, ...,
 # see crates/collector/src/config.rs); its container gets the same keys.
@@ -39,25 +37,17 @@ port-scan:
 	cargo build -q $(COLLECTOR_CRATE)
 	$(if $(SUDO),sudo) target/debug/chatter-collector port-scan
 
-# loads a collector's old reports file into CHATTER_DB; reports already there
-# are skipped
-FILE ?= .local/reports.jsonl
-import:
-	cargo run -q $(COLLECTOR_CRATE) -- import $(FILE)
-
 test:
 	cargo test -p chatter-core
 	cargo test -q $(COLLECTOR_CRATE)
 
 test-device:
-	$(C6_PROBE) cargo test $(FIRMWARE)
+	$(PROBE_ENV) cargo test $(FIRMWARE)
 
 check:
 	cargo clippy -p chatter-core --all-targets -- -D warnings
 	cargo clippy -p chatter-core --target riscv32imac-unknown-none-elf -- -D warnings
 	cargo clippy $(FIRMWARE) --bins --tests -- -D warnings
-	cargo clippy $(TESTCLIENT) -- -D warnings
 	cargo clippy $(COLLECTOR_CRATE) --all-targets -- -D warnings
 	cargo fmt --check
-	cargo fmt --check --manifest-path crates/testclient/Cargo.toml
 	cargo fmt --check --manifest-path crates/collector/Cargo.toml

@@ -182,8 +182,6 @@ mod tests {
 			store_report(&db, &report_at(t + 2 * RESEND_WINDOW_S)).await.unwrap(),
 			Ingested::Stored { .. }
 		));
-		// importing an older log again finds the first copy, not the reboot's
-		assert_eq!(store_report(&db, &report_at(t)).await.unwrap(), Ingested::Duplicate);
 
 		let reports = db
 			.get_records(REPORTS_BETWEEN, vec![DbValue::Int(0), DbValue::Int(i64::MAX)])

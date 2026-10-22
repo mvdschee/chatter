@@ -1,10 +1,9 @@
 [workspace]
 resolver = "3"
 members = ["crates/core", "crates/firmware"]
-# each its own workspace: the test client's esp32c3 features would clash with
-# the firmware's esp32c6 ones, and the collector needs std, which the C6 target
-# that rust-analyzer checks everything for doesn't have
-exclude = ["crates/testclient", "crates/collector"]
+# its own workspace: the collector needs std, which the C6 target that
+# rust-analyzer checks everything for doesn't have
+exclude = ["crates/collector"]
 # plain `cargo test` / `cargo build` stay on the Mac; firmware needs --target (see makefile)
 default-members = ["crates/core"]
 

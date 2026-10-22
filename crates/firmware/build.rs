@@ -4,6 +4,9 @@ use std::{env, fs, path::Path};
 // repo's git-ignored `.env`. They end up as `env!` constants in config.rs.
 const ENV_KEYS: [&str; 4] =
 	["CHATTER_WIFI_SSID", "CHATTER_WIFI_PASSWORD", "CHATTER_WATCH_SSIDS", "CHATTER_COLLECTOR_ADDR"];
+/// Optional, with its default: a second board needs its own name.
+const SENSOR_NAME_KEY: &str = "CHATTER_SENSOR_NAME";
+const SENSOR_NAME_DEFAULT: &str = "c6-1";
 
 fn main() {
 	load_env();
@@ -20,16 +23,30 @@ fn load_env() {
 	let file = fs::read_to_string(&path).unwrap_or_default();
 
 	for key in ENV_KEYS {
-		println!("cargo:rerun-if-env-changed={key}");
-		let value = env::var(key).ok().or_else(|| {
+		match lookup(key, &file) {
+			Some(value) => println!("cargo:rustc-env={key}={value}"),
+			None => panic!("{key} is not set: fill it in .env at the repo root"),
+		}
+	}
+
+	// goes into the report's JSON as is
+	let name = lookup(SENSOR_NAME_KEY, &file).unwrap_or_else(|| SENSOR_NAME_DEFAULT.into());
+	if !name.bytes().all(|b| b.is_ascii_graphic() && b != b'"' && b != b'\\') {
+		panic!("{SENSOR_NAME_KEY}: plain ASCII without spaces, quotes or backslashes: {name}");
+	}
+	println!("cargo:rustc-env={SENSOR_NAME_KEY}={name}");
+}
+
+/// A key's value from the environment, or else from `.env`; empty is unset.
+fn lookup(key: &str, file: &str) -> Option<String> {
+	println!("cargo:rerun-if-env-changed={key}");
+	env::var(key)
+		.ok()
+		.or_else(|| {
 			file.lines().find_map(|line| {
 				let value = line.strip_prefix(key)?.strip_prefix('=')?;
 				Some(value.trim_end_matches('\r').to_string())
 			})
-		});
-		match value {
-			Some(value) if !value.is_empty() => println!("cargo:rustc-env={key}={value}"),
-			_ => panic!("{key} is not set: fill it in .env at the repo root"),
-		}
-	}
+		})
+		.filter(|value| !value.is_empty())
 }

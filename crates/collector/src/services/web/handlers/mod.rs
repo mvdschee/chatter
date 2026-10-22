@@ -6,7 +6,6 @@ pub mod device;
 pub mod overview;
 pub mod plan;
 pub mod report;
-pub mod test_file;
 pub mod timeline;
 pub mod ui;
 

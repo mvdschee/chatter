@@ -234,8 +234,7 @@ its own crate so its tests run on the Mac (see `DECISIONS.md`):
 | `crates/firmware/src/services/report.rs` | HTTP POST of one report |
 | `crates/firmware/src/tasks.rs` | aggregation loop, pending report, report sender |
 | `crates/firmware/tests/` | on-device adapter tests (`embedded-test`) |
-| `crates/testclient/` | ESP32-C3 download client for validating counts (own workspace) |
-| `crates/collector/` | dev collector, plus the test client's download (own workspace, std) |
+| `crates/collector/` | collector and monitoring page (own workspace, std) |
 
 The package is `chatter-core`, not `core`: a crate named `core` would clash
 with Rust's own `core`.

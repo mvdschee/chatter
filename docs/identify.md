@@ -142,17 +142,15 @@ which ones are.
 A second C6 runs the same firmware against a collector on the Mac, with
 its own database, so testing never touches the sensor that counts.
 
-- `.env` gets `CHATTER_PROBE_C6_DEV` (its probe ID, which holds its MAC) and
-  `CHATTER_DEV_COLLECTOR_ADDR` (the Mac's collector).
-- `make run-dev` flashes that board with `CHATTER_COLLECTOR_ADDR` set from
-  `CHATTER_DEV_COLLECTOR_ADDR`; `build.rs` already prefers the environment
-  over `.env`.
+- `.env` names the board `make run` flashes, where it reports and its name
+  (`c6-dev` for this one); the other board's values sit there commented out
+  (`docs/setup.md`, step 6).
 
 ## Chunks
 
 One commit each.
 
-1. **Dev board:** the `.env` keys and `make run-dev`.
+1. **Dev board:** the `.env` keys and a way to flash it.
    Check: the dev board's reports show up in the Mac's collector, and the
    home server's heartbeat for the counting sensor doesn't change.
    Done; it turned up the resend bug, fixed with a migration that drops the

@@ -123,9 +123,8 @@ so the sensor may decode them even when it couldn't decode the data.
 1. **Spike, theory 1:** the callback logs MAC, subtype, HT streams, HE streams
    and SM power save for every association, reassociation and probe request
    from a member. Reconnect the test clients to trigger association requests.
-   - The ESP32-C3 test client: HT 1 stream, no HE element.
-   - An ESP32-C6 as test client: HT 1, HE 1. This exercises the HE path,
-     which the C3 can't (`crates/testclient/` builds for the C3 only today).
+   - The spare C6, which joins the network too: HT 1, HE 1, so it
+     exercises the HE path.
    - A multi-stream laptop or phone on 2.4 GHz: 2 or more.
 2. **How often:** over a day, how many members show up at all, and how long
    until each one is seen, with and without probe requests.

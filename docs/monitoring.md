@@ -172,8 +172,8 @@ One reviewable chunk each, with its check:
    devices by their sweep hostname or MAC, and puts them where they were
    placed in the plan editor, the rest waiting in front of the house. The
    floor plan is the saved one, or the example until one is saved.)_
-   Check: the owner's judgement, plus "a busy device turns red" with the C3
-   test client.
+   Check: the owner's judgement, plus "a busy device turns red" with a
+   device made busy on purpose.
 5. **Scans:** the app sweeps the network with nmap (hostnames, vendors and IPs
    on the page), and port-scans it daily: every TCP port and the UDP ports
    IoT devices use, with a light service check, the same as the infra repo's
@@ -188,7 +188,7 @@ One reviewable chunk each, with its check:
    (nmap's copy is as old as its package), else from nmap. _(Built;
    `lan_scan` is off.)_ Not yet: the emails.
    Check: a known open port shows up on the right device.
-6. **More sensors:** C3 support in the firmware, and a room suggestion from
+6. **More sensors:** a second C6, and a room suggestion from
    the strongest sensor.
    Check: carry a test device from room to room.
    **Identify mode** (after the floor plan; planned in `docs/identify.md`):
@@ -209,7 +209,7 @@ One reviewable chunk each, with its check:
    device's own normal comes first: `docs/outliers.md`. _(Colour built; the
    emails are postponed to the very end, 2026-10-19: the page shows the
    outliers, so notifications come last.)_
-   Check: the C3 test client's download triggers exactly one email.
+   Check: one device's big download triggers exactly one email.
 8. **DNS names** in the device panel.
 
 ## Validation

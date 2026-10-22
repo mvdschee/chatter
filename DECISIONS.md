@@ -240,3 +240,9 @@
 **Decision:** On `identify` the sensor sends its outbox and stops counting. It's moved to the phone, asks `GET /mode` at boot before counting anything, and identifies. When the session ends it waits, and only counts again after it's plugged back in its place. This replaces "counting doesn't change" and leaving the session's minutes out of the baselines in the entry of 2026-10-21.
 **Why:** A sensor carried around counts the wrong part of the house; with no minutes counted there's nothing to leave out of the baselines, and the session band explains the gap.
 **Alternatives:** Counting on through the session and leaving its minutes out of the baselines (the earlier plan: more firmware, minutes nobody uses).
+
+## 2026-10-22 - C6 only, one board block in .env, no import
+
+**Decision:** The C3 test client, its target and the collector's `GET /test.bin` are gone, and so is `chatter-collector import`. `make run` flashes the board `.env` names (`CHATTER_PROBE`), reporting to `CHATTER_COLLECTOR_ADDR` as `CHATTER_SENSOR_NAME`; the other board's values sit there commented out. This replaces the C3 test client of 2026-10-16 and `make run-dev`.
+**Why:** Only C6 boards will be used (there are two), the old reports file is already in the database, and one command that follows `.env` is easier than a target per board.
+**Alternatives:** Keeping `make run-dev`, which refused to flash without the spare board's keys, so the spare board could never report to the server (safer, but a second command and two more keys).

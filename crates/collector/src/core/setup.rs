@@ -8,7 +8,6 @@ use crate::{
 	core::{
 		handlers::{
 			baseline::baseline_loop,
-			import::import_reports,
 			scan::{current_targets, port_scan, port_scan_loop, sweep_loop},
 			vendor::{load_vendors, vendor_loop},
 		},
@@ -16,10 +15,7 @@ use crate::{
 	},
 	info,
 	repository::db::DatabaseRepository,
-	services::{
-		filesystem,
-		web::{HttpServer, HttpServerConfig, HttpServerState},
-	},
+	services::web::{HttpServer, HttpServerConfig, HttpServerState},
 };
 
 /// Opens the database and brings its tables up to date.
@@ -41,7 +37,7 @@ impl HandleDatabase {
 	}
 }
 
-/// The HTTP server: the sensors' reports, and the test client's download.
+/// The HTTP server: the sensors' reports, and the page and its data.
 pub struct HandleServerApi {
 	server: HttpServer,
 }
@@ -62,32 +58,6 @@ impl HandleServerApi {
 
 	pub async fn run(self) -> Result<()> {
 		self.server.run().await
-	}
-}
-
-/// Loads a file of reports into the database.
-pub struct HandleImport {
-	db: DatabaseRepository,
-	path: String,
-}
-
-impl HandleImport {
-	pub fn new(db: DatabaseRepository, path: &str) -> Self {
-		Self {
-			db,
-			path: path.to_string(),
-		}
-	}
-
-	pub async fn run(self) -> Result<()> {
-		info!("Importing {}...", self.path);
-		let lines = filesystem::read_to_string(&self.path)?;
-		let summary = import_reports(&self.db, &lines).await?;
-		info!(
-			"imported {}: {} stored, {} already there, {} bad",
-			self.path, summary.stored, summary.duplicates, summary.bad
-		);
-		Ok(())
 	}
 }
 
