@@ -478,4 +478,7 @@ test("the plan never lands under a control, and fills what's left", () => {
 	const low = fitFrame(400, 200, { w: 1000, h: 600, clear: [bar], pad, gap });
 	assert.ok(low.y > 300 && low.y - (low.fit * 200) / 2 >= 150 + gap - 1e-9);
 	assert.ok(low.fit > (300 - 150 - gap) / 100);
+	// a bar above the canvas (the phone's top bar) takes nothing
+	const above = fitFrame(400, 200, { w: 1000, h: 600, clear: [{ x: 0, y: -44, w: 1000, h: 44 }], pad, gap });
+	assert.deepEqual(above, free);
 });

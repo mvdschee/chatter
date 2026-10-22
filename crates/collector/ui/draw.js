@@ -13,7 +13,7 @@ import { ROUTER, WALL_H, areas, floorDots, rooms, sensorAt, wallDots } from "./p
 import { current, outlierNow, play, scoreNow } from "./playback.js";
 import { rand } from "./random.js";
 import { STATE_COLOR, sensorState } from "./sensors.js";
-import { H, TILT, W, cam, cameraKey, canvas, controls, ctx, dpr, fit, keepClear, project, reduced, yaw } from "./view.js";
+import { H, TILT, W, cam, cameraKey, canvas, controls, ctx, dpr, fit, keepClear, narrow, project, reduced, yaw } from "./view.js";
 
 export function draw(now) {
 	const dt = Math.min(0.05, (now - play.lastFrame) / 1000);
@@ -622,34 +622,55 @@ function drawCallouts(now) {
 }
 
 const HUD_M = 16, HUD_FONT = "10px ui-monospace, Menlo, monospace";
+const DIM = "rgba(92,122,134,0.9)", LIT = "rgba(232,244,246,0.9)";
 
-function hudRows(now) {
+// The HUD's text and the occupancy's place on the canvas, for drawHud and
+// what keeps clear of it. Texts are [text, x, baseline, colour]. On a phone
+// the readouts fold into one line and the occupancy goes.
+function hudLayout(now) {
+	const m = HUD_M, x = m + 12;
 	const total = DEVICES.reduce((s, d) => { const [a, b] = current(d, now); return s + a + b; }, 0);
 	const fps = Math.round(total / 60 / 900) + 140;
-	return [
+	const rate = `${fmtBytes(total / 60)}/s`;
+	if (narrow.matches) {
+		return {
+			text: [
+				[`CH ${STATUS.channel} · ${fps} F/S · ${rate} · ${DEVICES.length} DEV · ${STATUS.dropped} DROP`, x, m + 14, LIT],
+				[`YAW ${(yaw * 57.3).toFixed(1)}° · ZOOM ${cam.zoom.toFixed(1)}×`, x, H - m - 8, DIM],
+			],
+			occupancy: null,
+		};
+	}
+	const rows = [
 		["SNIFFER", `CH ${STATUS.channel} · 2.4 GHZ · 20 MHZ`],
 		["FRAMES/S", String(fps)],
-		["THROUGHPUT", `${fmtBytes(total / 60)}/s`],
+		["THROUGHPUT", rate],
 		["SENSORS", String(STATUS.sensors)],
 		["DEVICES", String(DEVICES.length)],
 		["DROPPED", String(STATUS.dropped)],
 	];
+	const by = m + 26 + rows.length * 15 + 14;
+	return {
+		text: [
+			...rows.flatMap(([k, v], i) => [[k, x, m + 26 + i * 15, DIM], [v, m + 92, m + 26 + i * 15, LIT]]),
+			["2.4 GHZ OCCUPANCY", x, by - 6, DIM],
+			[`VIEW  YAW ${(yaw * 57.3).toFixed(1).padStart(6)}°  TILT ${(TILT * 57.3).toFixed(0)}°  ZOOM ${cam.zoom.toFixed(1)}×`, x, H - m - 8, DIM],
+		],
+		occupancy: { x, y: by, w: 13 * 9, h: 30 },
+	};
 }
 
-const viewLine = () => `VIEW  YAW ${(yaw * 57.3).toFixed(1).padStart(6)}°  TILT ${(TILT * 57.3).toFixed(0)}°  ZOOM ${cam.zoom.toFixed(1)}×`;
-
-// What the HUD takes on the canvas, as drawHud draws it: the readouts and
-// the occupancy in the top left, the view line in the bottom left and the
-// corner brackets.
+// What the HUD takes on the canvas, as drawHud draws it: each text (with
+// its `text`, for the layout check), the occupancy and the corner brackets.
 export function hudBoxes(now) {
-	const m = HUD_M, rows = hudRows(now);
+	const m = HUD_M, { text, occupancy } = hudLayout(now);
 	ctx.font = HUD_FONT;
-	const readouts = Math.max(...rows.map(([, v]) => m + 92 + ctx.measureText(v).width), m + 12 + 13 * 9, m + 12 + ctx.measureText("2.4 GHZ OCCUPANCY").width);
-	const view = m + 12 + ctx.measureText(viewLine()).width;
 	return [
-		{ x: 0, y: 0, w: readouts, h: m + 26 + rows.length * 15 + 14 + 30 },
-		{ x: 0, y: H - m - 20, w: view, h: m + 20 },
+		...text.map(([t, x, y]) => ({ text: t, x, y: y - 9, w: ctx.measureText(t).width, h: 12 })),
+		...(occupancy ? [occupancy] : []),
+		{ x: m, y: m, w: 22, h: 22 },
 		{ x: W - m - 22, y: m, w: 22, h: 22 },
+		{ x: m, y: H - m - 22, w: 22, h: 22 },
 		{ x: W - m - 22, y: H - m - 22, w: 22, h: 22 },
 	];
 }
@@ -667,30 +688,22 @@ function drawHud(now) {
 		ctx.stroke();
 	}
 
-	const rows = hudRows(now);
+	const { text, occupancy } = hudLayout(now);
 	ctx.font = HUD_FONT;
-	rows.forEach(([k, v], i) => {
-		ctx.fillStyle = "rgba(92,122,134,0.9)";
-		ctx.fillText(k, m + 12, m + 26 + i * 15);
-		ctx.fillStyle = "rgba(232,244,246,0.9)";
-		ctx.fillText(v, m + 92, m + 26 + i * 15);
-	});
+	for (const [t, x, y, colour] of text) {
+		ctx.fillStyle = colour;
+		ctx.fillText(t, x, y);
+	}
 
 	// channel occupancy, 1 to 13: ours lit
-	const bx = m + 12, by = m + 26 + rows.length * 15 + 14;
-	ctx.fillStyle = "rgba(92,122,134,0.9)";
-	ctx.fillText("2.4 GHZ OCCUPANCY", bx, by - 6);
+	if (!occupancy) return;
 	for (let ch = 1; ch <= 13; ch++) {
 		const base = ch === STATUS.channel ? 0.55 : ch === 6 || ch === 1 ? 0.3 : 0.08;
 		const v = Math.min(1, base + (reduced ? 0 : 0.08 * Math.sin(now / 300 + ch * 1.7)));
 		const h = 4 + v * 26;
 		ctx.fillStyle = ch === STATUS.channel ? "rgba(127,231,242,0.9)" : "rgba(127,231,242,0.25)";
-		ctx.fillRect(bx + (ch - 1) * 9, by + 30 - h, 6, h);
+		ctx.fillRect(occupancy.x + (ch - 1) * 9, occupancy.y + occupancy.h - h, 6, h);
 	}
-
-	ctx.fillStyle = "rgba(92,122,134,0.8)";
-	ctx.font = HUD_FONT;
-	ctx.fillText(viewLine(), m + 12, H - m - 8);
 }
 
 // The view tears: horizontal strips shift, with a red/cyan split.

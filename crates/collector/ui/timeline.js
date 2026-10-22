@@ -211,6 +211,9 @@ function renderHeat() {
 }
 
 export function drawTimeline(now) {
+	// hidden on a phone while the side panel is open: a canvas with no size
+	// can't be drawn from, and the throw would stop the frame loop
+	if (!heatEl.clientWidth) return;
 	if (heatDirty) renderHeat();
 	const g = heatGeom();
 	if (heatEl.width !== Math.round(g.w * dpr)) {

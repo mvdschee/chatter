@@ -2,7 +2,8 @@
 
 Status, 2026-10-22: the mockup is approved, with two changes: icons from
 Lucide, and technical wording. Chunks 2 (the layout check), 3 (buttons
-and the top bar), 4 (keep-clear areas) and 5 (the timeline) are built.
+and the top bar), 4 (keep-clear areas), 5 (the timeline) and 6 (the
+phone) are built.
 The owner finds the home page and the identify page busy and badly
 organised: controls were added one feature at a time, each one the same
 bordered, uppercase button.
@@ -181,8 +182,29 @@ One reviewable chunk each, with its check:
    failed was for later chunks: the phone's top bar cut off by the plan
    (6), and on both widths a tall side panel over the camera's buttons, and
    on a phone over the timeline head (4 and 6).
-6. **The phone:** the home page's phone layout, the bottom sheet.
+6. **The phone** _(built)_: the home page's phone layout, the bottom sheet.
    Check: the layout check at 390 px; the owner on the phone.
+   At 900 px and under the page is one screen, no page scroll: the plan's
+   canvas takes every swipe, so a page that scrolls couldn't be scrolled
+   from it. The top bar sits above the plan, not on it: Devices and
+   Events, the sensors' status, and a menu with Identify and Edit plan;
+   the clock goes (the phone shows the time). The side panel is a bottom
+   sheet of half the screen that takes the timeline's place while it's
+   open, so it covers nothing; the plan fits again into what's left (the
+   ResizeObserver watches the canvas too). The HUD folds into one line at
+   the top (the channel, frames a second, throughput, devices, dropped), the
+   occupancy goes, and the view line keeps only the yaw and zoom; the
+   readouts and their boxes come from one `hudLayout` in `draw.js`, so
+   what's drawn and what's kept clear can't drift apart.
+   The layout check now sees the HUD's text (`hudBoxes`), against the
+   controls and the clock, and fails when the plan's canvas is blank a
+   frame later. That caught the timeline throwing on its hidden, empty
+   canvas, which stopped the frame loop and left the plan blank whenever
+   the sheet was open. A "tasks menu" scene opens the menu. After it,
+   every scene passes at both widths.
+   Not checked: real iOS Safari (`dvh`, its toolbar, the safe areas), and
+   the callout, which on a phone often has no room beside its device and
+   isn't drawn (the sheet shows the same).
 7. **Identify:** as above.
    Check: the layout check on every step; the owner on a walk.
 

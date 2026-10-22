@@ -51,6 +51,17 @@ setInterval(() => {
 	updateSensorAges();
 }, 250);
 
+// the tasks' menu, on a phone: shut by a task, a click elsewhere or Esc
+const tasksBtn = document.getElementById("tasks-btn");
+const openTasks = (open) => tasksBtn.setAttribute("aria-expanded", String(open));
+tasksBtn.addEventListener("click", () => openTasks(tasksBtn.getAttribute("aria-expanded") !== "true"));
+document.addEventListener("click", (ev) => {
+	if (!tasksBtn.contains(ev.target)) openTasks(false);
+});
+document.addEventListener("keydown", (ev) => {
+	if (ev.key === "Escape") openTasks(false);
+});
+
 resize();
 renderControls();
 onData();

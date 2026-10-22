@@ -20,8 +20,11 @@
 				<button id="devices-btn" aria-expanded="false" aria-controls="side">Devices</button>
 				<button id="events-btn" aria-expanded="false" aria-controls="side">Events</button>
 			</div>
-			<button class="ghost" id="identify-btn"><svg class="icon" aria-hidden="true"><use href="icons.svg#crosshair"/></svg>Identify</button>
-			<button class="ghost" id="edit-btn"><svg class="icon" aria-hidden="true"><use href="icons.svg#pencil-ruler"/></svg>Edit plan</button>
+			<button class="ghost tasks-btn" id="tasks-btn" aria-expanded="false" aria-controls="tasks" aria-label="Tasks" title="Tasks"><svg class="icon" aria-hidden="true"><use href="icons.svg#menu"/></svg></button>
+			<div class="tasks" id="tasks">
+				<button class="ghost" id="identify-btn"><svg class="icon" aria-hidden="true"><use href="icons.svg#crosshair"/></svg>Identify</button>
+				<button class="ghost" id="edit-btn"><svg class="icon" aria-hidden="true"><use href="icons.svg#pencil-ruler"/></svg>Edit plan</button>
+			</div>
 			<span class="rule" aria-hidden="true"></span>
 			<button class="status" id="sensors-btn" aria-expanded="false" aria-controls="side"><span class="dot"></span>Sensors<span class="sub" id="sensors-sub"></span></button>
 			<div class="clock" id="clock">--:--:--</div>

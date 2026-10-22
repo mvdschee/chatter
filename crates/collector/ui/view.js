@@ -15,6 +15,8 @@ const topBar = document.querySelector(".top");
 // the buttons, not .view-ctl: its hint is see-through but still takes room
 const cameraBtns = document.querySelector(".view-ctl .icon-group");
 export const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+// a phone's layout, the same width as style.css's
+export const narrow = window.matchMedia("(max-width: 900px)");
 
 export const TILT = 0.88; // radians from looking straight down (about 50°)
 const DIST = 1700; // camera distance: smaller is more perspective
@@ -79,6 +81,8 @@ window.addEventListener("resize", resize);
 const watch = new ResizeObserver(() => resize());
 watch.observe(topBar);
 watch.observe(cameraBtns);
+// on a phone the bottom sheet takes room from the plan
+watch.observe(canvas);
 
 // The controls over the plan, as boxes on its canvas ({ x, y, w, h }): the
 // top bar, the camera's buttons and the side panel while it's open.

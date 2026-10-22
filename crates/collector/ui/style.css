@@ -76,6 +76,9 @@ html, body {
 .icon-group > button:hover { background: rgba(127, 231, 242, 0.08); }
 .icon-group > button:focus-visible { outline: 1px solid var(--signal); outline-offset: 2px; }
 .rule { width: 1px; height: 16px; background: var(--line); }
+/* the tasks sit in the top bar; on a phone, in a menu */
+.tasks { display: contents; }
+.tasks-btn { display: none; }
 /* the sensors at a glance: the worst state, and how many are in it */
 .status { color: var(--phosphor); }
 .status .sub { margin-left: 2px; color: var(--muted); }
@@ -433,11 +436,25 @@ canvas#heat:focus-visible { outline: 1px solid var(--signal); }
 .id-acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; align-items: center; }
 .mode .top-btn { margin: 4px 6px 0 0; }
 
+/* A phone: one screen, no page scroll (a swipe on the plan pans it). The
+   top bar above the plan, not on it; the side panel a bottom sheet that
+   takes the timeline's place while it's open, so it covers nothing. */
 @media (max-width: 900px) {
 	.app {
-		grid-template-columns: minmax(0, 1fr);
-		grid-template-rows: 60vh auto;
-		height: auto;
+		grid-template-rows: minmax(0, 1fr) auto;
+		height: 100vh;
+		height: 100dvh;
 	}
-	.side { left: 12px; right: 12px; width: auto; top: auto; bottom: 12px; max-height: 70vh; }
+	.map { display: flex; flex-direction: column; }
+	canvas#plan { flex: 1; min-height: 0; }
+	.top { position: relative; top: auto; right: auto; justify-content: space-between; gap: 12px; padding: 10px 12px 6px 16px; }
+	.top .rule, .clock { display: none; }
+	.tasks-btn { display: inline-flex; order: 1; padding: 7px 6px; }
+	.tasks { position: absolute; top: 100%; right: 8px; z-index: 7; display: flex; flex-direction: column; align-items: stretch; padding: 4px 14px; border: 1px solid var(--line); background: var(--panel); backdrop-filter: blur(6px); }
+	.tasks > button { padding: 12px 2px; }
+	.top:not(:has(#tasks-btn[aria-expanded="true"])) .tasks { display: none; }
+	.top .seg > button, .top .ghost, .top .status { letter-spacing: 0.14em; }
+	.side { grid-area: loop; position: relative; inset: auto; width: auto; height: 50vh; height: 50dvh; max-height: none; border-width: 1px 0 0; transform: none; }
+	.side:not(.open) { display: none; }
+	.app:has(.side.open) .timeline { display: none; }
 }

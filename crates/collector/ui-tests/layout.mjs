@@ -231,7 +231,7 @@ async function openTab(browser, width, height) {
 
 // Runs in the page. Ink is what's drawn: each line of text and each icon.
 // Text drawn on a canvas isn't in the page: the timeline's labels come from
-// timeline.js, the HUD's aren't seen.
+// timeline.js, the HUD's are checked apart (hudFaults).
 // Fails: a control or ink past the left or right edge, the page scrolling
 // sideways, a control whose middle is under something else, and two inks of
 // the same layer overlapping by more than a sliver (a line's box is taller
@@ -365,6 +365,37 @@ function calloutFaults(callouts) {
 	return faults;
 }
 
+// Runs in the page. The HUD's text, drawn on the plan's canvas (draw.js
+// `hudBoxes`), under a control or the clock. Not under the side panel or
+// the phone's tasks menu: a layer over the plan covers it, as the probe
+// treats ink.
+function hudFaults(boxes) {
+	const plan = document.getElementById("plan").getBoundingClientRect();
+	const shown = (el) => el.checkVisibility({ opacityProperty: true, visibilityProperty: true });
+	const over = [...document.querySelectorAll("button, input, select, textarea, summary, [role=separator], .clock")]
+		.filter((el) => shown(el) && !el.closest("#side, #identify, #editor"))
+		.filter((el) => !el.closest(".tasks") || getComputedStyle(el.closest(".tasks")).display === "contents");
+	const name = (el) => `"${(el.getAttribute("aria-label") || el.textContent.trim() || el.id).replace(/\s+/g, " ").slice(0, 32)}"`;
+	const faults = [];
+	for (const b of boxes.filter((b) => b.text)) {
+		const a = { left: plan.left + b.x, top: plan.top + b.y, right: plan.left + b.x + b.w, bottom: plan.top + b.y + b.h };
+		if (a.left < plan.left - 1 || a.right > plan.right + 1) faults.push(`the HUD's "${b.text.slice(0, 32)}" runs off the plan`);
+		for (const el of over) {
+			const r = el.getBoundingClientRect();
+			if (a.left < r.right && r.left < a.right && a.top < r.bottom && r.top < a.bottom) faults.push(`the HUD's "${b.text.slice(0, 32)}" is under ${name(el)}`);
+		}
+	}
+	return faults;
+}
+
+// Runs in the page: whether the plan's canvas has nothing on it, a frame
+// later. The HUD is drawn every frame, so blank means the loop stopped (a
+// throw in it) or the canvas was cleared after the last frame.
+const BLANK = `new Promise((ok) => requestAnimationFrame(() => {
+	const c = document.getElementById("plan");
+	ok(!c.getContext("2d").getImageData(0, 0, c.width, c.height).data.some((v, i) => i % 4 === 3 && v));
+}))`;
+
 // Runs in the page: selects each device in turn and checks its callout.
 const EVERY_CALLOUT = `Promise.all([import("/data.js"), import("/panel.js"), import("/draw.js")]).then(async ([data, panel, draw]) => {
 	const faults = new Set();
@@ -391,6 +422,7 @@ const range = (r) => ({
 const id = (name, state, act, ready) => ({ name: `identify: ${name}`, hash: "#identify", identify: state, act, ready: `document.querySelector('${ready}')` });
 const SCENES = [
 	{ name: "home" },
+	{ name: "tasks menu", act: ["#tasks-btn"], ready: "document.querySelector('#tasks-btn[aria-expanded=true]')" },
 	panel("devices", ["#devices-btn"]),
 	panel("a device", ["#devices-btn", "#side .list button"], "document.querySelector('#side .name')"),
 	{ ...panel("every device's callout", ["#devices-btn"]), every: true },
@@ -453,6 +485,8 @@ async function main() {
 				const drawn = await tab.evaluate(`import("/timeline.js").then((m) => m.drawnLabels)`);
 				const faults = await tab.evaluate(`(${probe})(${width}, ${height}, ${JSON.stringify(drawn)})`);
 				faults.push(...await tab.evaluate(`import("/draw.js").then((m) => (${calloutFaults})(m.drawnCallouts))`));
+				if (!scene.hash) faults.push(...await tab.evaluate(`import("/draw.js").then((m) => (${hudFaults})(m.hudBoxes(performance.now())))`));
+				if (!scene.hash && await tab.evaluate(BLANK)) faults.push("the plan is blank: its frames stopped");
 				if (scene.every) faults.push(...await tab.evaluate(EVERY_CALLOUT));
 				if (shots) {
 					const { data } = await tab.send("Page.captureScreenshot", { format: "png" });
