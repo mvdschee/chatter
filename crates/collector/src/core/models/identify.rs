@@ -1,13 +1,15 @@
 //! Identify mode (see `docs/identify.md`): which sensors are in it until
-//! when, and the newest devices each one heard. Kept in memory only: a
-//! session is minutes long, and the readings are only worth anything live.
+//! when, the newest devices each one heard, and who answered the newest
+//! sweep. Kept in memory only: a session is minutes long, and the readings
+//! are only worth anything live.
 
 use std::{
 	collections::HashMap,
+	net::IpAddr,
 	sync::{Arc, Mutex},
 };
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
 	Error, Result,
@@ -16,6 +18,13 @@ use crate::{
 
 /// The longest session a start asks for: an hour.
 pub const MAX_SECS: u64 = 3600;
+/// Readings this old are stale: the sensor missed a few posts (it posts
+/// every 3 s), so what it heard says nothing about now.
+pub const STALE_S: i64 = 10;
+/// How often a session sweeps the LAN, so idle devices send a frame.
+pub const SWEEP_EVERY_S: u64 = 5;
+/// A sweep this old no longer says who's online.
+pub const SWEEP_STALE_S: i64 = 30;
 
 /// Starts a session for `secs` seconds, or ends it with 0. The sensor is in
 /// the path.
@@ -101,14 +110,62 @@ impl TryFrom<ReadingsPayload> for Readings {
 	}
 }
 
+/// A host that answered a sweep.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Online {
+	pub mac: Mac,
+	pub ip: IpAddr,
+}
+
 #[derive(Debug, Default)]
 pub struct Identify {
 	/// Per sensor, until when it identifies, in unix seconds.
 	pub until: HashMap<String, i64>,
 	/// Per sensor, the newest readings.
 	pub readings: HashMap<String, Readings>,
+	/// Who answered the newest sweep, and when it finished.
+	pub online: Vec<Online>,
+	pub swept_at: Option<i64>,
 }
 
 /// Shared by the web handlers; held only to read or change it, never across
 /// an await.
 pub type SharedIdentify = Arc<Mutex<Identify>>;
+
+/// What the identify page shows, out as JSON (`GET /v1/identify`).
+#[derive(Debug, Serialize, PartialEq)]
+pub struct IdentifyView {
+	/// The sensors in a session, by name.
+	pub sensors: Vec<SensorIdentify>,
+	/// Who answered the newest sweep, and anything a sensor hears now, by
+	/// MAC.
+	pub online: Vec<OnlineView>,
+	/// The device the page is open on, found by its IP in the newest sweep.
+	/// It's left out of what's heard: held against the sensor, it would
+	/// always come first.
+	pub own_mac: Option<String>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct SensorIdentify {
+	pub sensor: String,
+	pub left_s: u64,
+	/// When its newest readings came in; `None` before its first post.
+	pub received_at: Option<i64>,
+	/// Strongest first; empty when the readings are stale.
+	pub heard: Vec<HeardView>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct HeardView {
+	pub mac: String,
+	pub rssi_max: i8,
+	pub frames: u64,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct OnlineView {
+	pub mac: String,
+	/// `None` when it's only heard, not swept.
+	pub ip: Option<String>,
+}

@@ -16,10 +16,13 @@ mod utils;
 
 use crate::{
 	core::{
-		models::config::{Command, Config},
+		models::{
+			config::{Command, Config},
+			identify::SharedIdentify,
+		},
 		setup::{
-			HandleBaselines, HandleDatabase, HandlePortScan, HandleScans, HandleServerApi,
-			HandleVendors,
+			HandleBaselines, HandleDatabase, HandleIdentify, HandlePortScan, HandleScans,
+			HandleServerApi, HandleVendors,
 		},
 	},
 	services::web::HttpServerState,
@@ -39,12 +42,14 @@ async fn main() -> Result<()> {
 
 	HandleScans::new(db.clone(), &config, vendors).run();
 	HandleBaselines::new(db.clone()).run();
+	let identify = SharedIdentify::default();
+	HandleIdentify::new(&config, identify.clone()).run();
 
 	let state = HttpServerState {
 		db,
 		ui_dir: config.ui_dir.clone(),
 		data_dir: config.data_dir(),
-		identify: Default::default(),
+		identify,
 	};
 	HandleServerApi::new(&config, state).await?.run().await?;
 

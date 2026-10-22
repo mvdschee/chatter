@@ -2,8 +2,8 @@
 
 Status, 2026-10-22: planned; chunk 1 (the dev board) built and checked,
 and the resend fix it turned up is in. Chunks 2 (core), 3 (firmware) and
-4a (the collector's sessions and answers) are built; the board check of 3
-and 4a is next. The plan changed: the sensor stops counting while it
+4 (the collector) are built; 3 and 4a are checked on the board, 4b's board
+check is next. The plan changed: the sensor stops counting while it
 identifies, rather than doing both. This is the identify
 part of `docs/monitoring.md` plan step 6.
 
@@ -194,13 +194,20 @@ One commit each.
      firmware reads; on the dev board, a session started with `curl`
      switches it within a minute, a phone held against it comes first in
      the logged posts, no minute reports arrive during it, it waits when
-     stopped, and counts again after a reboot. Built.
+     stopped, and counts again after a reboot. Built and checked.
    - **4b, the page's data:** `GET /v1/identify` (readings, who is online,
      which device is the page's own), and the host discovery every few
      seconds while a session runs.
      Check: tests for readings that go stale and for the page's own device
      left out; on the dev board, an idle plug held against it comes
      first.
+     Built: readings older than 10 s show nothing heard, a sweep older than
+     30 s says nobody is online, and online is who answered the newest
+     sweep plus whatever a sensor hears now. The sweeps (`nmap -sn -n`,
+     every 5 s while a session runs) aren't stored. The page's own device
+     is found by the IP it asks from, so it needs the collector to see the
+     client's real address: a container behind Docker's port mapping may
+     see the bridge's instead, and then nothing is left out.
 5. **Sessions:** identify sessions stored with their start and end, and a
    band on the day graph and in the Timeline.
    Check: a session shows as a band over the gap in the minute reports.

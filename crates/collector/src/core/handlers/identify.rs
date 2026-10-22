@@ -1,13 +1,34 @@
 //! Identify sessions: started and stopped from the page, told to the sensor
-//! in the answer to whatever it posts next.
+//! in the answer to whatever it posts next. While one runs, the LAN is swept
+//! every few seconds, so idle devices send a frame and the page knows who's
+//! online.
+
+use std::{
+	collections::BTreeMap,
+	net::IpAddr,
+	time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use crate::{
-	core::models::{
-		identify::{Identify, Readings, Start},
-		report::SensorName,
+	Result,
+	core::{
+		handlers::scan::current_targets,
+		models::{
+			identify::{
+				HeardView, Identify, IdentifyView, Online, OnlineView, Readings, STALE_S,
+				SWEEP_EVERY_S, SWEEP_STALE_S, SensorIdentify, SharedIdentify, Start,
+			},
+			report::SensorName,
+			scan::{NmapRun, Scan, ScanTargets},
+		},
 	},
-	info,
+	error, info,
+	services::cmd::nmap,
 };
+
+pub fn unix_now() -> i64 {
+	SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+}
 
 /// Starts or extends a session, or ends it when `secs` is 0.
 pub fn start_identify(state: &mut Identify, start: &Start, now: i64) {
@@ -41,6 +62,105 @@ pub fn record_readings(state: &mut Identify, readings: Readings, now: i64) -> Op
 	let left = identify_left(state, &readings.sensor, now)?;
 	state.readings.insert(readings.sensor.to_string(), readings);
 	Some(left)
+}
+
+/// The sessions, what their sensors hear now, and who's online, for the page
+/// open on `own_ip`. Changes nothing: a session that ran out is only left
+/// out here.
+pub fn identify_view(state: &Identify, own_ip: Option<IpAddr>, now: i64) -> IdentifyView {
+	let swept = state.swept_at.is_some_and(|at| now - at <= SWEEP_STALE_S);
+	let swept_hosts = if swept {
+		&state.online[..]
+	} else {
+		&[]
+	};
+	let own_mac =
+		own_ip.and_then(|ip| swept_hosts.iter().find(|h| h.ip == ip)).map(|h| h.mac.to_string());
+
+	let mut online: BTreeMap<String, Option<String>> =
+		swept_hosts.iter().map(|h| (h.mac.to_string(), Some(h.ip.to_string()))).collect();
+	let mut sensors: Vec<SensorIdentify> = state
+		.until
+		.iter()
+		.filter(|&(_, &until)| until > now)
+		.map(|(sensor, &until)| {
+			let readings = state.readings.get(sensor);
+			let fresh = readings.filter(|r| now - r.received_at <= STALE_S);
+			let heard: Vec<HeardView> = fresh
+				.map(|r| &r.heard[..])
+				.unwrap_or_default()
+				.iter()
+				.filter(|h| own_mac.as_deref() != Some(&*h.mac))
+				.map(|h| HeardView {
+					mac: h.mac.to_string(),
+					rssi_max: h.rssi_max,
+					frames: h.frames,
+				})
+				.collect();
+			for h in &heard {
+				online.entry(h.mac.clone()).or_insert(None);
+			}
+			SensorIdentify {
+				sensor: sensor.clone(),
+				left_s: (until - now) as u64,
+				received_at: readings.map(|r| r.received_at),
+				heard,
+			}
+		})
+		.collect();
+	sensors.sort_by(|a, b| a.sensor.cmp(&b.sensor));
+
+	IdentifyView {
+		sensors,
+		online: online
+			.into_iter()
+			.map(|(mac, ip)| OnlineView {
+				mac,
+				ip,
+			})
+			.collect(),
+		own_mac,
+	}
+}
+
+/// While a session runs, sweeps the LAN every few seconds and keeps who
+/// answered. A failed sweep is logged and the loop goes on, like the
+/// regular sweeps.
+pub async fn identify_sweep_loop(shared: SharedIdentify, configured: Option<ScanTargets>) {
+	loop {
+		tokio::time::sleep(Duration::from_secs(SWEEP_EVERY_S)).await;
+		let now = unix_now();
+		let active = {
+			let state = shared.lock().unwrap_or_else(|e| e.into_inner());
+			state.until.values().any(|&until| until > now)
+		};
+		if !active {
+			continue;
+		}
+		match sweep_online(configured.as_ref()).await {
+			Ok(online) => {
+				let mut state = shared.lock().unwrap_or_else(|e| e.into_inner());
+				state.online = online;
+				state.swept_at = Some(unix_now());
+			},
+			Err(e) => error!("identify sweep: {e}"),
+		}
+	}
+}
+
+/// Who answers ARP now. Not stored: the regular sweeps do that.
+async fn sweep_online(configured: Option<&ScanTargets>) -> Result<Vec<Online>> {
+	let targets = current_targets(configured)?;
+	let xml = nmap::arp_sweep(&targets).await?;
+	let scan = Scan::from(NmapRun::from_xml(&xml)?);
+	Ok(scan
+		.hosts
+		.into_iter()
+		.map(|h| Online {
+			mac: h.mac,
+			ip: h.ip,
+		})
+		.collect())
 }
 
 #[cfg(test)]
@@ -118,5 +238,81 @@ mod tests {
 		assert_eq!(record_readings(&mut s, readings(1003), 1003), Some(597));
 		assert_eq!(record_readings(&mut s, readings(1006), 1006), Some(594));
 		assert_eq!(s.readings["c6-test"].received_at, 1006);
+	}
+
+	fn online(mac: &str, ip: &str) -> Online {
+		Online {
+			mac: Mac::new(mac).unwrap(),
+			ip: ip.parse().unwrap(),
+		}
+	}
+
+	fn view_state() -> Identify {
+		let mut s = Identify::default();
+		start_identify(&mut s, &start(600), 1000);
+		s.online = vec![
+			online("02:5e:a1:07:3c:9d", "192.0.2.41"),
+			online("06:c4:18:9b:e2:50", "192.0.2.42"),
+		];
+		s.swept_at = Some(1000);
+		let mut r = readings(1000);
+		r.heard.push(Heard {
+			mac: Mac::new("0a:73:2f:d6:41:b8").unwrap(),
+			rssi_max: -60,
+			frames: 2,
+		});
+		record_readings(&mut s, r, 1000);
+		s
+	}
+
+	fn heard_macs(v: &IdentifyView) -> Vec<&str> {
+		v.sensors[0].heard.iter().map(|h| h.mac.as_str()).collect()
+	}
+
+	#[test]
+	fn view_of_a_session() {
+		let v = identify_view(&view_state(), None, 1002);
+		assert_eq!(v.sensors.len(), 1);
+		assert_eq!((v.sensors[0].left_s, v.sensors[0].received_at), (598, Some(1000)));
+		assert_eq!(heard_macs(&v), ["02:5e:a1:07:3c:9d", "0a:73:2f:d6:41:b8"]);
+		// swept, plus heard but not swept
+		let online: Vec<_> = v.online.iter().map(|o| (o.mac.as_str(), o.ip.as_deref())).collect();
+		assert_eq!(
+			online,
+			[
+				("02:5e:a1:07:3c:9d", Some("192.0.2.41")),
+				("06:c4:18:9b:e2:50", Some("192.0.2.42")),
+				("0a:73:2f:d6:41:b8", None),
+			]
+		);
+		assert_eq!(v.own_mac, None);
+	}
+
+	#[test]
+	fn the_pages_own_device_is_left_out() {
+		let v = identify_view(&view_state(), Some("192.0.2.41".parse().unwrap()), 1002);
+		assert_eq!(v.own_mac.as_deref(), Some("02:5e:a1:07:3c:9d"));
+		assert_eq!(heard_macs(&v), ["0a:73:2f:d6:41:b8"]);
+	}
+
+	#[test]
+	fn stale_readings_and_sweeps_say_nothing() {
+		let s = view_state();
+		let v = identify_view(&s, None, 1000 + STALE_S + 1);
+		assert!(v.sensors[0].heard.is_empty());
+		// still says when it last heard from the sensor
+		assert_eq!(v.sensors[0].received_at, Some(1000));
+		assert_eq!(v.online.len(), 2);
+
+		let v = identify_view(&s, Some("192.0.2.41".parse().unwrap()), 1000 + SWEEP_STALE_S + 1);
+		assert!(v.online.is_empty());
+		assert_eq!(v.own_mac, None);
+	}
+
+	#[test]
+	fn no_session_no_sensors() {
+		let s = view_state();
+		assert!(identify_view(&s, None, 1600).sensors.is_empty());
+		assert!(identify_view(&Identify::default(), None, 1000).sensors.is_empty());
 	}
 }

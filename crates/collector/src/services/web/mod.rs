@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{net::SocketAddr, path::PathBuf};
 
 use axum::Router;
 use tokio::{net::TcpListener, signal};
@@ -61,7 +61,9 @@ impl HttpServer {
 
 	pub async fn run(self) -> Result<()> {
 		info!("http service running");
-		axum::serve(self.listener, self.router).with_graceful_shutdown(shutdown()).await?;
+		// the client's address: the identify page leaves its own device out
+		let app = self.router.into_make_service_with_connect_info::<SocketAddr>();
+		axum::serve(self.listener, app).with_graceful_shutdown(shutdown()).await?;
 		Ok(())
 	}
 }

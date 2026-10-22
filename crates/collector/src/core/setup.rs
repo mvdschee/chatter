@@ -8,10 +8,11 @@ use crate::{
 	core::{
 		handlers::{
 			baseline::baseline_loop,
+			identify::identify_sweep_loop,
 			scan::{current_targets, port_scan, port_scan_loop, sweep_loop},
 			vendor::{load_vendors, vendor_loop},
 		},
-		models::{config::Config, vendor::SharedVendors},
+		models::{config::Config, identify::SharedIdentify, vendor::SharedVendors},
 	},
 	info,
 	repository::db::DatabaseRepository,
@@ -98,6 +99,25 @@ impl HandleScans {
 			},
 			None => info!("CHATTER_PORT_SCAN_AT=off: no port scans"),
 		}
+	}
+}
+
+/// The fast sweeps while an identify session runs.
+pub struct HandleIdentify {
+	config: Config,
+	identify: SharedIdentify,
+}
+
+impl HandleIdentify {
+	pub fn new(config: &Config, identify: SharedIdentify) -> Self {
+		Self {
+			config: config.clone(),
+			identify,
+		}
+	}
+
+	pub fn run(self) {
+		tokio::spawn(identify_sweep_loop(self.identify, self.config.scan_targets));
 	}
 }
 

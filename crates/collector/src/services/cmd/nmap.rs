@@ -6,6 +6,9 @@ use crate::{Error, Result, core::models::scan::ScanTargets};
 
 /// A sweep of a home network takes seconds; past this, something hangs.
 const SWEEP_TIMEOUT: Duration = Duration::from_secs(300);
+/// An identify sweep runs every few seconds; one that takes this long is
+/// no use.
+const ARP_SWEEP_TIMEOUT: Duration = Duration::from_secs(30);
 /// A port scan takes about half an hour, and `--host-timeout` caps each host.
 const PORT_SCAN_TIMEOUT: Duration = Duration::from_secs(3 * 3600);
 
@@ -21,6 +24,14 @@ pub async fn sweep(targets: &ScanTargets, dns: Option<Ipv4Addr>) -> Result<Strin
 	let mut cmd = Command::new("nmap");
 	cmd.args(["-sn", "-oX", "-"]);
 	run(cmd, targets, dns, SWEEP_TIMEOUT).await
+}
+
+/// Host discovery without names (`nmap -sn -n`), XML on stdout: only who
+/// answers ARP, as fast as nmap goes. Raw sockets, like the sweep.
+pub async fn arp_sweep(targets: &ScanTargets) -> Result<String> {
+	let mut cmd = Command::new("nmap");
+	cmd.args(["-sn", "-n", "-oX", "-"]);
+	run(cmd, targets, None, ARP_SWEEP_TIMEOUT).await
 }
 
 /// Every TCP port and some UDP ones, with a light service check (`-sS -sU

@@ -1,8 +1,8 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::net::SocketAddr;
 
 use axum::{
 	Json, Router,
-	extract::{DefaultBodyLimit, Path, State, rejection::JsonRejection},
+	extract::{ConnectInfo, DefaultBodyLimit, Path, State, rejection::JsonRejection},
 	http::StatusCode,
 	response::{IntoResponse, Response},
 	routing::{get, post},
@@ -10,9 +10,11 @@ use axum::{
 
 use crate::{
 	core::{
-		handlers::identify::{identify_left, record_readings, start_identify},
+		handlers::identify::{
+			identify_left, identify_view, record_readings, start_identify, unix_now,
+		},
 		models::{
-			identify::{Readings, ReadingsPayload, Start, StartPayload},
+			identify::{IdentifyView, Readings, ReadingsPayload, Start, StartPayload},
 			report::SensorName,
 		},
 	},
@@ -33,14 +35,10 @@ pub fn routes() -> Router<HttpServerState> {
 }
 
 pub fn v1_routes() -> Router<HttpServerState> {
-	Router::new().route(
+	Router::new().route("/identify", get(identify_get_handler)).route(
 		"/sensors/{sensor}/identify",
 		post(identify_start_post_handler).layer(DefaultBodyLimit::max(4096)),
 	)
-}
-
-pub fn unix_now() -> i64 {
-	SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
 /// The sensor's mode, as the firmware reads it (core's `parse_answer`):
@@ -108,6 +106,17 @@ async fn identify_create_post_handler(
 	}
 	let mut identify = state.identify.lock().unwrap_or_else(|e| e.into_inner());
 	mode_answer(record_readings(&mut identify, readings, now))
+}
+
+// SECURITY: unauthenticated, like the overview (LAN only, see DECISIONS.md).
+/// The sessions, what their sensors hear now, and who's online. The page's
+/// own device is found by the IP it asks from.
+async fn identify_get_handler(
+	State(state): State<HttpServerState>,
+	ConnectInfo(from): ConnectInfo<SocketAddr>,
+) -> Json<IdentifyView> {
+	let identify = state.identify.lock().unwrap_or_else(|e| e.into_inner());
+	Json(identify_view(&identify, Some(from.ip().to_canonical()), unix_now()))
 }
 
 // SECURITY: unauthenticated, like the plan (LAN only, see DECISIONS.md):
