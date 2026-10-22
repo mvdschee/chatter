@@ -105,9 +105,10 @@ fn write_all(
 	out.write_str("]}")
 }
 
-struct Out<'a> {
-	buf: &'a mut [u8; REPORT_BUF],
-	len: usize,
+/// Writes into a fixed buffer, failing when it's full.
+pub(crate) struct Out<'a> {
+	pub(crate) buf: &'a mut [u8],
+	pub(crate) len: usize,
 }
 
 impl Write for Out<'_> {

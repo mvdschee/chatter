@@ -1,7 +1,7 @@
 # Identify mode (research and plan)
 
 Status, 2026-10-22: planned; chunk 1 (the dev board) built and checked,
-and the resend fix it turned up is in. The plan changed: the sensor stops
+and the resend fix it turned up is in. Chunk 2 (core) is built. The plan changed: the sensor stops
 counting while it identifies, rather than doing both. This is the identify
 part of `docs/monitoring.md` plan step 6.
 
@@ -160,6 +160,13 @@ One commit each.
    writer, strongest first, at most 16 devices.
    Check: host tests for the parser (a body cut short, a number too big,
    `204`), for the order, and that a full table fits the buffer.
+   Done. The answer is `identify <secs>\n`: the newline ends the number, so
+   a body cut short inside it is unreadable rather than a shorter session.
+   An unreadable answer keeps the mode the sensor is in, so a garbled answer
+   doesn't end a session; only an empty body (`204`) means "count". The
+   table holds 64 devices and posts the strongest 16. Only the device's own
+   frames count, and when the table is full a stronger newcomer replaces the
+   weakest, so the device next to the sensor is never the one left out.
 3. **Firmware:** `report::post` returns the answer's body; `GET /mode` at
    boot; on `identify` the outbox is sent and counting stops, the aggregate
    task fills the identify table instead of the device table, and the

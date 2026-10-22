@@ -246,3 +246,9 @@
 **Decision:** The C3 test client, its target and the collector's `GET /test.bin` are gone, and so is `chatter-collector import`. `make run` flashes the board `.env` names (`CHATTER_PROBE`), reporting to `CHATTER_COLLECTOR_ADDR` as `CHATTER_SENSOR_NAME`; the other board's values sit there commented out. This replaces the C3 test client of 2026-10-16 and `make run-dev`.
 **Why:** Only C6 boards will be used (there are two), the old reports file is already in the database, and one command that follows `.env` is easier than a target per board.
 **Alternatives:** Keeping `make run-dev`, which refused to flash without the spare board's keys, so the spare board could never report to the server (safer, but a second command and two more keys).
+
+## 2026-10-22 - The identify answer ends in a newline, and an unreadable one changes nothing
+
+**Decision:** The collector switches the sensor with `identify <secs>\n` (digits only, `0` means count) or an empty body (`204`) for count. Anything else is "carry on": the sensor keeps the mode it's in.
+**Why:** Without the newline, `identify 600` cut short reads as `identify 60`, a valid shorter session. If anything unreadable meant "count", one garbled answer would end a session, and the sensor then waits for a reboot.
+**Alternatives:** Checking the body against `Content-Length` (also catches it, but the firmware has to read and pass the header); treating anything but `identify` as count (the plan's first wording, which lets a garbled answer stop a session).
