@@ -6,9 +6,10 @@ pub const REPORTS_INSERT: &str = "INSERT INTO reports \
 	(sensor, seq, uptime_s, received_at, channel, dropped, overflow, nets_known) \
 	VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id";
 
-/// The same report stored before (a resend): `id`.
-pub const REPORTS_FIND: &str =
-	"SELECT id FROM reports WHERE sensor = ?1 AND seq = ?2 AND uptime_s = ?3";
+/// The same report stored before (a resend), received from `?4` up to `?5`:
+/// `id`.
+pub const REPORTS_FIND: &str = "SELECT id FROM reports WHERE sensor = ?1 AND seq = ?2 \
+	AND uptime_s = ?3 AND received_at BETWEEN ?4 AND ?5";
 
 /// The sensor's latest report: `seq`.
 pub const REPORTS_LAST_SEQ: &str =

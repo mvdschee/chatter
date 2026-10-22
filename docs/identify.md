@@ -1,7 +1,9 @@
 # Identify mode (research and plan)
 
-Status, 2026-10-21: planned; chunk 1 (the dev board) built. This is the identify part of
-`docs/monitoring.md` plan step 6.
+Status, 2026-10-22: planned; chunk 1 (the dev board) built and checked,
+and the resend fix it turned up is in. The plan changed: the sensor stops
+counting while it identifies, rather than doing both. This is the identify
+part of `docs/monitoring.md` plan step 6.
 
 ## Goal
 
@@ -10,8 +12,10 @@ page says which device it is, so it can be named and placed. Most devices
 on the page are a MAC, a vendor and maybe a hostname, which often isn't
 enough to tell which plug or speaker it is.
 
-It works on the one sensor that also counts. A second board only adds
-something once a home has several access points far apart (plan step 6).
+It works on the one sensor that also counts, but not at the same time: a
+sensor carried around counts the wrong part of the house, so it stops
+counting while it identifies. A second board only adds something once a
+home has several access points far apart (plan step 6).
 
 The way it's used: the sensor is plugged into a phone, which powers it, and
 the page is open on that phone. Walking around, the page answers two
@@ -42,27 +46,38 @@ which ones are.
 
 ## The approach
 
-- **The collector switches the mode in its answer to a report**, as
-  `docs/monitoring.md` planned: `204` is "carry on", `200` with the body
+- **The collector keeps the mode and says it in its answers**, as
+  `docs/monitoring.md` planned: `204` is "count", `200` with the body
   `identify 600` is "identify mode for ten minutes". The sensor has no other
-  way to hear from the collector, and the collector keeps the mode, so a
-  sensor that reboots after being unplugged and carried picks it up again
-  from its first answer.
-- **Counting doesn't change.** The minute reports go on as before; identify
-  mode adds a second, small table. Every 3 s the sensor posts the devices it
-  heard in those seconds, strongest first, with each one's strongest signal
-  and its frame count, to `POST /identify`. The answer to that carries the
-  mode too, so "stop" or "ten more minutes" lands within 3 s.
+  way to hear from the collector.
+- **A session, step by step:**
+  1. Identify is started on the page. The collector answers the sensor's
+     next minute report with `identify`.
+  2. The sensor stops counting, sends what's left in its outbox, and stops
+     sending minute reports. The collector notes the last report before the
+     session, so the gap after it has a reason.
+  3. The page says what to do: unplug the sensor and plug it into the phone.
+  4. The sensor boots on the phone. Before it counts anything it asks the
+     collector what to do (`GET /mode`, the same answers), hears
+     `identify`, and goes straight to it. If the collector can't be
+     reached, it counts.
+  5. In identify mode the sensor fills a small table instead of the device
+     table. Every 3 s it posts the devices it heard in those seconds,
+     strongest first, with each one's strongest signal and its frame count,
+     to `POST /identify`. The answer carries the mode too, so "stop" or "ten
+     more minutes" lands within 3 s.
+  6. When the session ends (stopped or timed out) the sensor stops posting
+     and waits; it only counts again after a reboot. The page says to plug
+     it back in its place, and that boot asks `GET /mode`, hears "count",
+     and counts.
 - **Identify readings aren't stored.** The collector keeps the newest ones in
   memory, per sensor, and the page reads them from `GET /v1/identify`. They
   are only worth anything live, and the minute tables stay one row per
   device per minute.
-- **The session is stored, like a port scan.** Carried around, the sensor
-  misses counts: it reboots when it's unplugged, and it hears a different
-  part of the house. The collector stores each identify session's start and
-  end, leaves those minutes out of the baselines as it does a port scan's,
-  and shows the session as a band on the day graph and in the Timeline, so
-  a gap there has a reason.
+- **The session is stored, like a port scan.** No minutes are counted
+  during it, so there's nothing to leave out of the baselines; the collector
+  stores each identify session's start and end and shows it as a band on
+  the day graph and in the Timeline, so the gap there has a reason.
 - **Make the devices talk.** The signal only comes from frames a device
   sends. An idle plug may send nothing for a minute, so while identify mode
   is on, the collector runs its host discovery (`nmap -sn`, ARP on the LAN)
@@ -93,9 +108,17 @@ which ones are.
   OTG). Plugging it in boots it, so it needs the Wi-Fi join and up to a
   minute before identify starts, every time it's plugged in.
 - **Starting takes up to a minute.** The mode starts with the answer to the
-  next minute report. If that's too slow, the sensor can ask
-  `GET /identify` every 10 s; that's a tiny request, but it's always on, so
-  only if the minute is a problem.
+  next minute report. If that's too slow, the sensor can ask `GET /mode`
+  every 10 s; that's a tiny request, but it's always on, so only if the
+  minute is a problem. Moving the sensor to the phone takes about that long
+  anyway.
+- **A reboot repeats a report's `seq` and uptime.** Each boot starts both
+  at 0 and reaches its first report at about the same second, so the
+  collector took a new boot's reports for resends of the last boot's and
+  dropped them. Identify reboots the sensor twice per session, so this had
+  to go first: a report is a resend only when its copy came in within the
+  hour around it. A real resend is never older than the outbox (16 reports,
+  16 minutes).
 - **Multi-stream devices** send most of their data in frames the sensor
   can't decode (`docs/streams.md`). Their ARP answers and management
   frames are usually sent at basic rates the sensor does decode, but that
@@ -106,9 +129,9 @@ which ones are.
 - **Not on `/report` faster.** Shorter reports to `/report` would break the
   minute tables: `device_minutes` assumes a minute per report, and the
   baselines are built on that.
-- **One socket.** The report task already has a 24 KiB send buffer. Identify
-  posts go through the same task, between reports, rather than a second
-  socket with its own buffers.
+- **One socket.** The report task already has a 24 KiB send buffer.
+  Identify posts and `GET /mode` go through the same task rather than a
+  second socket with its own buffers.
 - **The dev board must never report to the home server.** Two sensors
   reporting there would count every device twice: the collector adds up
   device minutes without looking at the sensor. Counting with several
@@ -132,31 +155,35 @@ One commit each.
 1. **Dev board:** the `.env` keys and `make run-dev`.
    Check: the dev board's reports show up in the Mac's collector, and the
    home server's heartbeat for the counting sensor doesn't change.
+   Done; it turned up the resend bug, fixed with a migration that drops the
+   `UNIQUE (sensor, seq, uptime_s)` and a resend window of an hour.
 2. **Core:** the answer parser (`identify <secs>`, anything else is "carry
    on"), the identify table (per MAC: strongest signal, frames), and its JSON
    writer, strongest first, at most 16 devices.
    Check: host tests for the parser (a body cut short, a number too big,
    `204`), for the order, and that a full table fits the buffer.
-3. **Firmware:** `report::post` returns the answer's body; the aggregate
-   task fills the identify table next to the device table while the mode
-   runs, and the report task posts it every 3 s.
+3. **Firmware:** `report::post` returns the answer's body; `GET /mode` at
+   boot; on `identify` the outbox is sent and counting stops, the aggregate
+   task fills the identify table instead of the device table, and the
+   report task posts it every 3 s; when the mode ends the sensor waits for
+   a reboot.
    Check, on the dev board: started by hand from the Mac's collector, a
-   phone held against the sensor is first in the posts, and the minute
-   reports keep arriving.
+   phone held against the sensor is first in the posts, no minute reports
+   arrive during the session, and after a reboot they come back.
 4. **Collector:** the mode per sensor (until when), the answers on
-   `/report` and `/identify`, `POST /v1/sensors/{name}/identify` to start or
+   `/report`, `/mode` and `/identify`, `POST /v1/sensors/{name}/identify` to start or
    stop it, `GET /v1/identify` (readings, who is online, which device is
    the page's own), and the host discovery every few seconds while it runs.
    Check: tests for the answers (on, off, expired), for readings that go
    stale and for the page's own device left out; on the dev board, an idle
    plug held against it comes first.
-5. **Sessions:** identify sessions stored with their start and end, left
-   out of the baselines, and a band on the day graph and in the Timeline.
-   Check: a baseline test with a session's minutes left out, like the port
-   scan test.
-6. **Page:** Identify from the sensor's panel, a phone-sized view with
-   "What's here" and "Find", online and offline marked, a click opening the
-   device's panel.
+5. **Sessions:** identify sessions stored with their start and end, and a
+   band on the day graph and in the Timeline.
+   Check: a session shows as a band over the gap in the minute reports.
+6. **Page:** Identify from the sensor's panel, the steps (move the sensor
+   to the phone, plug it back after), a phone-sized view with "What's here"
+   and "Find", online and offline marked, a click opening the device's
+   panel.
    Check: the owner walks around with the sensor on the phone and finds a
    few devices with it.
 
@@ -166,8 +193,8 @@ Checked automatically:
 
 - builds, clippy, host tests for the parser, the identify table and the
   collector's answers;
-- the minute reports are the same with identify mode on and off (the same
-  frames give the same device table).
+- no minute reports during a session, and counting back after the reboot;
+- a reboot's reports are stored, not taken for resends.
 
 Only the owner can judge:
 
@@ -186,3 +213,6 @@ Only the owner can judge:
    smoothing over a few posts so it doesn't jump.
 4. How long a host discovery sweep takes on a busy network, and so how
    often it can run.
+5. Whether waiting for a reboot after a session is right. It keeps a
+   sensor still on the phone from counting there, but a sensor that never
+   left its place stays quiet until it's replugged.

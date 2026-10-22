@@ -14,6 +14,12 @@ use crate::{
 	warn,
 };
 
+/// How far apart a report and its resend can arrive. The sensor's outbox
+/// holds 16 reports, a minute each, so a resend is never more than about 16
+/// minutes late. A reboot repeats `seq` and uptime, so a match from further
+/// away is another boot's report, not a resend.
+const RESEND_WINDOW_S: i64 = 3600;
+
 #[derive(Debug, PartialEq)]
 pub enum Ingested {
 	/// With what the sequence number says about the reports in between.
@@ -65,6 +71,8 @@ pub async fn store_report(db: &DatabaseRepository, report: &Report) -> Result<In
 				DbValue::Text(report.sensor.to_string()),
 				DbValue::Int(report.seq),
 				DbValue::Int(report.uptime_s),
+				DbValue::Int(report.received_at - RESEND_WINDOW_S),
+				DbValue::Int(report.received_at + RESEND_WINDOW_S),
 			],
 		)
 		.await?;
@@ -136,6 +144,7 @@ pub fn gap_note(last: Option<i64>, seq: i64) -> String {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::{core::models::report::ReportPayload, repository::schemas::REPORTS_BETWEEN};
 
 	#[test]
 	fn gap_notes() {
@@ -143,5 +152,44 @@ mod tests {
 		assert_eq!(gap_note(Some(4), 5), "");
 		assert_eq!(gap_note(Some(4), 7), "  <- gap: expected 5");
 		assert_eq!(gap_note(Some(4), 0), "  <- seq went back: sensor restarted");
+	}
+
+	fn report_at(received_at: i64) -> Report {
+		let mut payload: ReportPayload = serde_json::from_str(
+			r#"{"sensor":"c6-1","seq":0,"uptime_s":60,"channel":6,"dropped":0,"overflow":0,"nets_known":[0],
+			"devices":[{"mac":"aa:bb:cc:00:00:01","net":0,"tx_frames":1,"tx_bytes":100,"rx_frames":1,"rx_bytes":100,"retries":0,"rssi_max":-50}],
+			"broadcast":[]}"#,
+		)
+		.unwrap();
+		payload.received_at = received_at;
+		Report::try_from(payload).unwrap()
+	}
+
+	#[tokio::test]
+	async fn a_resend_is_dropped_but_a_reboot_is_stored() {
+		let path =
+			std::env::temp_dir().join(format!("chatter-test-resend-{}.db", std::process::id()));
+		let _ = std::fs::remove_file(&path);
+		let db = DatabaseRepository::new(path.to_str().unwrap()).await.unwrap();
+		db.init().await.unwrap();
+
+		let t = 1_700_000_000;
+		assert!(matches!(store_report(&db, &report_at(t)).await.unwrap(), Ingested::Stored { .. }));
+		// the answer got lost; the outbox resends it a few minutes later
+		assert_eq!(store_report(&db, &report_at(t + 300)).await.unwrap(), Ingested::Duplicate);
+		// a later boot's first report: the same seq and uptime
+		assert!(matches!(
+			store_report(&db, &report_at(t + 2 * RESEND_WINDOW_S)).await.unwrap(),
+			Ingested::Stored { .. }
+		));
+		// importing an older log again finds the first copy, not the reboot's
+		assert_eq!(store_report(&db, &report_at(t)).await.unwrap(), Ingested::Duplicate);
+
+		let reports = db
+			.get_records(REPORTS_BETWEEN, vec![DbValue::Int(0), DbValue::Int(i64::MAX)])
+			.await
+			.unwrap();
+		assert_eq!(reports.len(), 2);
+		let _ = std::fs::remove_file(&path);
 	}
 }

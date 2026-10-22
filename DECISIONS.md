@@ -228,3 +228,15 @@
 **Decision:** Identify mode runs on the sensor that counts, switched by the collector's answer to a report (`200` with `identify <secs>`). While it runs, the sensor posts the devices it heard every 3 s, strongest first, to `POST /identify`; the collector keeps them in memory only and sweeps the LAN with ARP so idle devices answer. Each session's start and end are stored, and its minutes are left out of the baselines like a port scan's, since the sensor is carried around on a phone. A second C6 is only for testing, against a collector on the Mac. Details in `docs/identify.md`.
 **Why:** One board should do it all; a second board only adds something with several access points far apart. Readings on `/report` would break the minute tables, and a second sensor reporting to the same collector would count every device twice.
 **Alternatives:** A dedicated identify board, always in the mode (no switch, but a second board to buy and keep powered); shorter reports to `/report` while identifying (breaks a report being a minute).
+
+## 2026-10-22 - A resend is a copy from within the hour
+
+**Decision:** The collector takes a report as a resend only when a report with the same sensor, `seq` and uptime came in within an hour of it. Migration 8 rebuilds `reports` without `UNIQUE (sensor, seq, uptime_s)`, with foreign keys off so the device and broadcast minutes stay.
+**Why:** Each boot starts `seq` and uptime at 0 and reaches its reports at about the same seconds, so a reboot's reports matched the last boot's and were all dropped. A real resend is never older than the sensor's outbox (16 reports, about 16 minutes), so an hour has room to spare.
+**Alternatives:** A random boot id in the report (rules it out entirely, but changes the firmware, the report and both models, and still needs the same table rebuild); uptime in milliseconds (makes a match unlikely, not impossible).
+
+## 2026-10-22 - The sensor stops counting while it identifies
+
+**Decision:** On `identify` the sensor sends its outbox and stops counting. It's moved to the phone, asks `GET /mode` at boot before counting anything, and identifies. When the session ends it waits, and only counts again after it's plugged back in its place. This replaces "counting doesn't change" and leaving the session's minutes out of the baselines in the entry of 2026-10-21.
+**Why:** A sensor carried around counts the wrong part of the house; with no minutes counted there's nothing to leave out of the baselines, and the session band explains the gap.
+**Alternatives:** Counting on through the session and leaving its minutes out of the baselines (the earlier plan: more firmware, minutes nobody uses).
