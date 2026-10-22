@@ -1,7 +1,8 @@
 # Identify mode (research and plan)
 
 Status, 2026-10-22: planned; chunk 1 (the dev board) built and checked,
-and the resend fix it turned up is in. Chunk 2 (core) is built. The plan changed: the sensor stops
+and the resend fix it turned up is in. Chunk 2 (core) is built, chunk 3
+(firmware) built but only checked on the board once chunk 4 answers. The plan changed: the sensor stops
 counting while it identifies, rather than doing both. This is the identify
 part of `docs/monitoring.md` plan step 6.
 
@@ -175,6 +176,12 @@ One commit each.
    Check, on the dev board: started by hand from the Mac's collector, a
    phone held against the sensor is first in the posts, no minute reports
    arrive during the session, and after a reboot they come back.
+   Built: every request reads the whole answer (it sends `Connection:
+   close`, so the collector's close ends it) and applies it, whichever
+   request it answers. A boot waits up to 30 s for an address, asks
+   `GET /mode`, and counts if that fails, as it does until chunk 4 adds the
+   endpoint. A switch mid-minute drops that part of a minute, since the
+   collector would store it as a whole one. The board check needs chunk 4.
 4. **Collector:** the mode per sensor (until when), the answers on
    `/report`, `/mode` and `/identify`, `POST /v1/sensors/{name}/identify` to start or
    stop it, `GET /v1/identify` (readings, who is online, which device is

@@ -16,3 +16,5 @@ pub const RECONNECT_DELAY_SECS: u64 = 5;
 pub const MAX_TX_POWER: i8 = 60;
 /// How often the device table is reported and emptied.
 pub const PERIOD_SECS: u64 = 60;
+/// How often identify mode posts the devices it heard.
+pub const IDENTIFY_SECS: u64 = 3;
