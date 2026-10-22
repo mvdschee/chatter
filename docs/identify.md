@@ -102,6 +102,13 @@ which ones are.
   be the strongest device. The collector knows the page's IP, and the sweep
   maps IPs to MACs, so that device is left out of the list (or shown as
   "this phone").
+- **Nor is anything else you carry.** A smartwatch is always near the
+  sensor too, and the collector can't find the phone when it doesn't see
+  the page's real IP (a container behind Docker's port mapping). So the
+  page lets you mark the devices you carry, and leaves them out of "What's
+  here". It's the page's own list, kept in the browser, since it belongs to
+  the person holding the phone; the collector's `own_mac` is only marked
+  for you to start with.
 
 ## Pitfalls
 
@@ -214,7 +221,8 @@ One commit each.
 6. **Page:** Identify from the sensor's panel, the steps (move the sensor
    to the phone, plug it back after), a phone-sized view with "What's here"
    and "Find", online and offline marked, a click opening the device's
-   panel.
+   panel, and "I carry this" on a device to leave it out (the phone found
+   by `own_mac` already marked).
    Check: the owner walks around with the sensor on the phone and finds a
    few devices with it.
 
