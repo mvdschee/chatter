@@ -1,6 +1,6 @@
 //! Sniffer plumbing. The callback runs in the Wi-Fi driver's receive path: it
 //! decodes with core, learns watched BSSIDs from beacons and probe responses,
-//! and queues `Frame`s.
+//! and queues `Frame`s, and the capabilities of the requests it hears.
 //! No blocking, no allocation, no logging in there.
 
 use core::{
@@ -9,7 +9,7 @@ use core::{
 };
 
 use chatter_core::models::{
-	frame::{self, Frame, Mac},
+	frame::{self, Capabilities, Frame, Mac},
 	watched::{Watched, net_for_ssid},
 };
 use critical_section::Mutex;
@@ -31,6 +31,25 @@ static OWN: Mutex<Cell<Mac>> = Mutex::new(Cell::new(Mac([0; 6])));
 static QUEUE: Channel<CriticalSectionRawMutex, Frame, QUEUE_LEN> = Channel::new();
 static DROPPED: AtomicU32 = AtomicU32::new(0);
 
+// the streams spike (docs/streams.md): requests are rare next to data frames
+const CAPS_LEN: usize = 16;
+static CAPS: Channel<CriticalSectionRawMutex, (Capabilities, i8), CAPS_LEN> = Channel::new();
+static REQUESTS: [AtomicU32; 3] = [const { AtomicU32::new(0) }; 3];
+static REQUESTS_OURS: [AtomicU32; 3] = [const { AtomicU32::new(0) }; 3];
+static WITH_HT: AtomicU32 = AtomicU32::new(0);
+static WITH_HE: AtomicU32 = AtomicU32::new(0);
+static CAPS_DROPPED: AtomicU32 = AtomicU32::new(0);
+
+/// Requests heard since the last call, as association, reassociation and
+/// probe requests; `ours` are the ones to a watched BSSID.
+pub struct Requests {
+	pub all: [u32; 3],
+	pub ours: [u32; 3],
+	pub with_ht: u32,
+	pub with_he: u32,
+	pub dropped: u32,
+}
+
 /// Turns promiscuous mode on. Keep the returned `Sniffer` alive: dropping it
 /// turns sniffing off again.
 pub fn start(controller: &WifiController<'static>, watched: Watched, own: Mac) -> Result<Sniffer> {
@@ -50,6 +69,21 @@ pub async fn next_frame() -> Frame {
 
 pub fn watched() -> Watched {
 	critical_section::with(|cs| WATCHED.borrow(cs).get())
+}
+
+pub async fn next_capabilities() -> (Capabilities, i8) {
+	CAPS.receive().await
+}
+
+pub fn take_requests() -> Requests {
+	let take = |counts: &[AtomicU32; 3]| core::array::from_fn(|i| counts[i].swap(0, Relaxed));
+	Requests {
+		all: take(&REQUESTS),
+		ours: take(&REQUESTS_OURS),
+		with_ht: WITH_HT.swap(0, Relaxed),
+		with_he: WITH_HE.swap(0, Relaxed),
+		dropped: CAPS_DROPPED.swap(0, Relaxed),
+	}
 }
 
 /// Frames lost because the queue was full, since the last call.
@@ -75,10 +109,34 @@ fn on_frame(pkt: PromiscuousPkt<'_>) {
 	let rssi = pkt.rx_cntl.rssi.clamp(i8::MIN as i32, i8::MAX as i32) as i8;
 	let (watched, own) =
 		critical_section::with(|cs| (WATCHED.borrow(cs).get(), OWN.borrow(cs).get()));
+	if let Some(caps) = frame::capabilities(pkt.data) {
+		count_request(&caps, &watched);
+		if CAPS.try_send((caps, rssi)).is_err() {
+			CAPS_DROPPED.fetch_add(1, Relaxed);
+		}
+	}
 	if let Some(frame) = frame::decode(pkt.data, len, rssi, &watched)
 		&& frame.station != own
 		&& QUEUE.try_send(frame).is_err()
 	{
 		DROPPED.fetch_add(1, Relaxed);
+	}
+}
+
+fn count_request(caps: &Capabilities, watched: &Watched) {
+	let kind = match caps.subtype {
+		0 => 0,
+		2 => 1,
+		_ => 2,
+	};
+	REQUESTS[kind].fetch_add(1, Relaxed);
+	if watched.net_of(&caps.bssid).is_some() {
+		REQUESTS_OURS[kind].fetch_add(1, Relaxed);
+	}
+	if caps.ht.is_some() {
+		WITH_HT.fetch_add(1, Relaxed);
+	}
+	if caps.he.is_some() {
+		WITH_HE.fetch_add(1, Relaxed);
 	}
 }

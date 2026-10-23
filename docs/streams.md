@@ -1,7 +1,10 @@
 # Flagging multi-stream devices
 
-Written 2026-10-20. Nothing here has been run yet: these are theories to test
-once boards are at hand.
+Written 2026-10-20 as theories to test once boards were at hand.
+2026-10-23: theory 1 works. Its parser is in core (`frame::capabilities`),
+with its offsets checked against the standard's layout (ns-3 and Linux's
+`ieee80211.h`), and the firmware logs what it reads (test 1 below). Next:
+how often members show up (test 2), then the streams in the report.
 
 ## The problem
 
@@ -126,6 +129,32 @@ so the sensor may decode them even when it couldn't decode the data.
    - The spare C6, which joins the network too: HT 1, HE 1, so it
      exercises the HE path.
    - A multi-stream laptop or phone on 2.4 GHz: 2 or more.
+
+   Done 2026-10-23, about five minutes on the dev board, with the other C6
+   rebooted and a multi-stream laptop rejoining. The firmware logs each
+   request's raw parts once per MAC and value (`caps …`), and every period
+   how many requests it heard, how many were to a watched BSSID, and how
+   many carried HT and HE (`requests: …`).
+   - **Association requests from other stations arrive** while the sensor
+     is connected, on both watched networks.
+   - **The multi-stream laptop:** 2 streams in HT and in HE, in its
+     association request and its probes alike, SM power save off. Most of
+     its probes came from random MACs, a new one each scan, and a few from
+     its own.
+   - **The other C6:** HT 1 and no HE element at all in its association
+     request, so the HE path is only tested by other devices. Its probe
+     request carried neither element: probes can be trimmed.
+   - **The raw parts:** HT's Tx parameters were 0 (no Tx set given) or 1
+     (the same as Rx), never "not equal"; HE's Tx always matched its Rx.
+     The HE element was 26 to 30 bytes, never the short draft form. One
+     faint probe had an HT element with an empty Rx mask, so 0 streams has
+     to mean "unknown", not 1. One passing device's probes had static SM
+     power save.
+   - Requests are few: nothing was dropped from either queue.
+
+   So the number is the larger of HT's and HE's Rx counts, 0 when neither
+   says; the association request is the source to trust, and a member's
+   probe only fills in until one is heard.
 2. **How often:** over a day, how many members show up at all, and how long
    until each one is seen, with and without probe requests.
 3. **Spike, theory 2:** turn on control frames and log Block Acks per TA.
@@ -135,10 +164,10 @@ so the sensor may decode them even when it couldn't decode the data.
 
 ## Still unsure
 
-1. Whether the driver passes other stations' association requests to the
-   callback while the sensor is connected. It passes their probe requests.
-2. Whether real devices put the same capabilities in probe requests as in
-   association requests. Some trim probes.
+1. ~~Whether the driver passes other stations' association requests to
+   the callback while the sensor is connected~~: it does (test 1).
+2. ~~Whether real devices put the same capabilities in probe requests as in
+   association requests~~: the laptop did, the C6 left them out (test 1).
 3. Whether Block Acks to an HE router are sent in a format the C6 decodes.
    802.11ax can acknowledge several stations in one multi-user frame, where
    the per-station layout differs.

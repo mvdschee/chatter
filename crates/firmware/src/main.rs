@@ -60,6 +60,7 @@ async fn main(spawner: Spawner) -> ! {
 	spawner.spawn(net::run(runner).expect("net task already running"));
 	spawner.spawn(tasks::aggregate(sniffer).expect("aggregate task already running"));
 	spawner.spawn(tasks::send_reports(stack).expect("report task already running"));
+	spawner.spawn(tasks::log_capabilities().expect("capabilities task already running"));
 
 	loop {
 		core::future::pending::<()>().await;

@@ -13,6 +13,7 @@ use chatter_core::{
 	models::{
 		answer::{Answer, parse_answer},
 		counters::{Device, DeviceTable, format_bytes},
+		frame::Capabilities,
 		identify::{IDENTIFY_BUF, IdentifyTable, write_identify},
 		outbox::Outbox,
 		report::{REPORT_BUF, ReportHeader, write_report},
@@ -153,6 +154,7 @@ async fn count_minutes(table: &mut DeviceTable, scratch: &mut [u8; REPORT_BUF]) 
 			return;
 		}
 		log_learned(&mut known);
+		log_requests();
 		finish_period(table, scratch, boot, seq).await;
 		seq = seq.wrapping_add(1);
 	}
@@ -201,6 +203,46 @@ fn log_learned(known: &mut Watched) {
 		{
 			info!("watch: net {} is bssid {=[u8]:02x}", net, bssid.0);
 		}
+	}
+}
+
+fn log_requests() {
+	let r = sniffer::take_requests();
+	info!(
+		"requests: assoc {} ({} ours), reassoc {} ({} ours), probe {}; ht {}, he {}, dropped {}",
+		r.all[0], r.ours[0], r.all[1], r.ours[1], r.all[2], r.with_ht, r.with_he, r.dropped
+	);
+}
+
+static RECENT_CAPS: ConstStaticCell<[Option<Capabilities>; 32]> = ConstStaticCell::new([None; 32]);
+
+/// The streams spike (docs/streams.md): logs each request's capabilities,
+/// once per MAC and value as long as it's among the last few logged.
+#[embassy_executor::task]
+pub async fn log_capabilities() {
+	let recent = RECENT_CAPS.take();
+	let mut next = 0;
+	loop {
+		let (c, rssi) = sniffer::next_capabilities().await;
+		if recent.contains(&Some(c)) {
+			continue;
+		}
+		recent[next] = Some(c);
+		next = (next + 1) % recent.len();
+		info!(
+			"caps {=[u8]:02x} subtype {} to {=[u8]:02x} (net {}) rssi {}: ht rx {} tx {} smps {}, he rx {} tx {} len {}",
+			c.station.0,
+			c.subtype,
+			c.bssid.0,
+			sniffer::watched().net_of(&c.bssid),
+			rssi,
+			c.ht.map(|h| h.rx_streams),
+			c.ht.map(|h| h.tx_params),
+			c.ht.map(|h| h.sm_power_save),
+			c.he.map(|h| h.rx_streams),
+			c.he.map(|h| h.tx_streams),
+			c.he.map(|h| h.len)
+		);
 	}
 }
 
