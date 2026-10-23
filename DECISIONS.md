@@ -300,3 +300,9 @@
 **Decision:** Per-device DNS names come from the query log of a DNS filter already on the network, read over its API: Pi-hole v6 and AdGuard Home, each an adapter behind one `DnsLog` trait. Without `CHATTER_DNS` nothing runs and nothing else depends on it. Only daily counts per device and registrable domain are stored, not the queries. Details in `docs/dns.md`.
 **Why:** The filter already sees every query with the client's address, so the app adds no DNS server of its own; the two servers share one action, which is what a trait is for. Plenty of homes have no filter, so the app must work the same without one.
 **Alternatives:** Being the DNS server (the app becomes a point of failure for the whole network); reading log files (dnsmasq, Unbound; another machine's files, a parser per format); reading Pi-hole's database file (one server only, its schema isn't an interface); storing every query (large, and a home's browsing history).
+
+## 2026-10-23 - Stream counts go in every report, with their source
+
+**Decision:** The sensor keeps a stream count per member for the whole boot and sends it, with where it came from (`"streams_from": "assoc"` or `"probe"`), on that device in every report. Association requests win over probe requests, on the sensor and in the collector.
+**Why:** A lost report would lose a rare event, and the field costs about 35 bytes a device (the report buffer grew from 24 to 27 KiB for the worst case). The source lets the collector keep an association count when a reboot leaves the sensor with only a probe's, and tells how many members a count would reach without probes.
+**Alternatives:** A separate event only when a count changes (smaller, but lost with its report); the count alone, with the collector keeping the largest (simpler, but a probe could never be corrected downward and test 2 couldn't tell the sources apart).

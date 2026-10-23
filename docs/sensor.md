@@ -176,7 +176,9 @@ Every 60 s, one JSON document:
       "rx_frames": 8,
       "rx_bytes": 9000,
       "retries": 1,
-      "rssi_max": -41
+      "rssi_max": -41,
+      "streams": 2,
+      "streams_from": "assoc"
     }
   ],
   "broadcast": [{ "net": 1, "rx_frames": 40, "rx_bytes": 5200 }]
@@ -192,6 +194,10 @@ Every 60 s, one JSON document:
   scans from wired hosts the sensor can't see otherwise.
 - **`rssi_max`** comes from uplink frames only: downlink RSSI is the router's
   signal, not the device's.
+- **`streams`** is how many streams the device says it can use, and
+  `streams_from` says whether an association request (`assoc`) or a probe
+  request (`probe`) said so. Both are left out until the sensor has heard
+  one this boot (`docs/streams.md`).
 - **The device table holds 128 devices** and is emptied by each report, so it
   only needs to fit the devices active within one minute. `overflow` counts
   frames from devices that didn't fit.
@@ -199,11 +205,11 @@ Every 60 s, one JSON document:
 - **No clock on the board.** `seq` and `uptime_s` let the collector spot
   restarts and gaps, and the collector stamps the receive time. That avoids
   SNTP for now.
-- **One report waits at a time.** The aggregate task writes it into a 24 KiB
+- **One report waits at a time.** The aggregate task writes it into a 27 KiB
   buffer (a full 128-device report fits, see core's tests) and a separate task
   posts it, so a slow collector never stalls counting. If the previous report
   is still sending, the new one is skipped, and the gap shows in `seq`.
-- **Sending:** the socket's send buffer holds a whole report (24 KiB), the
+- **Sending:** the socket's send buffer holds a whole report (27 KiB), the
   connection gives up after 15 s without an ACK, and a failed POST is retried
   once after 2 s. With a 1.5 KB buffer and a 5 s timeout, ~3 KB reports failed
   as soon as the link got slower, because writing had to wait for ACKs midway.

@@ -5,11 +5,13 @@ use core::fmt::{self, Write};
 
 use crate::models::{
 	counters::{Counters, Device, MAX_DEVICES},
+	streams::StreamTable,
 	watched::MAX_NETS,
 };
 
-/// Fits a full table: 128 devices with every counter at its maximum.
-pub const REPORT_BUF: usize = 24 * 1024;
+/// Fits a full table: 128 devices with every counter at its maximum and a
+/// stream count each.
+pub const REPORT_BUF: usize = 27 * 1024;
 
 pub struct ReportHeader<'a> {
 	/// Plain ASCII, no quotes or backslashes: it's written as-is.
@@ -34,17 +36,19 @@ pub struct BufferFull;
 
 /// Writes the report into `buf` and returns its length. `Err` only if it
 /// didn't fit, which the worst-case test rules out for a short sensor name.
+/// A device's stream count goes along when `streams` knows it.
 pub fn write_report(
 	buf: &mut [u8; REPORT_BUF],
 	header: &ReportHeader,
 	devices: impl Iterator<Item = Device>,
 	broadcast: &[Counters; MAX_NETS],
+	streams: &StreamTable,
 ) -> Result<usize, BufferFull> {
 	let mut out = Out {
 		buf,
 		len: 0,
 	};
-	write_all(&mut out, header, devices, broadcast).map_err(|_| BufferFull)?;
+	write_all(&mut out, header, devices, broadcast, streams).map_err(|_| BufferFull)?;
 	Ok(out.len)
 }
 
@@ -53,6 +57,7 @@ fn write_all(
 	h: &ReportHeader,
 	devices: impl Iterator<Item = Device>,
 	broadcast: &[Counters; MAX_NETS],
+	streams: &StreamTable,
 ) -> fmt::Result {
 	write!(
 		out,
@@ -92,9 +97,13 @@ fn write_all(
 		)?;
 		// no uplink frame means no RSSI from the device itself
 		match c.rssi_max {
-			i8::MIN => out.write_str("null}")?,
-			rssi => write!(out, "{rssi}}}")?,
+			i8::MIN => out.write_str("null")?,
+			rssi => write!(out, "{rssi}")?,
 		}
+		if let Some(s) = streams.get(&d.mac) {
+			write!(out, r#","streams":{},"streams_from":"{}""#, s.streams, s.from.name())?;
+		}
+		out.write_char('}')?;
 	}
 	out.write_str(r#"],"broadcast":["#)?;
 	let mut first = true;
@@ -123,8 +132,9 @@ impl Write for Out<'_> {
 	}
 }
 
-// keeps REPORT_BUF honest if MAX_DEVICES grows: a device is at most 165 B
-const _: () = assert!(REPORT_BUF >= MAX_DEVICES * 170 + 1024);
+// keeps REPORT_BUF honest if MAX_DEVICES grows: a device is at most 199 B
+// with 8 streams, the most HE can say
+const _: () = assert!(REPORT_BUF >= MAX_DEVICES * 200 + 1024);
 
 #[cfg(test)]
 mod tests {
@@ -132,6 +142,7 @@ mod tests {
 	use crate::models::{
 		counters::Counters,
 		frame::{Direction, Frame, Mac},
+		streams::{Source, StreamCount},
 	};
 
 	fn header() -> ReportHeader<'static> {
@@ -148,9 +159,31 @@ mod tests {
 	}
 
 	fn render(devices: Vec<Device>, broadcast: [Counters; MAX_NETS]) -> serde_json::Value {
+		render_with(devices, broadcast, &StreamTable::new())
+	}
+
+	fn render_with(
+		devices: Vec<Device>,
+		broadcast: [Counters; MAX_NETS],
+		streams: &StreamTable,
+	) -> serde_json::Value {
 		let mut buf = [0u8; REPORT_BUF];
-		let len = write_report(&mut buf, &header(), devices.into_iter(), &broadcast).unwrap();
+		let len =
+			write_report(&mut buf, &header(), devices.into_iter(), &broadcast, streams).unwrap();
 		serde_json::from_slice(&buf[..len]).expect("valid JSON")
+	}
+
+	fn streams_of(devices: &[Device], streams: u8, from: Source) -> StreamTable {
+		let mut t = StreamTable::new();
+		for (slot, d) in t.entries.iter_mut().zip(devices) {
+			*slot = Some(StreamCount {
+				mac: d.mac,
+				streams,
+				from,
+				learned: 0,
+			});
+		}
+		t
 	}
 
 	fn device(last: u8, up: bool) -> Device {
@@ -211,6 +244,20 @@ mod tests {
 	}
 
 	#[test]
+	fn streams_only_when_known() {
+		let known = device(1, true);
+		let t = streams_of(&[known], 2, Source::Assoc);
+		let v = render_with(vec![known, device(2, true)], [Counters::EMPTY; MAX_NETS], &t);
+		let devices = v["devices"].as_array().unwrap();
+		assert_eq!(
+			(devices[0]["streams"].as_u64(), devices[0]["streams_from"].as_str()),
+			(Some(2), Some("assoc"))
+		);
+		assert_eq!(devices[0]["rssi_max"], -41);
+		assert!(devices[1].get("streams").is_none() && devices[1].get("streams_from").is_none());
+	}
+
+	#[test]
 	fn worst_case_fits() {
 		let max = Counters {
 			tx_frames: u32::MAX,
@@ -227,8 +274,11 @@ mod tests {
 				d
 			})
 			.collect();
-		let v = render(devices, [max; MAX_NETS]);
-		assert_eq!(v["devices"].as_array().unwrap().len(), MAX_DEVICES);
+		let streams = streams_of(&devices, 8, Source::Probe);
+		let v = render_with(devices, [max; MAX_NETS], &streams);
+		let devices = v["devices"].as_array().unwrap();
+		assert_eq!(devices.len(), MAX_DEVICES);
+		assert!(devices.iter().all(|d| d["streams"] == 8));
 	}
 
 	#[test]
@@ -239,7 +289,13 @@ mod tests {
 			sensor: &long,
 			..header()
 		};
-		let r = write_report(&mut buf, &h, core::iter::empty(), &[Counters::EMPTY; MAX_NETS]);
+		let r = write_report(
+			&mut buf,
+			&h,
+			core::iter::empty(),
+			&[Counters::EMPTY; MAX_NETS],
+			&StreamTable::new(),
+		);
 		assert_eq!(r, Err(BufferFull));
 	}
 }

@@ -149,7 +149,7 @@ which ones are.
 - **Not on `/report` faster.** Shorter reports to `/report` would break the
   minute tables: `device_minutes` assumes a minute per report, and the
   baselines are built on that.
-- **One socket.** The report task already has a 24 KiB send buffer.
+- **One socket.** The report task already has a 27 KiB send buffer.
   Identify posts and `GET /mode` go through the same task rather than a
   second socket with its own buffers.
 - **The dev board must never report to the home server.** Two sensors

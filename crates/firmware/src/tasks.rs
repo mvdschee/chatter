@@ -9,14 +9,14 @@
 use core::{cell::Cell, net::SocketAddrV4};
 
 use chatter_core::{
-	handlers::{aggregate, identify},
+	handlers::{aggregate, identify, streams},
 	models::{
 		answer::{Answer, parse_answer},
 		counters::{Device, DeviceTable, format_bytes},
-		frame::Capabilities,
 		identify::{IDENTIFY_BUF, IdentifyTable, write_identify},
 		outbox::Outbox,
 		report::{REPORT_BUF, ReportHeader, write_report},
+		streams::StreamTable,
 		watched::{MAX_NETS, Watched},
 	},
 };
@@ -53,9 +53,12 @@ const ANSWER_BUF: usize = 256;
 /// About 10 typical reports, or one worst-case report.
 const OUTBOX_BYTES: usize = 32 * 1024;
 const OUTBOX_MAX: usize = 16;
+const _: () = assert!(REPORT_BUF <= OUTBOX_BYTES);
 
 // ~5 KB: in static memory, so it never sits on the stack
 static TABLE: ConstStaticCell<DeviceTable> = ConstStaticCell::new(DeviceTable::new());
+/// Stream counts, kept for the whole boot, unlike the table.
+static STREAMS: ConstStaticCell<StreamTable> = ConstStaticCell::new(StreamTable::new());
 
 /// Reports waiting to be sent, oldest first. The aggregate task adds one every
 /// period and the report task removes it once the collector has it, so a slow
@@ -121,10 +124,11 @@ fn apply(answer: Answer) {
 pub async fn aggregate(sniffer: Sniffer) {
 	let _sniffer = sniffer;
 	STARTED.wait().await;
-	// frames lost while waiting aren't any period's
+	// frames and requests lost while waiting aren't any period's
 	sniffer::take_dropped();
+	sniffer::take_caps_dropped();
 	if !identifying() {
-		count_minutes(TABLE.take(), SCRATCH.take()).await;
+		count_minutes(TABLE.take(), STREAMS.take(), SCRATCH.take()).await;
 		info!("counting stopped");
 	}
 	identify_devices(IDENTIFY_TABLE.take()).await;
@@ -134,7 +138,11 @@ pub async fn aggregate(sniffer: Sniffer) {
 
 /// Counts frames per device and adds a report to the outbox every period,
 /// until the collector says to identify.
-async fn count_minutes(table: &mut DeviceTable, scratch: &mut [u8; REPORT_BUF]) {
+async fn count_minutes(
+	table: &mut DeviceTable,
+	stream_counts: &mut StreamTable,
+	scratch: &mut [u8; REPORT_BUF],
+) {
 	let mut known = Watched::new();
 	// the radio is on, so the RNG is true random
 	let boot = Rng::new().random();
@@ -146,6 +154,7 @@ async fn count_minutes(table: &mut DeviceTable, scratch: &mut [u8; REPORT_BUF]) 
 				break;
 			}
 			aggregate::record(table, &frame);
+			learn_streams(stream_counts, table);
 		}
 		if identifying() {
 			// a part of a minute would be stored as a whole one
@@ -154,8 +163,8 @@ async fn count_minutes(table: &mut DeviceTable, scratch: &mut [u8; REPORT_BUF]) 
 			return;
 		}
 		log_learned(&mut known);
-		log_requests();
-		finish_period(table, scratch, boot, seq).await;
+		learn_streams(stream_counts, table);
+		finish_period(table, stream_counts, scratch, boot, seq).await;
 		seq = seq.wrapping_add(1);
 	}
 }
@@ -206,49 +215,21 @@ fn log_learned(known: &mut Watched) {
 	}
 }
 
-fn log_requests() {
-	let r = sniffer::take_requests();
-	info!(
-		"requests: assoc {} ({} ours), reassoc {} ({} ours), probe {}; ht {}, he {}, dropped {}",
-		r.all[0], r.ours[0], r.all[1], r.ours[1], r.all[2], r.with_ht, r.with_he, r.dropped
-	);
-}
-
-static RECENT_CAPS: ConstStaticCell<[Option<Capabilities>; 32]> = ConstStaticCell::new([None; 32]);
-
-/// The streams spike (docs/streams.md): logs each request's capabilities,
-/// once per MAC and value as long as it's among the last few logged.
-#[embassy_executor::task]
-pub async fn log_capabilities() {
-	let recent = RECENT_CAPS.take();
-	let mut next = 0;
-	loop {
-		let (c, rssi) = sniffer::next_capabilities().await;
-		if recent.contains(&Some(c)) {
-			continue;
+/// Learns stream counts from the requests heard since the last call, while
+/// the period's table still says who's a member.
+fn learn_streams(counts: &mut StreamTable, table: &DeviceTable) {
+	let watched = sniffer::watched();
+	while let Some(caps) = sniffer::try_capabilities() {
+		if let Some(c) = streams::learn(counts, &caps, &watched, table) {
+			info!("streams: {=[u8]:02x} can use {} ({})", c.mac.0, c.streams, c.from.name());
 		}
-		recent[next] = Some(c);
-		next = (next + 1) % recent.len();
-		info!(
-			"caps {=[u8]:02x} subtype {} to {=[u8]:02x} (net {}) rssi {}: ht rx {} tx {} smps {}, he rx {} tx {} len {}",
-			c.station.0,
-			c.subtype,
-			c.bssid.0,
-			sniffer::watched().net_of(&c.bssid),
-			rssi,
-			c.ht.map(|h| h.rx_streams),
-			c.ht.map(|h| h.tx_params),
-			c.ht.map(|h| h.sm_power_save),
-			c.he.map(|h| h.rx_streams),
-			c.he.map(|h| h.tx_streams),
-			c.he.map(|h| h.len)
-		);
 	}
 }
 
 /// Logs the period, adds its report to the outbox, and empties the table.
 async fn finish_period(
 	table: &mut DeviceTable,
+	stream_counts: &StreamTable,
 	scratch: &mut [u8; REPORT_BUF],
 	boot: u32,
 	seq: u32,
@@ -270,7 +251,7 @@ async fn finish_period(
 		log_device(d);
 	});
 
-	match write_report(scratch, &header, logged, &broadcast) {
+	match write_report(scratch, &header, logged, &broadcast, stream_counts) {
 		// the report task only holds the lock to copy or remove one report
 		Ok(len) => match OUTBOX.lock().await.push(seq, &scratch[..len]) {
 			Ok(0) => {},
@@ -281,8 +262,12 @@ async fn finish_period(
 	}
 	READY.signal(());
 	info!(
-		"period {}: {} devices, overflow {}, dropped {}",
-		seq, devices, header.overflow, header.dropped
+		"period {}: {} devices, overflow {}, dropped {}, requests dropped {}",
+		seq,
+		devices,
+		header.overflow,
+		header.dropped,
+		sniffer::take_caps_dropped()
 	);
 }
 

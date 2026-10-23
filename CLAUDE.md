@@ -31,7 +31,7 @@
 - `docs/identify.md`: identify mode (hold the sensor next to a device to
   tell which one it is): research and plan, the next thing to build.
 - `docs/streams.md`: flagging multi-stream devices, whose counts the sensor
-  can't complete: theories and tests, not yet run.
+  can't complete: theories, tests and the build plan; the sensor's part built.
 - `docs/dns.md`: the names each device looks up, from a DNS filter's query
   log, optional: research and plan, the next thing to build.
 - `docs/setup.md`: the install log. Add every install or setup step as it is

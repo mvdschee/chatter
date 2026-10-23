@@ -159,8 +159,8 @@ pub fn announcement(data: &[u8]) -> Option<(Mac, &[u8])> {
 }
 
 /// What a device says about its streams in an association, reassociation or
-/// probe request (docs/streams.md). Raw parts, for the spike: how they add up
-/// to one number is still open.
+/// probe request (docs/streams.md). `streams()` is the one number; the raw
+/// parts are what the spike logged.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Capabilities {
 	pub station: Mac,
@@ -169,6 +169,20 @@ pub struct Capabilities {
 	pub subtype: u8,
 	pub ht: Option<Ht>,
 	pub he: Option<He>,
+}
+
+impl Capabilities {
+	/// The larger of HT's and HE's receive streams; 0 when neither says, as an
+	/// HT element can carry an empty receive mask.
+	pub fn streams(&self) -> u8 {
+		let ht = self.ht.map_or(0, |h| h.rx_streams);
+		let he = self.he.map_or(0, |h| h.rx_streams);
+		ht.max(he)
+	}
+
+	pub fn is_probe(&self) -> bool {
+		self.subtype == SUBTYPE_PROBE_REQUEST
+	}
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -497,7 +511,19 @@ mod tests {
 	#[test]
 	fn a_request_without_either() {
 		let c = capabilities(&request(PROBE_REQUEST, BROADCAST, BROADCAST, 0, &[])).unwrap();
-		assert_eq!((c.ht, c.he), (None, None));
+		assert_eq!((c.ht, c.he, c.streams()), (None, None, 0));
+	}
+
+	#[test]
+	fn streams_is_the_larger_rx_count() {
+		let streams = |elements: &[Vec<u8>]| {
+			capabilities(&request(ASSOC_REQUEST, BSSID, BSSID, 4, elements)).unwrap().streams()
+		};
+		assert_eq!(streams(&[ht(0, [0xff, 0, 0, 0, 0], 0), he(0xfffa, 0xfffe, 22)]), 2);
+		assert_eq!(streams(&[ht(0, [0xff, 0xff, 0xff, 0, 0], 0), he(0xfffe, 0xfffe, 22)]), 3);
+		assert_eq!(streams(&[he(0xfffe, 0xfffe, 22)]), 1);
+		// an empty receive mask says nothing
+		assert_eq!(streams(&[ht(0, [0; 5], 0)]), 0);
 	}
 
 	#[test]

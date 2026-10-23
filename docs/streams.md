@@ -1,10 +1,9 @@
 # Flagging multi-stream devices
 
 Written 2026-10-20 as theories to test once boards were at hand.
-2026-10-23: theory 1 works. Its parser is in core (`frame::capabilities`),
-with its offsets checked against the standard's layout (ns-3 and Linux's
-`ieee80211.h`), and the firmware logs what it reads (test 1 below). Next:
-how often members show up (test 2), then the streams in the report.
+2026-10-23: theory 1 works (test 1 below), and the sensor now sends each
+member's count in its report (build step 1 below). Next: the collector keeps
+it, a day of data answers test 2, then the panel shows it.
 
 ## The problem
 
@@ -84,16 +83,36 @@ streams, invisible".
 
 ### Where it fits
 
-- **Core:** a parser next to `announcement()`, something like
-  `capabilities(data) -> Option<(Mac, streams)>` for the three subtypes, with
-  host tests on made-up frames (random MACs).
-- **Firmware:** the callback calls it like it calls `announcement()`. `Frame`
-  stays at 14 B (a test enforces that), so capabilities travel as a separate,
-  rare event, kept per MAC by the aggregation task and sent in the report.
-- **Report:** an optional `streams` per device, only when known.
+- **Core:** `frame::capabilities()` reads the elements of the three
+  requests, and `Capabilities::streams()` makes them one number. The rules
+  for which number to keep are `handlers::streams::learn`, on a
+  `StreamTable` of up to 128 MACs that lasts the whole boot.
+- **Firmware:** the callback queues the capabilities of every request that
+  says something (`Frame` stays at 14 B, a test enforces that), and the
+  aggregate task learns from them after every frame, while the period's
+  device table still says who's a member.
+- **Report:** `streams` and `streams_from` on every device the table knows,
+  in every report, not only when it changes: a report can be lost, and the
+  value costs about 35 bytes.
 - **Collector:** sticky per MAC, stored like `device_names`, so it survives
   sensor reboots. The device panel shows it next to the counts, and outlier
   scoring may need to treat such devices differently (`docs/outliers.md`).
+
+### Which count wins
+
+- 0 means unknown and is never kept.
+- An association or reassociation request to a watched network makes its
+  sender a member and replaces what was known, also with a lower count.
+- A probe request counts only from a member (counted this period, or known
+  already) and only until an association request is heard. Between two
+  probes the larger count stays, as a probe may leave elements out.
+- A full table drops the oldest probe count first, then the oldest
+  association count. A probe never pushes out an association count.
+- **The collector** keeps the same order across boots: an `assoc` count
+  replaces anything, a `probe` count replaces only a `probe` count, and only
+  when it's larger. Right after a reboot the sensor may only have a probe's
+  count, or none, and that mustn't overwrite what an association request
+  said before.
 
 ## Theory 2: count the Block Acks
 
@@ -156,7 +175,8 @@ so the sensor may decode them even when it couldn't decode the data.
    says; the association request is the source to trust, and a member's
    probe only fills in until one is heard.
 2. **How often:** over a day, how many members show up at all, and how long
-   until each one is seen, with and without probe requests.
+   until each one is seen, with and without probe requests. Answered from the
+   collector's stored counts and their `streams_from` once it keeps them.
 3. **Spike, theory 2:** turn on control frames and log Block Acks per TA.
    While the multi-stream laptop downloads, do Block Acks from it show up, and
    does the bitmap count come near the frame count the download needs? Watch
@@ -172,3 +192,21 @@ so the sensor may decode them even when it couldn't decode the data.
    802.11ax can acknowledge several stations in one multi-user frame, where
    the per-station layout differs.
 4. How much control frames add to the callback load on a busy channel.
+
+## Build
+
+One commit each.
+
+1. **Sensor** _(built)_: the stream table and its rules in core, the
+   firmware learning from every request it hears, `streams` and
+   `streams_from` in the report.
+   Check: host tests on the rules and the report's JSON; on the board, the
+   `streams:` log lines when a member joins.
+2. **Collector:** keep the count per MAC across reports and boots, by the
+   order in "Which count wins".
+   Check: a report with `streams` is stored, a later one without it or with
+   a lower probe count doesn't change it.
+3. **A day on the home sensor:** test 2 from the stored counts.
+4. **Panel:** "can use 2 streams, counts may be incomplete" next to the
+   counts.
+   Check: the layout check; the owner reads it.
