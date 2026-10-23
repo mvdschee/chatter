@@ -147,7 +147,7 @@ One commit each.
    layout check scene with made-up domains.
    Check: the layout check at both widths; the owner reads a few devices'
    lists.
-5. **Names from the DNS server** _(to ask the owner)_: the client names it
+5. **Names from the DNS server**: the client names it
    knows (Pi-hole's `ips[].name`, AdGuard's `auto_clients`) fill in the
    hostname where the sweep's reverse DNS found none.
    Check: devices that were a MAC only get a name.
