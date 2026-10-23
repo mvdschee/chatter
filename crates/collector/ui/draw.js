@@ -78,15 +78,31 @@ function drawAreas() {
 	ctx.setLineDash([]);
 }
 
+// A wall's dot, round once zoomed in: a small image of a circle, drawn
+// scaled, as a path per dot is slow for thousands of them. One per colour;
+// the alpha is globalAlpha.
+function dotImage(rgb) {
+	const c = document.createElement("canvas");
+	c.width = c.height = 32;
+	const g = c.getContext("2d");
+	g.fillStyle = `rgb(${rgb})`;
+	g.beginPath();
+	g.arc(16, 16, 16, 0, 2 * Math.PI);
+	g.fill();
+	return c;
+}
+const WALL_DOT = dotImage("127,231,242"), TOP_DOT = dotImage("200,250,255");
+
 function drawWalls(now) {
 	for (const d of wallDots) {
 		const [x, y, k] = project(d.x, d.y, d.z);
 		const tw = reduced ? 0.8 : 0.55 + 0.45 * Math.sin(now / 800 + d.phase);
-		const a = d.top ? 0.95 : (0.18 + 0.5 * (d.lintel ? 1 : 1 - d.z / WALL_H)) * tw;
-		ctx.fillStyle = d.top ? `rgba(200,250,255,${a.toFixed(3)})` : `rgba(127,231,242,${a.toFixed(3)})`;
-		const s = (d.top ? 1.9 : 1.4) * k * Math.sqrt(cam.zoom);
-		ctx.fillRect(x - s / 2, y - s / 2, s, s);
+		ctx.globalAlpha = d.top ? 0.95 : (0.18 + 0.5 * (d.lintel ? 1 : 1 - d.z / WALL_H)) * tw;
+		// a little wider than the square it was, for the same area
+		const s = (d.top ? 1.9 : 1.4) * 1.13 * k * Math.sqrt(cam.zoom);
+		ctx.drawImage(d.top ? TOP_DOT : WALL_DOT, x - s / 2, y - s / 2, s, s);
 	}
+	ctx.globalAlpha = 1;
 }
 
 // Clip to the rooms, so glows and the ring stay on the floor.

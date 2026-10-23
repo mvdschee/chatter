@@ -196,7 +196,12 @@ One reviewable chunk each, with its check:
    (`touch-action: manipulation`). On the plan, two fingers pinch to zoom,
    move to pan and twist to rotate, about their middle (`view.js`
    `pinch`). The timeline's amounts drop "/min" on a phone, so the graph
-   gets the width. The side panel is a bottom
+   gets the width. On the timeline, two fingers pinch to zoom the time and
+   move to slide it: the graph, without its labels, stretches under them,
+   and the stretch they leave is loaded when one lifts (no later than now,
+   at least 10 minutes, back to the range once wider than it). The walls'
+   dots are circles, drawn from a small image of one, not squares, which
+   showed once zoomed in. The side panel is a bottom
    sheet of half the screen that takes the timeline's place while it's
    open, so it covers nothing; the plan fits again into what's left (the
    ResizeObserver watches the canvas too). The HUD folds into one line at

@@ -19,6 +19,9 @@ export let zoomed = null;
 const heatEl = document.getElementById("heat");
 const hctx = heatEl.getContext("2d");
 const heatCache = document.createElement("canvas");
+// the graph without its labels, stretched under a pinch: stretched text
+// is unreadable
+const bareCache = document.createElement("canvas");
 const playBtn = document.getElementById("play");
 const liveBtn = document.getElementById("live");
 const peakBtn = document.getElementById("peak");
@@ -35,6 +38,11 @@ export let heatDirty = true, hover = null, dragging = false, peak = 0;
 export let drawnLabels = [];
 let graphMax = 1; // the y axis's top, bytes a minute
 let picking = null; // shift-drag: the stretch being picked, [from, to] buckets
+// two fingers on the graph: their middle and how far apart, at the start
+// and now (canvas px; { m0, d0, m1, d1 }), and `done` once one has lifted;
+// the pointers down
+let pinching = null;
+const fingers = new Map();
 
 // The graph is drawn again on the next frame.
 export function redrawGraph() {
@@ -193,6 +201,8 @@ function renderHeat() {
 		});
 	}
 
+	[bareCache.width, bareCache.height] = [heatCache.width, heatCache.height];
+	bareCache.getContext("2d").drawImage(heatCache, 0, 0);
 	const placed = placeLabels([...axes, ...alerts, ...hot, ...bands], measure, g);
 	for (const l of placed) {
 		c.fillStyle = l.color;
@@ -223,6 +233,22 @@ export function drawTimeline(now) {
 	}
 	hctx.setTransform(1, 0, 0, 1, 0, 0);
 	hctx.clearRect(0, 0, heatEl.width, heatEl.height);
+	if (pinching) {
+		// the graph stretched under the fingers, bare, the amounts left of
+		// it as they are, until the stretch is loaded on lift
+		const { m0, d0, m1, d1 } = pinching, k = d1 / d0, gx = Math.round(g.gutter * dpr);
+		// down to the "0", not the time axis's first label under it
+		const gy = Math.round((g.h - AXIS + 5) * dpr);
+		hctx.drawImage(heatCache, 0, 0, gx, gy, 0, 0, gx, gy);
+		hctx.save();
+		hctx.beginPath();
+		hctx.rect(gx, 0, heatEl.width - gx, heatEl.height);
+		hctx.clip();
+		hctx.setTransform(k, 0, 0, 1, (m1 - m0 * k) * dpr, 0);
+		hctx.drawImage(bareCache, 0, 0);
+		hctx.restore();
+		return;
+	}
 	hctx.drawImage(heatCache, 0, 0);
 	hctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 	hctx.font = FONT;
@@ -336,26 +362,79 @@ function bucketAt(ev) {
 	return Math.max(0, Math.min(Math.max(1, buckets()) - 1, Math.floor((x - g.gutter) / g.cw)));
 }
 
-// Drag: replay a moment. Shift-drag: pick a stretch to zoom in to.
+// Drag: replay a moment. Shift-drag: pick a stretch to zoom in to. Two
+// fingers: pinch to zoom the time, move to slide it.
+let before = null; // the playhead before the first finger moved it
 heatEl.addEventListener("pointerdown", (ev) => {
 	heatEl.setPointerCapture(ev.pointerId);
+	fingers.set(ev.pointerId, ev.clientX - heatEl.getBoundingClientRect().left);
+	if (fingers.size === 2) {
+		// a pinch, not a seek: the first finger's seek undone
+		if (before) Object.assign(play, before);
+		before = null;
+		renderControls();
+		[dragging, picking, hover] = [false, null, null];
+		const [a, b] = [...fingers.values()];
+		pinching = { m0: (a + b) / 2, d0: Math.max(24, Math.abs(b - a)) };
+		[pinching.m1, pinching.d1] = [pinching.m0, pinching.d0];
+		return;
+	}
+	if (fingers.size > 2) return;
 	if (ev.shiftKey) {
 		picking = [bucketAt(ev), bucketAt(ev)];
 		return;
 	}
+	before = { mode: play.mode, cursor: play.cursor, playing: play.playing };
 	dragging = true;
 	seek(bucketAt(ev));
 });
 heatEl.addEventListener("pointermove", (ev) => {
+	if (pinching) {
+		if (pinching.done || !fingers.has(ev.pointerId)) return;
+		fingers.set(ev.pointerId, ev.clientX - heatEl.getBoundingClientRect().left);
+		const [a, b] = [...fingers.values()];
+		[pinching.m1, pinching.d1] = [(a + b) / 2, Math.max(24, Math.abs(b - a))];
+		return;
+	}
 	hover = bucketAt(ev);
 	if (picking) picking[1] = hover;
 	else if (dragging) seek(hover);
 });
-heatEl.addEventListener("pointerup", () => {
+const lift = (ev) => {
+	fingers.delete(ev.pointerId);
+	// the first finger up ends a pinch; the other doesn't seek after it
+	if (pinching) {
+		if (!pinching.done) endPinch();
+		pinching.done = true;
+		if (!fingers.size) pinching = null;
+		return;
+	}
 	if (picking) zoomTo(Math.min(...picking), Math.max(...picking));
 	picking = null;
 	dragging = false;
-});
+};
+heatEl.addEventListener("pointerup", lift);
+heatEl.addEventListener("pointercancel", lift);
+
+// The stretch the fingers left on screen, loaded: no later than now, no
+// shorter than 10 minutes, and back to the range when wider than it.
+function endPinch() {
+	const g = heatGeom(), { m0, d0, m1, d1 } = pinching, k = d1 / d0;
+	if (Math.abs(k - 1) < 0.03 && Math.abs(m1 - m0) < 4) return;
+	const from = TL.from * 1000, msPx = (TL.to * 1000 - from) / (g.w - g.gutter);
+	const at = (x) => from + (m0 + (x - m1) / k - g.gutter) * msPx;
+	let [a, b] = [at(g.gutter), at(g.w)];
+	const rangeMs = parseInt(range, 10) * (range.endsWith("d") ? 86_400_000 : 3_600_000);
+	if (b - a >= rangeMs) return zoomOut();
+	const mid = (a + b) / 2, half = Math.max(5 * 60_000, (b - a) / 2);
+	[a, b] = [mid - half, mid + half];
+	const late = Math.max(0, b - Date.now());
+	zoomed = { from: Math.floor((a - late) / 1000), to: Math.ceil((b - late) / 1000) };
+	play.playing = false;
+	play.mode = "history";
+	loadTimeline();
+	renderControls();
+}
 heatEl.addEventListener("pointerleave", () => (hover = null));
 heatEl.addEventListener("dblclick", zoomOut);
 heatEl.addEventListener("keydown", (ev) => {
