@@ -438,7 +438,10 @@ const SCENES = [
 	id("what's here", "find", [], "#id-body .id-list"),
 	id("find", "find", ["[data-tab=find]"], "#id-find:not([hidden])"),
 	id("a device", "find", ["[data-tab=find]", "#id-body [data-pick]"], ".id-big"),
-	id("put back", "find", ["[data-act=stop]"], "[data-act=close]"),
+	id("a device from what's here", "find", ["#id-body [data-see]"], ".id-big"),
+	id("a device's panel", "find", ["#id-body [data-see]", "#id-body [data-open]"], "#side.open"),
+	id("time menu", "find", ["#id-left"], "#id-ctl:not([hidden])"),
+	id("put back", "find", ["#id-left", "[data-act=stop]"], "[data-act=close]"),
 ];
 // loaded: the sensors' status, the ranges and the graph's peak filled in
 const LOADED = "document.querySelector('#sensors-sub').textContent && document.querySelector('#ranges button') && document.querySelector('#peak').textContent";

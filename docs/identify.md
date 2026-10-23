@@ -99,8 +99,9 @@ which ones are.
   - "Find": every online device, searchable by name, vendor or IP. Picking
     one shows its signal as a large bar and a number, updated every 3 s,
     with "not heard" when its frames stop.
-  - From either, a device opens its panel, where renaming is, and from
-    there the editor's Place step.
+  - A device in What's here opens its own view in Find; from there it
+    opens its panel, where renaming is, and from there the editor's Place
+    step.
 - **The phone isn't a result.** The phone holding the sensor would always
   be the strongest device. The collector knows the page's IP, and the sweep
   maps IPs to MACs, so that device is left out of the list (or shown as
@@ -252,8 +253,9 @@ One commit each.
      identify on, switched (with when its next minute report is due, if
      it's left in place), and posting (or "booting?" when the posts stop).
      "It's on the phone" opens once it's posting.
-   - **Find:** what it hears now, the time left with "+10 min" (what's
-     left plus ten, at most an hour) and Stop, and What's here and Find.
+   - **Find:** what it hears now, and What's here and Find. The time left
+     sits in the header; tapping it gives "+10 min" (what's left plus ten,
+     at most an hour) and Stop.
      Find lists what the sensor can hear (now, or in the last 24 hours)
      first, and folds the rest away as out of its reach, with why.
    - **Put back:** plug it back in its place, ticked off when its first
@@ -268,7 +270,9 @@ One commit each.
    marks the strongest "next to it" when it's 6 dB above the next; a guess
    for the walk to check. Find lists every device seen in 24 hours plus
    anything online, online first, the rest greyed. A device the overview
-   doesn't know shows its MAC and can't open a panel. The carried list
+   doesn't know shows its MAC and can't open a panel. "I carry this" is
+   only on a device's own view (in Find, where What's here's rows lead);
+   the lists show "carried" or "this phone" instead. The carried list
    lives in the browser's `localStorage`; the collector's `own_mac` shows
    as "this phone" and can't be unmarked, since the collector leaves it
    out of what's heard anyway. The sensor's panel only says the mode, and

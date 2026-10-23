@@ -1,9 +1,9 @@
 # Tidying the UI (research and plan)
 
 Status, 2026-10-22: the mockup is approved, with two changes: icons from
-Lucide, and technical wording. Chunks 2 (the layout check), 3 (buttons
-and the top bar), 4 (keep-clear areas), 5 (the timeline) and 6 (the
-phone) are built.
+Lucide, and technical wording. Every chunk is built: 2 (the layout check),
+3 (buttons and the top bar), 4 (keep-clear areas), 5 (the timeline), 6
+(the phone) and 7 (identify).
 The owner finds the home page and the identify page busy and badly
 organised: controls were added one feature at a time, each one the same
 bordered, uppercase button.
@@ -218,8 +218,26 @@ One reviewable chunk each, with its check:
    Not checked: real iOS Safari (`dvh`, its toolbar, the safe areas), and
    the callout, which on a phone often has no room beside its device and
    isn't drawn (the sheet shows the same).
-7. **Identify:** as above.
+7. **Identify** _(built)_: as above.
    Check: the layout check on every step; the owner on a walk.
+   The header is Back (an icon), the sensor's name (cut short with an
+   ellipsis) and the time left; tapping the time opens +10 min and Stop
+   under it, and any other tap or Esc closes them. The steps are a thin
+   bar that names only the step you're on ("3/4 Find"). Each step has one
+   filled button; "Identify again", Name it and "I carry this" are ghost
+   buttons. What's here and Find are one segmented control. "I carry this"
+   is only on a device's own view: a row in What's here opens that view in
+   Find (it used to open the device's panel), and the lists show "carried"
+   or "this phone" instead. The checklists' details are states and numbers
+   ("counting paused", "every 3 s, once switched"). On a phone, a device's
+   panel opened from identify is the bottom sheet, and identify ends where
+   it starts, so the sheet covers none of it. On a wide screen the steps
+   bar now lines up with the rest of the column (its own margin had
+   overridden the column's centring). The layout check adds three scenes:
+   a device from What's here, its panel, and the time's menu; "put back"
+   now stops from that menu.
+   Not checked: whether the wording still says enough on a first walk, and
+   real iOS Safari.
 
 ## Validation
 

@@ -38,6 +38,7 @@ let sensor = null;
 let endedAt = null; // when the session ended, for the last step
 let tab = "here";
 let picked = null; // the MAC Find follows
+let menuOpen = false; // +10 min and Stop, under the time left
 let timer = null;
 let overviewAt = 0;
 // whether opening the page added #identify, so Back goes back
@@ -48,8 +49,10 @@ const appEl = document.querySelector(".app");
 const viewEl = document.getElementById("identify");
 const stepsEl = document.getElementById("id-steps");
 const mainEl = document.getElementById("id-main");
+const titleEl = document.getElementById("id-title");
 const ctlEl = document.getElementById("id-ctl");
 const leftEl = document.getElementById("id-left");
+const leftTextEl = document.getElementById("id-left-t");
 const findPartEl = document.getElementById("id-find-part");
 const bodyEl = document.getElementById("id-body");
 const findEl = document.getElementById("id-find");
@@ -129,6 +132,7 @@ function show() {
 	appEl.classList.add("identifying");
 	step = "sensor";
 	picked = null;
+	menuOpen = false;
 	shown.clear();
 	render();
 	refresh().then(() => {
@@ -199,14 +203,14 @@ function sensorStep() {
 	if (!sensor && SENSORS.length === 1) sensor = SENSORS[0].name;
 	const rows = SENSORS.map((x) => {
 		const s = sessionOf(x.name);
-		const what = s ? `identifying, ${mmss(s.left_s)} left` : `counting · last report ${fmtAgo(Date.now() / 1000 - x.last_seen)}`;
+		const what = s ? `identify · ${mmss(s.left_s)} left` : `counting · last report ${fmtAgo(Date.now() / 1000 - x.last_seen)}`;
 		return `<li><button class="id-row id-pick" data-sensor="${esc(x.name)}" aria-pressed="${x.name === sensor}">`
 			+ `<span class="id-name"><span class="dot ${sensorState(x)}"></span>${esc(x.name)}</span><span class="id-sub">${what}</span></button></li>`;
 	});
 	const running = sensor && sessionOf(sensor);
-	return `<p class="id-say">Which sensor will you carry around?</p>
+	return `<p class="id-say">Pick the sensor to carry.</p>
 		<ul class="id-list">${rows.join("")}</ul>
-		<p class="note">It stops counting until you plug it back in its place, even if you stop early.</p>
+		<p class="note">Counting pauses until it's back in its place, even if you stop early.</p>
 		<button class="id-go" data-act="start" ${sensor ? "" : "disabled"}>${running ? "Carry on" : "Start"}</button>`;
 }
 
@@ -215,15 +219,15 @@ function moveStep(s) {
 	const x = SENSORS.find((y) => y.name === sensor);
 	const next = x ? Math.round(x.last_seen + 60 - Date.now() / 1000) : null;
 	const switched = age !== null
-		? check("done", "In identify mode", "It stopped counting.")
-		: check("now", "Switching", `When it boots on the phone, or with its next minute report${next > 0 ? ` (in about ${next} s)` : ""} if you leave it.`);
+		? check("done", "Switched", "counting paused")
+		: check("now", "Switching", `on boot, or at its next report if left in place${next > 0 ? ` (~${next} s)` : ""}`);
 	const posts = age === null
-		? check("todo", "Posting what it hears", "Every 3 seconds, once it's switched.")
+		? check("todo", "Posting", "every 3 s, once switched")
 		: age <= STALE_S
-			? check("done", "Posting what it hears", `${plural(s.heard.length, "device")}, ${fmtAgo(age)}.`)
-			: check("now", "Booting?", `No post for ${fmtAgo(age).replace(" ago", "")}. Plugged in, it takes about half a minute.`);
+			? check("done", "Posting", `${plural(s.heard.length, "device")} · ${fmtAgo(age)}`)
+			: check("now", "Booting?", `no post for ${fmtAgo(age).replace(" ago", "")} · boot takes ~30 s`);
 	return `<p class="id-say">Unplug <b>${esc(sensor)}</b> and plug it into this phone.</p>
-		<p class="note">You can do it now: when it boots, it asks what to do and goes straight to identify.</p>
+		<p class="note">Now is fine: on boot it goes straight to identify.</p>
 		<ol class="id-checks">${check("done", "Identify on", "")}${switched}${posts}</ol>
 		<button class="id-go" data-act="find" ${posting(s) ? "" : "disabled"}>It's on the phone</button>`;
 }
@@ -232,19 +236,19 @@ function findStatus(s) {
 	const age = postAge(s);
 	return age !== null && age <= STALE_S
 		? `<p class="id-live"><span class="dot live"></span>Hearing ${plural(s.heard.length, "device")} · ${fmtAgo(age)}</p>`
-		: `<p class="id-live"><span class="dot late"></span>No post for ${fmtAgo(age ?? 0).replace(" ago", "")}: is it still plugged in?</p>`;
+		: `<p class="id-live"><span class="dot late"></span>No post for ${fmtAgo(age ?? 0).replace(" ago", "")} · still plugged in?</p>`;
 }
 
 function backStep() {
 	const x = SENSORS.find((y) => y.name === sensor);
 	const back = x && x.last_seen > endedAt;
 	const counting = back
-		? check("done", "Counting again", `Its first minute report came in at ${hhmm(new Date(x.last_seen * 1000))}.`)
-		: check("now", "Counting again", "Once it has booted: its first report comes a minute after.");
+		? check("done", "Counting again", `first report ${hhmm(new Date(x.last_seen * 1000))}`)
+		: check("now", "Counting again", "first report ~1 min after boot");
 	return `<p class="id-say">Plug <b>${esc(sensor)}</b> back in its place.</p>
 		<ol class="id-checks">${check("done", "Identify ended", hhmm(new Date(endedAt * 1000)))}${counting}</ol>
 		<button class="id-go" data-act="close">Done</button>
-		<button class="tl-btn" data-act="again">Identify again</button>`;
+		<button class="ghost" data-act="again">Identify again</button>`;
 }
 
 // --- the Find step's lists ----------------------------------------------
@@ -272,11 +276,13 @@ let outOpen = false;
 
 const bar = (rssi) => `<span class="id-bar"><span style="width:${barPct(rssi)}%"></span></span>`;
 
+// "I carry this" is only on a device's own view; a list shows the mark.
 function carryBtn(mac) {
 	if (mac === VIEW.own_mac) return `<span class="id-tag">this phone</span>`;
 	const on = carried.has(mac);
-	return `<button class="tl-btn id-carry" data-carry="${mac}" aria-pressed="${on}">${on ? "Carried" : "I carry this"}</button>`;
+	return `<button class="ghost" data-carry="${mac}" aria-pressed="${on}">${on ? "Carried" : "I carry this"}</button>`;
 }
+const carryTag = (mac) => (mac === VIEW.own_mac ? `<span class="id-tag">this phone</span>` : carried.has(mac) ? `<span class="id-tag">carried</span>` : "");
 
 function hereHtml(s) {
 	if (!s?.heard.length) return `<p class="note">Nothing heard yet.</p>`;
@@ -286,12 +292,11 @@ function hereHtml(s) {
 	const rows = heard.map((h, i) => {
 		const { d, name, vendor } = who(h.mac);
 		const mark = i === 0 && h.rssi_max >= out ? `<span class="id-tag on">next to it</span>` : "";
-		const open = d ? `data-open="${h.mac}"` : "disabled";
-		return `<li><button class="id-row" ${open}><span class="id-name">${esc(name)}${mark}</span>`
+		return `<li><button class="id-row" data-see="${h.mac}"><span class="id-name">${esc(name)}${mark}</span>`
 			+ `<span class="id-sub">${esc(vendor)}${d ? "" : " · not seen in 24 h"}</span>`
-			+ `<span class="id-dbm">${h.rssi_max} dBm</span>${bar(h.rssi_max)}</button>${carryBtn(h.mac)}</li>`;
+			+ `<span class="id-dbm">${h.rssi_max} dBm</span>${bar(h.rssi_max)}</button></li>`;
 	});
-	const note = left ? `<p class="note">Left out: ${left} you carry. Unmark them in Find.</p>` : "";
+	const note = left ? `<p class="note">${left} carried, left out · unmark one from its view in Find</p>` : "";
 	return `<ul class="id-list">${rows.join("")}</ul>${note}`;
 }
 
@@ -305,10 +310,10 @@ function findHtml(s) {
 		const signal = h
 			? `<div class="id-big">${h.rssi_max}<small> dBm</small></div>${bar(h.rssi_max)}<p class="note">${h.frames} frames in the last post</p>`
 			: `<div class="id-big off">not heard</div>${bar(BAR_FROM)}<p class="note">${!hearable(picked, heard) ? OUT_OF_REACH : online.has(picked) ? "Online, but sending nothing the sensor hears." : "Offline: it didn't answer the newest sweep."}</p>`;
-		return `<button class="id-back" data-pick="">← All devices</button>
+		return `<button class="ghost id-icon" data-pick=""><svg class="icon" aria-hidden="true"><use href="icons.svg#arrow-left"/></svg>All devices</button>
 			<h2 class="name">${esc(name)}</h2><div class="where">${esc(vendor)}${ip ? ` · ${esc(ip)}` : ""}</div>
 			${signal}
-			<div class="id-acts">${d ? `<button class="tl-btn" data-open="${picked}">${narrow.matches ? "Name it" : "Name or place it"}</button>` : ""}${carryBtn(picked)}</div>`;
+			<div class="id-acts">${d ? `<button class="ghost" data-open="${picked}">${narrow.matches ? "Name it" : "Name or place it"}</button>` : ""}${carryBtn(picked)}</div>`;
 	}
 	const q = findEl.value.trim().toLowerCase();
 	const macs = [...new Set([...online, ...DEVICES.map((d) => d.mac)])];
@@ -320,7 +325,7 @@ function findHtml(s) {
 		return `<li class="${x.on ? "" : "off"}"><button class="id-row" data-pick="${x.mac}">`
 			+ `<span class="id-name"><span class="dot ${x.on ? "live" : ""}"></span>${esc(x.name)}</span>`
 			+ `<span class="id-sub">${esc(x.vendor)}${x.ip ? ` · ${esc(x.ip)}` : ""}</span>`
-			+ `<span class="id-dbm">${h ? `${h.rssi_max} dBm` : x.on ? "online" : "offline"}</span></button>${carryBtn(x.mac)}</li>`;
+			+ `<span class="id-dbm">${h ? `${h.rssi_max} dBm` : x.on ? "online" : "offline"}</span></button>${carryTag(x.mac)}</li>`;
 	};
 	const findable = rows.filter((x) => hearable(x.mac, heard));
 	const out = rows.filter((x) => !hearable(x.mac, heard));
@@ -354,8 +359,12 @@ function render() {
 	const at = STEPS.indexOf(step);
 	stepsEl.querySelectorAll("li").forEach((li, i) => (li.className = i < at ? "done" : i === at ? "now" : ""));
 	put(mainEl, { sensor: sensorStep, move: moveStep, find: findStatus, back: backStep }[step](s));
-	ctlEl.hidden = !s || step === "sensor";
-	if (s) leftEl.textContent = `${mmss(s.left_s)} left`;
+	titleEl.textContent = step === "sensor" ? "Identify" : sensor;
+	leftEl.hidden = !s || step === "sensor";
+	if (leftEl.hidden) menuOpen = false;
+	ctlEl.hidden = !menuOpen;
+	leftEl.setAttribute("aria-expanded", String(menuOpen));
+	if (s) leftTextEl.textContent = `${mmss(s.left_s)} left`;
 	findPartEl.hidden = step !== "find";
 	if (step !== "find") return;
 	findEl.hidden = tab !== "find" || picked !== null;
@@ -365,9 +374,16 @@ function render() {
 
 viewEl.addEventListener("click", async (ev) => {
 	const b = ev.target.closest("button");
-	if (!b || b.disabled) return;
+	// any tap closes the time's menu, the time itself toggles it
+	const toggle = b?.dataset.act === "time";
+	menuOpen = toggle && !menuOpen;
+	if (!b || b.disabled || toggle) return render();
 	const act = b.dataset.act;
 	if (b.dataset.sensor) sensor = b.dataset.sensor;
+	else if (b.dataset.see) {
+		tab = "find";
+		picked = b.dataset.see;
+	}
 	else if (b.dataset.carry) toggleCarried(b.dataset.carry);
 	else if (b.dataset.pick !== undefined) picked = b.dataset.pick || null;
 	else if (b.dataset.open) select(DEVICES.find((d) => d.mac === b.dataset.open));
@@ -403,7 +419,12 @@ window.addEventListener("hashchange", () => (location.hash === "#identify" ? sho
 // after every module has run: show() closes the panel
 if (location.hash === "#identify") setTimeout(show);
 // Esc closes the device panel over the page first (panel.js), then the
-// page; in capture, so it sees the panel before it's closed
+// time's menu, then the page; in capture, so it sees the panel before it's
+// closed
 document.addEventListener("keydown", (ev) => {
-	if (ev.key === "Escape" && identifyOpen && !panel && !editing) leave();
+	if (ev.key !== "Escape" || !identifyOpen || panel || editing) return;
+	if (menuOpen) {
+		menuOpen = false;
+		render();
+	} else leave();
 }, true);
