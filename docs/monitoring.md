@@ -210,7 +210,7 @@ One reviewable chunk each, with its check:
    emails are postponed to the very end, 2026-10-19: the page shows the
    outliers, so notifications come last.)_
    Check: one device's big download triggers exactly one email.
-8. **DNS names** in the device panel.
+8. **DNS names** in the device panel, optional: planned in `docs/dns.md`.
 
 ## Validation
 
