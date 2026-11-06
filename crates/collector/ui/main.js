@@ -1,7 +1,7 @@
 // The monitoring page (docs/monitoring.md): starts it and runs the frame loop.
 // Each module is one part of the page; their state lives with them.
 
-import { DEVICES, LOOP, buckets, loadOverview, loadTimeline } from "./data.js";
+import { DEVICES, LOOP, buckets, followMoment, loadOverview, loadTimeline } from "./data.js";
 import { draw } from "./draw.js";
 import { drawEditor, editing } from "./edit.js";
 import { TIME_S } from "./format.js";
@@ -32,6 +32,7 @@ function step(now) {
 		play.cursor += ((now - play.lastFrame) / 1000) * (buckets() / PASS_S);
 		if (play.cursor >= buckets() - 1) play.cursor = 0;
 	}
+	followMoment();
 	// drawing rooms covers the view and hides the timeline: draw only the
 	// editor; identify's view covers both
 	if (editing) drawEditor();

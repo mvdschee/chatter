@@ -40,8 +40,8 @@ pub async fn latest_report(db: &DatabaseRepository) -> Result<i64> {
 	}))
 }
 
-/// The live part: the loop's minutes, the devices of the last 24 hours, and
-/// the sensors. The history is `timeline`.
+/// The live part: the loop's minutes, every device ever heard, and the
+/// sensors. The history is `timeline`.
 pub async fn overview(db: &DatabaseRepository) -> Result<Overview> {
 	let latest = latest_report(db).await?;
 	let since = latest - RECENT_S;
@@ -72,6 +72,7 @@ pub async fn overview(db: &DatabaseRepository) -> Result<Overview> {
 				first_seen: row.try_get("first_seen")?,
 				last_seen: row.try_get("last_seen")?,
 				rssi_max: row.try_get("rssi_max")?,
+				swept_at: None,
 				ip: None,
 				hostname: None,
 				vendor: None,
@@ -96,6 +97,7 @@ pub async fn overview(db: &DatabaseRepository) -> Result<Overview> {
 	for row in db.get_records(SCAN_HOSTS_LATEST, vec![]).await? {
 		let mac: String = row.try_get("mac")?;
 		if let Some(&d) = index.get(&mac) {
+			devices[d].swept_at = row.try_get("finished_at")?;
 			devices[d].ip = row.try_get("ip")?;
 			devices[d].hostname = row.try_get("hostname")?;
 			devices[d].vendor = row.try_get("vendor")?;

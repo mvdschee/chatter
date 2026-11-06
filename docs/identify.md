@@ -268,7 +268,7 @@ One commit each.
    restart) moves it to Put back. A new session starts with nothing heard,
    so the last one's readings don't look like this one's. What's here
    marks the strongest "next to it" when it's 6 dB above the next; a guess
-   for the walk to check. Find lists every device seen in 24 hours plus
+   for the walk to check. Find lists every device seen in the last week plus
    anything online, online first, the rest greyed. A device the overview
    doesn't know shows its MAC and can't open a panel. "I carry this" is
    only on a device's own view (in Find, where What's here's rows lead);

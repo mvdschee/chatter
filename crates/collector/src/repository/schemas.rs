@@ -119,9 +119,11 @@ pub const SCAN_HOSTS_INSERT: &str = "INSERT INTO scan_hosts \
 	(scan_id, mac, ip, hostname, vendor, timed_out) VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
 
 /// Each MAC's newest sighting: `mac`, `ip`, `hostname`, `vendor` (SQLite takes
-/// the bare columns from the row with the max).
-pub const SCAN_HOSTS_LATEST: &str =
-	"SELECT mac, ip, hostname, vendor, max(scan_id) AS scan_id FROM scan_hosts GROUP BY mac";
+/// the bare columns from the row with the max), and when that scan finished:
+/// `finished_at`.
+pub const SCAN_HOSTS_LATEST: &str = "SELECT mac, ip, hostname, vendor, scan_id, \
+	(SELECT finished_at FROM scans WHERE id = scan_id) AS finished_at FROM \
+	(SELECT mac, ip, hostname, vendor, max(scan_id) AS scan_id FROM scan_hosts GROUP BY mac)";
 
 // --- scan_ports ------------------------------------------------------------
 

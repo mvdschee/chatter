@@ -1,6 +1,7 @@
-//! What the monitoring page shows live: every device seen in the last 24
-//! hours with its last few minutes, and the sensors. Read-only, out as JSON.
-//! The history is the timeline (`timeline.rs`).
+//! What the monitoring page shows live: every device ever heard with its last
+//! few minutes, and the sensors. Read-only, out as JSON. The page leaves out
+//! the devices it hasn't seen for a week (`ui/gone.js`). The history is the
+//! timeline (`timeline.rs`).
 
 use serde::Serialize;
 
@@ -8,8 +9,8 @@ use crate::core::models::baseline::{ScoreScale, UsualTraffic};
 
 /// Minutes in the page's replay loop.
 pub const LOOP_MINUTES: usize = 5;
-/// The devices and the sensors' heartbeats cover this much before the newest
-/// report.
+/// The devices' strongest signal and the sensors' heartbeats cover this much
+/// before the newest report.
 pub const RECENT_S: i64 = 24 * 3600;
 
 #[derive(Debug, Serialize)]
@@ -81,7 +82,10 @@ pub struct DeviceOverview {
 	/// The strongest signal in the last 24 hours, `None` if it sent nothing the
 	/// sensor heard.
 	pub rssi_max: Option<i64>,
-	/// From the newest host sweep that found it; `None` if none has.
+	/// When the newest scan that found it finished; `None` if none has. A
+	/// device the sensor can't hear (on 5 GHz, say) still answers these.
+	pub swept_at: Option<i64>,
+	/// From that scan, like `hostname` and `vendor`.
 	pub ip: Option<String>,
 	pub hostname: Option<String>,
 	pub vendor: Option<String>,

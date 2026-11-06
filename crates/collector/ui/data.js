@@ -1,7 +1,10 @@
 // The data, from the collector: /v1/overview (the devices, their last minutes
 // and the sensors) and /v1/timeline (the stretch on the graph).
 
+import { editing } from "./edit.js";
 import { hhmm, whenLabel } from "./format.js";
+import { onNetwork } from "./gone.js";
+import { identifyOpen } from "./identify.js";
 import { closePanel, onData, selected } from "./panel.js";
 import { arrange } from "./plan.js";
 import { play } from "./playback.js";
@@ -30,19 +33,52 @@ export let loopHours = [];
 // How traffic becomes a score, from the overview: `{ k, floor, white, red }`.
 export let SCALE = null;
 
-// Every device seen in the last 24 hours. `minutes` are the loop's [tx, rx]
-// bytes; its history is in `TL.series`. `usual`: its baselines, `{ hours,
-// all, learning }`, or null before the first are worked out. `locationOnly`
-// and `outlier` aren't filled in yet: devices the sensors can place but not
-// count, and the outlier rules (docs/monitoring.md, plan step 7).
+// Every device ever heard, from the overview. The graph's labels name them:
+// a stretch can go further back than the devices on show.
+let everHeard = [];
+
+// The devices on show: those on the network at the moment on show (gone.js). `minutes` are the loop's [tx, rx] bytes; its history is in
+// `TL.series`. `usual`: its baselines, `{ hours, all, learning }`, or null
+// before the first are worked out. `locationOnly` and `outlier` aren't filled
+// in yet: devices the sensors can place but not count, and the outlier rules
+// (docs/monitoring.md, plan step 7).
 export const DEVICES = [];
+
+// The newest report's time, from the overview.
+let latest = 0;
+// The moment DEVICES were picked for.
+let pickedAt = null;
+
+// The moment on show, in unix seconds: the newest report, or the end of the
+// playhead's bucket. Drawing the plan and identify are about the devices there
+// are now, wherever the playhead is behind them.
+const momentOnShow = () => (play.mode === "history" && !editing && !identifyOpen
+	? TL.from + ((Math.floor(play.cursor) + 1) * TL.bucketMs) / 1000
+	: latest);
+
+// Picks DEVICES for the moment on show; true if they changed.
+function pickDevices() {
+	pickedAt = momentOnShow();
+	const shown = onNetwork(everHeard, pickedAt);
+	if (shown.length === DEVICES.length && shown.every((d, i) => d === DEVICES[i])) return false;
+	DEVICES.splice(0, DEVICES.length, ...shown);
+	return true;
+}
+
+// Each frame: the playhead may have moved a device on or off the plan.
+export function followMoment() {
+	if (momentOnShow() === pickedAt || !pickDevices()) return;
+	arrange();
+	if (selected && !DEVICES.includes(selected)) closePanel();
+	onData();
+}
 
 // The network's average and peak bytes a minute in bucket i, and its busiest
 // device then.
 export const totalAt = (i) => TL.total[i]?.[0] ?? 0;
 export const peakAt = (i) => TL.total[i]?.[1] ?? 0;
 export const sum = ([tx, rx]) => tx + rx;
-export const busiestAt = (i) => DEVICES.reduce((a, d) => (!a || sum(seriesAt(d, i)) > sum(seriesAt(a, i)) ? d : a), null);
+export const busiestAt = (i) => everHeard.reduce((a, d) => (!a || sum(seriesAt(d, i)) > sum(seriesAt(a, i)) ? d : a), null);
 
 // What the HUD shows about the sensors.
 export const STATUS = { sensors: 0, channel: 0, dropped: 0 };
@@ -96,21 +132,21 @@ function applyOverview(o) {
 	loopTimes = pad(o.minutes.map((t) => new Date(t * 1000)), null);
 	loopHours = pad(o.hours, null);
 	SCALE = o.score;
-	const seen = [...o.devices].sort((a, b) => a.mac.localeCompare(b.mac));
-	const old = new Map(DEVICES.map((d) => [d.id, d]));
-	DEVICES.length = 0;
-	seen.forEach((x) => {
+	latest = o.latest;
+	const old = new Map(everHeard.map((d) => [d.id, d]));
+	everHeard = [...o.devices].sort((a, b) => a.mac.localeCompare(b.mac)).map((x) => {
 		const d = old.get(x.mac) ?? newDevice(x.mac);
 		// the name given, else the one the host sweep found (without the local
 		// domain), else the MAC
 		const host = x.hostname?.split(".")[0];
 		Object.assign(d, {
-			minutes: pad(x.minutes), rssi: x.rssi_max, firstSeen: x.first_seen, given: x.name,
+			minutes: pad(x.minutes), rssi: x.rssi_max, firstSeen: x.first_seen, lastSeen: Math.max(x.last_seen, x.swept_at ?? 0), given: x.name,
 			name: x.name ?? host ?? x.mac, short: x.name ?? host ?? x.mac.slice(9), vendor: x.vendor ?? vendorless(x.mac),
 			ip: x.ip, hostname: x.hostname, ports: x.ports, portScannedAt: x.port_scanned_at, usual: x.usual,
 		});
-		DEVICES.push(d);
+		return d;
 	});
+	pickDevices();
 	const before = new Map(SENSORS.map((x) => [x.name, x]));
 	SENSORS = o.sensors.map((x) => {
 		const old = before.get(x.name);

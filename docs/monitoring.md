@@ -137,7 +137,10 @@ can be tuned):
   over the last 2–4 weeks. Robust against a single busy evening.
 - **Timing:** activity at an hour the device is normally silent.
 - **New device:** a MAC never seen before.
-- **Gone:** no traffic for 14 days.
+- **Gone:** no traffic for 14 days. Separately, and built: the page stops
+  showing a device a week after a sensor last heard it or a scan last found
+  it, and before it was first heard (`ui/gone.js`). Its minutes stay, so going
+  back on the timeline shows it again.
 - **Ports:** a new open port on a known device (from the scan results).
 - **Scan:** most devices spike at the same time. That's the signature of a
   port scan. The first day-long run showed it exactly: the owner's own

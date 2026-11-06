@@ -314,6 +314,7 @@ mod tests {
 		assert_eq!(d.hostname.as_deref(), Some("ESP_00001.lan"));
 		assert_eq!((d.ip.as_deref(), d.vendor.as_deref()), (Some("192.0.2.10"), Some("Espressif")));
 		assert!(d.ports.is_none(), "a sweep doesn't look at ports");
+		assert_eq!(d.swept_at, Some(scan.finished_at));
 
 		let scan = Scan::from(NmapRun::from_xml(PORTS_XML).unwrap());
 		store_scan(&db, "ports", &targets, &scan).await.unwrap();
@@ -321,6 +322,7 @@ mod tests {
 		let ports: Vec<i64> = o.devices[0].ports.as_ref().unwrap().iter().map(|p| p.port).collect();
 		assert_eq!(ports, [80, 5353]);
 		assert_eq!(o.devices[0].port_scanned_at, Some(1_700_051_900));
+		assert_eq!(o.devices[0].swept_at, Some(1_700_051_900), "the newest scan that found it");
 
 		for suffix in ["", "-wal", "-shm"] {
 			let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
