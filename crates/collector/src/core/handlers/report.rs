@@ -7,8 +7,8 @@ use crate::{
 	repository::{
 		db::{DatabaseRepository, DbValue},
 		schemas::{
-			BROADCAST_MINUTES_INSERT, DEVICE_MINUTES_INSERT, REPORTS_FIND, REPORTS_FIND_IN_BOOT,
-			REPORTS_INSERT, REPORTS_LAST_SEQ,
+			BROADCAST_MINUTES_INSERT, DEVICE_MINUTES_INSERT, DEVICE_STREAMS_UPSERT, REPORTS_FIND,
+			REPORTS_FIND_IN_BOOT, REPORTS_INSERT, REPORTS_LAST_SEQ,
 		},
 	},
 	warn,
@@ -116,6 +116,17 @@ pub async fn store_report(db: &DatabaseRepository, report: &Report) -> Result<In
 				DbValue::IntOpt(d.rssi_max.map(i64::from)),
 			],
 		));
+		if let Some(count) = &d.streams {
+			children.push((
+				DEVICE_STREAMS_UPSERT,
+				vec![
+					DbValue::Text(d.mac.to_string()),
+					DbValue::Int(count.streams),
+					DbValue::Text(count.from.name().to_string()),
+					DbValue::Int(report.received_at),
+				],
+			));
+		}
 	}
 	for b in &report.broadcast {
 		children.push((
@@ -236,6 +247,108 @@ mod tests {
 			.await
 			.unwrap();
 		assert_eq!(reports.len(), 2);
+		let _ = std::fs::remove_file(&path);
+	}
+
+	/// A report with one device, and `streams` after its `rssi_max`.
+	fn report_streams(seq: u32, received_at: i64, streams: &str) -> Report {
+		let mut payload: ReportPayload = serde_json::from_str(&format!(
+			r#"{{"sensor":"c6-1","boot":1,"seq":{seq},"uptime_s":60,"channel":6,"dropped":0,"overflow":0,"nets_known":[0],
+			"devices":[{{"mac":"aa:bb:cc:00:00:01","net":0,"tx_frames":1,"tx_bytes":100,"rx_frames":1,"rx_bytes":100,"retries":0,"rssi_max":-50{streams}}}],
+			"broadcast":[]}}"#,
+		))
+		.unwrap();
+		payload.received_at = received_at;
+		Report::try_from(payload).unwrap()
+	}
+
+	/// The MAC's row: streams, source, `first_at`, `assoc_at`.
+	async fn stored_streams(db: &DatabaseRepository) -> Option<(i64, String, i64, Option<i64>)> {
+		const ONE: &str = "SELECT streams, streams_from, first_at, assoc_at FROM device_streams";
+		db.get_record(ONE, vec![]).await.unwrap().map(|row| {
+			(row.get("streams"), row.get("streams_from"), row.get("first_at"), row.get("assoc_at"))
+		})
+	}
+
+	#[tokio::test]
+	async fn which_stream_count_wins() {
+		let path =
+			std::env::temp_dir().join(format!("chatter-test-streams-{}.db", std::process::id()));
+		let _ = std::fs::remove_file(&path);
+		let db = DatabaseRepository::new(path.to_str().unwrap()).await.unwrap();
+		db.init().await.unwrap();
+
+		let t = 1_700_000_000;
+		let probe = |n: u32| format!(r#","streams":{n},"streams_from":"probe""#);
+		let assoc = |n: u32| format!(r#","streams":{n},"streams_from":"assoc""#);
+
+		// (what the report says, the count, the source, assoc_at after it)
+		let steps: Vec<(String, i64, &str, Option<i64>)> = vec![
+			(probe(2), 2, "probe", None),
+			// a reboot: the sensor knows nothing yet
+			(String::new(), 2, "probe", None),
+			(probe(1), 2, "probe", None),
+			(probe(3), 3, "probe", None),
+			// lower, but an association request's
+			(assoc(1), 1, "assoc", Some(t + 4)),
+			(probe(4), 1, "assoc", Some(t + 4)),
+			(String::new(), 1, "assoc", Some(t + 4)),
+			(assoc(2), 2, "assoc", Some(t + 4)),
+		];
+		for (i, (says, streams, from, assoc_at)) in steps.into_iter().enumerate() {
+			let report = report_streams(i as u32, t + i as i64, &says);
+			assert!(matches!(store_report(&db, &report).await.unwrap(), Ingested::Stored { .. }));
+			assert_eq!(
+				stored_streams(&db).await,
+				Some((streams, from.to_string(), t, assoc_at)),
+				"after {says:?}"
+			);
+		}
+
+		// a resend isn't stored again, so it can't bring an old count back
+		let resend = report_streams(4, t + 100, &assoc(1));
+		assert_eq!(store_report(&db, &resend).await.unwrap(), Ingested::Duplicate);
+		assert_eq!(stored_streams(&db).await.unwrap().0, 2);
+		let _ = std::fs::remove_file(&path);
+	}
+
+	#[tokio::test]
+	async fn a_report_without_counts_stores_none() {
+		let path =
+			std::env::temp_dir().join(format!("chatter-test-no-streams-{}.db", std::process::id()));
+		let _ = std::fs::remove_file(&path);
+		let db = DatabaseRepository::new(path.to_str().unwrap()).await.unwrap();
+		db.init().await.unwrap();
+
+		store_report(&db, &report_at(1_700_000_000)).await.unwrap();
+		assert_eq!(stored_streams(&db).await, None);
+		let _ = std::fs::remove_file(&path);
+	}
+
+	/// Test 2 in docs/streams.md: how long until each member has a count,
+	/// with probe requests and without.
+	#[tokio::test]
+	async fn the_stored_counts_answer_how_long_until_seen() {
+		let path =
+			std::env::temp_dir().join(format!("chatter-test-seen-{}.db", std::process::id()));
+		let _ = std::fs::remove_file(&path);
+		let db = DatabaseRepository::new(path.to_str().unwrap()).await.unwrap();
+		db.init().await.unwrap();
+
+		let t = 1_700_000_000;
+		store_report(&db, &report_streams(0, t, "")).await.unwrap();
+		let probe = r#","streams":2,"streams_from":"probe""#;
+		store_report(&db, &report_streams(1, t + 60, probe)).await.unwrap();
+		let assoc = r#","streams":2,"streams_from":"assoc""#;
+		store_report(&db, &report_streams(2, t + 300, assoc)).await.unwrap();
+
+		const HOW_LONG: &str = "SELECT s.first_at - m.heard AS with_probes, \
+			s.assoc_at - m.heard AS without_probes FROM device_streams s JOIN \
+			(SELECT mac, min(received_at) AS heard FROM device_minutes GROUP BY mac) m \
+			ON m.mac = s.mac";
+		let row = db.get_record(HOW_LONG, vec![]).await.unwrap().unwrap();
+		assert_eq!(row.get::<i64, _>("with_probes"), 60);
+		assert_eq!(row.get::<i64, _>("without_probes"), 300);
 		let _ = std::fs::remove_file(&path);
 	}
 }

@@ -204,6 +204,22 @@ pub const DEVICE_NAMES_UPSERT: &str = "INSERT INTO device_names (mac, name, name
 
 pub const DEVICE_NAMES_DELETE: &str = "DELETE FROM device_names WHERE mac = ?1";
 
+// --- device_streams --------------------------------------------------------
+
+/// A child of `REPORTS_INSERT`, so `?1` is the report's id, which isn't used:
+/// `?2` MAC, `?3` streams, `?4` source, `?5` when. Which count wins across
+/// boots (docs/streams.md): an `assoc` count replaces anything, a `probe`
+/// count replaces only a smaller `probe` count. `first_at` stays, and
+/// `assoc_at` stays once set.
+pub const DEVICE_STREAMS_UPSERT: &str = "INSERT INTO device_streams \
+	(mac, streams, streams_from, first_at, assoc_at) \
+	VALUES (?2, ?3, ?4, ?5, CASE WHEN ?4 = 'assoc' THEN ?5 END) \
+	ON CONFLICT (mac) DO UPDATE SET streams = excluded.streams, \
+	streams_from = excluded.streams_from, \
+	assoc_at = coalesce(device_streams.assoc_at, excluded.assoc_at) \
+	WHERE excluded.streams_from = 'assoc' \
+	OR (device_streams.streams_from = 'probe' AND excluded.streams > device_streams.streams)";
+
 // --- identify sessions -----------------------------------------------------
 
 /// One row per identify session: started, or its end moved (extended or

@@ -2,8 +2,8 @@
 
 Written 2026-10-20 as theories to test once boards were at hand.
 2026-10-23: theory 1 works (test 1 below), and the sensor now sends each
-member's count in its report (build step 1 below). Next: the collector keeps
-it, a day of data answers test 2, then the panel shows it.
+member's count in its report (build step 1 below). 2026-11-06: the collector
+keeps it (step 2). Next: a day of data answers test 2, then the panel shows it.
 
 ## The problem
 
@@ -94,9 +94,10 @@ streams, invisible".
 - **Report:** `streams` and `streams_from` on every device the table knows,
   in every report, not only when it changes: a report can be lost, and the
   value costs about 35 bytes.
-- **Collector:** sticky per MAC, stored like `device_names`, so it survives
-  sensor reboots. The device panel shows it next to the counts, and outlier
-  scoring may need to treat such devices differently (`docs/outliers.md`).
+- **Collector:** sticky per MAC in `device_streams`, stored with the report
+  in one transaction, so it survives sensor reboots. The device panel will
+  show it next to the counts, and outlier scoring may need to treat such
+  devices differently (`docs/outliers.md`).
 
 ### Which count wins
 
@@ -202,11 +203,14 @@ One commit each.
    `streams_from` in the report.
    Check: host tests on the rules and the report's JSON; on the board, the
    `streams:` log lines when a member joins.
-2. **Collector:** keep the count per MAC across reports and boots, by the
-   order in "Which count wins".
+2. **Collector** _(built)_: keep the count per MAC across reports and boots,
+   by the order in "Which count wins". `first_at` and `assoc_at` keep when a
+   count first arrived, and when an association request's did, for test 2.
    Check: a report with `streams` is stored, a later one without it or with
    a lower probe count doesn't change it.
-3. **A day on the home sensor:** test 2 from the stored counts.
+3. **A day on the home sensor:** test 2 from the stored counts: `first_at`
+   and `assoc_at` against the device's first `device_minutes` row. A device
+   first heard before the collector kept counts needs measuring from then.
 4. **Panel:** "can use 2 streams, counts may be incomplete" next to the
    counts.
    Check: the layout check; the owner reads it.

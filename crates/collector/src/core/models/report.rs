@@ -35,6 +35,10 @@ pub struct DeviceMinutePayload {
 	pub rx_bytes: u64,
 	pub retries: u64,
 	pub rssi_max: Option<i8>,
+	/// Both or neither, when the sensor knows; missing from firmware older
+	/// than 2026-10-23.
+	pub streams: Option<u8>,
+	pub streams_from: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -124,6 +128,44 @@ pub struct DeviceMinute {
 	pub rx_bytes: i64,
 	pub retries: i64,
 	pub rssi_max: Option<i8>,
+	pub streams: Option<StreamCount>,
+}
+
+/// How many streams a device says it can use (see `docs/streams.md`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct StreamCount {
+	pub streams: i64,
+	pub from: StreamSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum StreamSource {
+	/// An association or reassociation request.
+	Assoc,
+	Probe,
+}
+
+impl StreamSource {
+	pub fn name(self) -> &'static str {
+		match self {
+			Self::Assoc => "assoc",
+			Self::Probe => "probe",
+		}
+	}
+}
+
+/// 1 to 8, the most HE can say; 0 means unknown, which the sensor doesn't send.
+fn stream_count(streams: Option<u8>, from: Option<&str>) -> Result<Option<StreamCount>> {
+	let from = match (streams, from) {
+		(None, None) => return Ok(None),
+		(Some(1..=8), Some("assoc")) => StreamSource::Assoc,
+		(Some(1..=8), Some("probe")) => StreamSource::Probe,
+		_ => return Err(Error::Report(format!("bad stream count: {streams:?} from {from:?}"))),
+	};
+	Ok(streams.map(|streams| StreamCount {
+		streams: streams.into(),
+		from,
+	}))
 }
 
 #[derive(Debug, Clone)]
@@ -146,6 +188,7 @@ impl TryFrom<DeviceMinutePayload> for DeviceMinute {
 			rx_bytes: count("rx_bytes", p.rx_bytes)?,
 			retries: count("retries", p.retries)?,
 			rssi_max: p.rssi_max,
+			streams: stream_count(p.streams, p.streams_from.as_deref())?,
 		})
 	}
 }
@@ -192,7 +235,7 @@ mod tests {
 
 	// the shape core's `write_report` produces; made-up values
 	const JSON: &str = r#"{"sensor":"c6-1","seq":42,"uptime_s":2520,"channel":6,"dropped":0,"overflow":0,"nets_known":[0,1],
-		"devices":[{"mac":"AA:BB:CC:DD:EE:01","net":1,"tx_frames":10,"tx_bytes":1200,"rx_frames":8,"rx_bytes":9000,"retries":1,"rssi_max":-41},
+		"devices":[{"mac":"AA:BB:CC:DD:EE:01","net":1,"tx_frames":10,"tx_bytes":1200,"rx_frames":8,"rx_bytes":9000,"retries":1,"rssi_max":-41,"streams":2,"streams_from":"assoc"},
 			{"mac":"aa:bb:cc:dd:ee:02","net":0,"tx_frames":0,"tx_bytes":0,"rx_frames":3,"rx_bytes":300,"retries":0,"rssi_max":null}],
 		"broadcast":[{"net":1,"rx_frames":40,"rx_bytes":5200}]}"#;
 
@@ -209,6 +252,30 @@ mod tests {
 		assert_eq!(r.devices[0].mac.as_str(), "aa:bb:cc:dd:ee:01");
 		assert_eq!((r.devices[0].rssi_max, r.devices[1].rssi_max), (Some(-41), None));
 		assert_eq!(r.broadcast[0].rx_bytes, 5200);
+		assert_eq!(
+			r.devices[0].streams,
+			Some(StreamCount {
+				streams: 2,
+				from: StreamSource::Assoc
+			})
+		);
+		assert_eq!(r.devices[1].streams, None);
+	}
+
+	#[test]
+	fn rejects_a_bad_stream_count() {
+		for (streams, from) in [
+			(Some(0), Some("assoc")),
+			(Some(9), Some("probe")),
+			(Some(2), Some("beacon")),
+			(Some(2), None),
+			(None, Some("assoc")),
+		] {
+			let mut p = payload();
+			p.devices[0].streams = streams;
+			p.devices[0].streams_from = from.map(String::from);
+			assert!(Report::try_from(p).is_err(), "{streams:?} from {from:?}");
+		}
 	}
 
 	#[test]
