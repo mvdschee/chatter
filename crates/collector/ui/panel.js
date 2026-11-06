@@ -37,11 +37,11 @@ export function updateMoment(now) {
 	if (sparkKey(selected) !== sparkShown) drawSpark(selected);
 }
 
-// The device's usual bytes a minute at that hour: the middle half of its
-// minutes, from the median and the MAD on the log scale.
+// The device's usual bytes a minute at that hour: the middle half of the
+// minutes it talked in, from the median and the MAD on the log scale.
 function usualText(d, hour) {
 	if (!d.usual) return "not worked out yet";
-	if (d.usual.learning) return "learning: under a day of data";
+	if (d.usual.learning) return "learning: under 60 minutes of traffic in 14 days";
 	const [median, mad] = hour == null ? d.usual.all : d.usual.hours[hour];
 	const [lo, hi] = [median - mad, median + mad].map((v) => fmtBytes(Math.expm1(Math.max(0, v))));
 	const when = hour == null ? "over all hours" : `between ${String(hour).padStart(2, "0")}:00 and ${String((hour + 1) % 24).padStart(2, "0")}:00`;

@@ -1,6 +1,6 @@
-// Which devices the page shows: those on the network at the moment on show,
-// so first heard by then and seen in the week up to it. No DOM, so it's
-// tested in node (ui-tests/gone.test.mjs).
+// Which devices the page shows: those on the network at the moment on show.
+// That means first heard by then and seen in the week before it. No DOM, so
+// it's tested in node (ui-tests/gone.test.mjs).
 
 export const GONE_AFTER_S = 7 * 86400;
 

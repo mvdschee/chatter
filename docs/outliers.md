@@ -57,12 +57,12 @@ answer is "who is doing something unusual for them".
   sent and received added. The log scale fits traffic, where "3× usual"
   matters and "+3 KiB" doesn't. Hour of the week replaces hour of the day
   once there are about 3 weeks of data (open question 1).
-- **A minute the sensor reported but the device didn't appear in counts as
-  0 bytes.** `device_minutes` only has rows for devices that were heard, so
-  the zeros must come from `reports`. Otherwise an idle device's baseline
-  is built from its busy minutes only. The zeros start at the device's
-  first minute in the 14 days: before that it wasn't on the network, and
-  zeros there would make a new device red whenever it talks.
+- **Only the minutes a device talked in count.** A device that's silent most
+  of the time would otherwise have a median and a MAD of 0, and everything it
+  sends would be red, however regular. The first version counted silent
+  minutes as 0 bytes, and real data showed this (`DECISIONS.md`, 2026-11-06).
+  The cost: the score compares how much a device sends when it talks, and says
+  nothing about how often it talks.
 - **A floor under the MAD**, derived from the result it should give rather
   than picked: a device with no spread at all reaches red (3.5) at 10× its
   usual. That gives `FLOOR = 0.6745 × ln 10 / 3.5 ≈ 0.44`, at which 2× its
@@ -73,9 +73,9 @@ answer is "who is doing something unusual for them".
   max(MAD, FLOOR)`, and anything below 0 is 0. A device that goes quiet is
   the "Gone" rule, not a colour.
 - **Learning:** with fewer than 60 minutes in that hour's baseline, fall
-  back to the device's baseline over all hours. With less than a day of
-  minutes in total, the device is "learning", which shows as a neutral
-  colour and the word in its panel.
+  back to the device's baseline over all hours. With fewer than 60 minutes of
+  talking in total, the device is "learning", which shows as a neutral colour
+  and the word in its panel.
 - **Port scan windows are left out** of the baselines. They make every
   device run about 10× its usual for half an hour, and the app knows when
   they ran (`scans`).
@@ -109,7 +109,7 @@ graph's peak band stays absolute.
   million rows. That's a few seconds at most, run in the background.
 - `core/models/baseline.rs`: the score, the MAD floor and the fallback, as
   pure functions with tests. `core/handlers/baseline.rs`: reading the
-  minutes, adding the zeros, leaving out scans, storing the result.
+  minutes, leaving out scans, storing the result.
 - The overview and the timeline carry each device's 24 `[median, mad]`
   pairs. The page computes the score, so the playhead can use the
   baseline for its bucket's hour without another request.
@@ -117,13 +117,13 @@ graph's peak band stays absolute.
 ## Chunks
 
 1. Done: baseline computation, the table, and the hourly job, with tests:
-   an idle device, a steady device, one spike, zero minutes filled in from
-   the first one heard, the fallback at 60 minutes, scans left out. The
+   a steady device, one spike, silent minutes left out, a device that wakes
+   rarely, the fallback at 60 minutes, scans left out. The
    hours are the collector's, so the page gets the hour of each bucket
    rather than working it out in the browser's time zone.
 2. Done: baselines in `/v1/overview` and `/v1/timeline`. Each device has
    `usual`: 24 `[median, mad]` pairs, `all` (over all hours, stored as hour
-   24), and `learning` (under a day of minutes); `None` before the first
+   24), and `learning` (under 60 minutes of talking); `None` before the first
    run. The overview has the hour of each loop minute and `score`, the
    scale the page scores with (`k`, the MAD floor, `white`, `red`), so the
    floor and the thresholds live in one place. The timeline has each
@@ -135,8 +135,8 @@ graph's peak band stays absolute.
    (a bar of one bucket up to an hour against its hour, else against all
    hours). Size, packet density and the pulse stay on traffic. A learning
    device, or one before the first baselines, is grey. The panel's
-   "usually" is the middle half of its minutes at the hour the plan shows
-   (median ± MAD, back from the log scale). The network graph stays
+   "usually" is the middle half of the minutes it talked in at the hour the
+   plan shows (median ± MAD, back from the log scale). The network graph stays
    absolute. On a day of real data, 2% of the 5-minute device buckets
    came out red and most buckets had no red device; the reds that came
    in groups looked like port scans, which the plan doesn't leave out.
@@ -153,7 +153,8 @@ Checked automatically:
 - the score: a steady device at its median scores 0; with a MAD of 0,
   doubling stays under 2 and 10× scores 3.5 (the floor's constraint, as a
   test);
-- the zeros: a device heard in 1 of 60 minutes has a median of 0;
+- silent minutes: however rarely a device wakes, its usual burst stays white
+  and a burst 100× the size is red;
 - the fallback and the learning state at their thresholds;
 - scan minutes don't change a baseline.
 

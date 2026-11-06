@@ -149,10 +149,10 @@ mod tests {
 			.await
 			.unwrap();
 		assert_eq!(rows.len(), 1, "replaced, not added to");
-		assert_eq!(rows[0].try_get::<i64, _>("n").unwrap(), 2 * 120, "the hours and all of them");
-		// half the minutes at 1000 bytes and half at 0: the median between them
+		assert_eq!(rows[0].try_get::<i64, _>("n").unwrap(), 2 * 60, "the hours and all of them");
+		// half the minutes at 1000 bytes, and the silent ones don't count
 		let median: f64 = rows[0].try_get("median").unwrap();
-		assert!((median - 1_001f64.ln() / 2.0).abs() < 1e-9);
+		assert!((median - 1_001f64.ln()).abs() < 1e-9);
 
 		for suffix in ["", "-wal", "-shm"] {
 			let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));

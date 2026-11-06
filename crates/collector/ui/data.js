@@ -37,8 +37,9 @@ export let SCALE = null;
 // a stretch can go further back than the devices on show.
 let everHeard = [];
 
-// The devices on show: those on the network at the moment on show (gone.js). `minutes` are the loop's [tx, rx] bytes; its history is in
-// `TL.series`. `usual`: its baselines, `{ hours, all, learning }`, or null
+// The devices on show: those on the network at the moment on show (gone.js).
+// `minutes` are the loop's [tx, rx] bytes; its history is in `TL.series`.
+// `usual`: its baselines, `{ hours, all, learning }`, or null
 // before the first are worked out. `locationOnly` and `outlier` aren't filled
 // in yet: devices the sensors can place but not count, and the outlier rules
 // (docs/monitoring.md, plan step 7).

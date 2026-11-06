@@ -1,7 +1,7 @@
 //! Each device's usual traffic per hour of the day, so the plan can colour a
 //! device by how unusual a minute is for it rather than on one scale for
 //! all. The median and the MAD of `ln(1 + bytes a minute)`, sent and received
-//! added. See `docs/outliers.md`.
+//! added, over the minutes it talked in. See `docs/outliers.md`.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -13,8 +13,9 @@ pub const WINDOW_S: i64 = 14 * 86_400;
 /// An hour with fewer of the device's minutes uses its baseline over all
 /// hours instead.
 pub const MIN_HOUR_MINUTES: usize = 60;
-/// A device with fewer minutes in all is still learning: a day's worth.
-pub const LEARNING_MINUTES: usize = 1440;
+/// A device with fewer minutes in all is still learning: too few to trust a
+/// median.
+pub const LEARNING_MINUTES: usize = 60;
 /// The `hour` the baselines table stores a device's baseline over all hours
 /// under.
 pub const ALL_HOURS: usize = 24;
@@ -32,8 +33,8 @@ pub struct Minute {
 pub struct Baseline {
 	pub median: f64,
 	pub mad: f64,
-	/// The device's minutes in this hour, also when the baseline is the
-	/// fallback.
+	/// The minutes the device talked in this hour, also when the baseline is
+	/// the fallback.
 	pub n: usize,
 }
 
@@ -84,7 +85,7 @@ pub struct UsualTraffic {
 	pub hours: Vec<[f64; 2]>,
 	/// `[median, mad]` over all hours.
 	pub all: [f64; 2],
-	/// Under a day of minutes so far: not coloured by its score yet.
+	/// Too few minutes of talking so far: not coloured by its score yet.
 	pub learning: bool,
 }
 
@@ -127,24 +128,18 @@ pub fn hour_of(t: i64) -> usize {
 /// `heard` with per report (`(report, mac, bytes)`), and the port `scans`
 /// (`(started_at, finished_at)`).
 ///
-/// A minute the device wasn't heard in counts as 0 bytes, from the first
-/// minute it was heard on: before that it wasn't on the network, and zeros
-/// there would make a new device look idle. The minutes during a port scan
-/// are left out, as it makes every device busy.
+/// Only the minutes a device talked in count. Counting silent minutes would
+/// give a device that's silent most of the time a usual of 0 bytes, however
+/// regularly it wakes, and everything it sends would be red. The minutes during
+/// a port scan are left out, as it makes every device busy.
 pub fn baselines(
 	minutes: &[Minute],
 	heard: &[(i64, String, i64)],
 	scans: &[(i64, i64)],
 ) -> Vec<DeviceBaselines> {
-	let at: HashMap<i64, i64> = minutes.iter().map(|m| (m.report, m.at)).collect();
-	let mut devices: BTreeMap<&str, (i64, HashMap<i64, i64>)> = BTreeMap::new();
+	let mut devices: BTreeMap<&str, HashMap<i64, i64>> = BTreeMap::new();
 	for (report, mac, bytes) in heard {
-		let Some(&t) = at.get(report) else {
-			continue;
-		};
-		let (first, per_report) = devices.entry(mac).or_insert((t, HashMap::new()));
-		*first = (*first).min(t);
-		*per_report.entry(*report).or_default() += bytes;
+		*devices.entry(mac).or_default().entry(*report).or_default() += bytes;
 	}
 
 	let usable: Vec<&Minute> = minutes
@@ -154,11 +149,12 @@ pub fn baselines(
 
 	devices
 		.into_iter()
-		.filter_map(|(mac, (first, per_report))| {
+		.filter_map(|(mac, per_report)| {
 			let mut by_hour: [Vec<f64>; 24] = Default::default();
-			for m in usable.iter().filter(|m| m.at >= first) {
-				let bytes = per_report.get(&m.report).copied().unwrap_or(0);
-				by_hour[m.hour % 24].push((bytes.max(0) as f64).ln_1p());
+			for m in &usable {
+				if let Some(&bytes) = per_report.get(&m.report).filter(|&&b| b > 0) {
+					by_hour[m.hour % 24].push((bytes as f64).ln_1p());
+				}
 			}
 			let mut all: Vec<f64> = by_hour.iter().flatten().copied().collect();
 			if all.is_empty() {
@@ -242,10 +238,6 @@ mod tests {
 		(a - b).abs() < 1e-9
 	}
 
-	fn device<'a>(all: &'a [DeviceBaselines], mac: &str) -> &'a DeviceBaselines {
-		all.iter().find(|d| d.mac == mac).unwrap()
-	}
-
 	#[test]
 	fn a_steady_device_has_no_spread() {
 		let m = minutes(2 * 1440);
@@ -257,12 +249,37 @@ mod tests {
 	}
 
 	#[test]
-	fn the_minutes_it_was_not_heard_in_count_as_zero() {
-		// heard once an hour: an idle device, not one that sends 50 KiB
+	fn only_the_minutes_it_talked_in_count() {
+		// heard every other minute, the rest of them with nothing sent
 		let m = minutes(2 * 1440);
-		let b = baselines(&m, &heard(&m, DEVICE, |i| (i % 60 == 0).then_some(50_000)), &[]);
-		assert_eq!(b[0].hours[0].median, 0.0);
-		assert_eq!(b[0].hours[0].n, 120);
+		let b = baselines(
+			&m,
+			&heard(&m, DEVICE, |i| {
+				Some(if i % 2 == 0 {
+					50_000
+				} else {
+					0
+				})
+			}),
+			&[],
+		);
+		assert!(close(b[0].all.median, 50_001f64.ln()));
+		assert_eq!((b[0].all.mad, b[0].all.n), (0.0, 1440));
+	}
+
+	#[test]
+	fn however_rarely_a_device_wakes_its_usual_burst_stays_white() {
+		let s = ScoreScale::default();
+		// every minute, every other, every ten, once an hour, twice a day
+		for every in [1, 2, 10, 60, 720] {
+			let m = minutes(14 * 1440);
+			let wakes = |i: usize| i.is_multiple_of(every).then_some(6_000);
+			let b = baselines(&m, &heard(&m, DEVICE, wakes), &[]);
+			let (median, mad) = (b[0].all.median, b[0].all.mad);
+			assert!(score(6_000.0, median, mad) < s.white, "waking every {every} minutes");
+			assert!(score(2.0 * 6_000.0, median, mad) < s.white, "a burst twice the size");
+			assert!(score(100.0 * 6_000.0, median, mad) >= s.red, "a burst far beyond it");
+		}
 	}
 
 	#[test]
@@ -281,18 +298,6 @@ mod tests {
 			&[],
 		);
 		assert_eq!(spike[0].hours[0].median, quiet[0].hours[0].median);
-	}
-
-	#[test]
-	fn zeros_start_at_the_first_minute_it_was_heard() {
-		// another device has been there for two days; this one for the last hour
-		let m = minutes(2 * 1440);
-		let mut h = heard(&m, OTHER, |_| Some(1_000));
-		h.extend(heard(&m, DEVICE, |i| (i >= 2 * 1440 - 60).then_some(5_000)));
-		let b = baselines(&m, &h, &[]);
-		let hours = device(&b, DEVICE).hours;
-		assert_eq!(hours.iter().map(|h| h.n).sum::<usize>(), 60);
-		assert!(close(hours[23].median, 5_001f64.ln()), "not a median of 0 from before it came");
 	}
 
 	#[test]
@@ -377,7 +382,7 @@ mod tests {
 	}
 
 	#[test]
-	fn under_a_day_of_minutes_is_learning() {
+	fn too_few_minutes_of_talking_is_learning() {
 		// stored rows with `n` minutes in all
 		let rows = |mac: &'static str, n: i64| {
 			(0..=24).map(move |h| {
@@ -394,7 +399,7 @@ mod tests {
 				)
 			})
 		};
-		let mut all: Vec<_> = rows(DEVICE, 1439).chain(rows(OTHER, 1440)).collect();
+		let mut all: Vec<_> = rows(DEVICE, 59).chain(rows(OTHER, 60)).collect();
 		all.extend(rows("c6:61:9e:67:da:88", 5000).filter(|r| r.1 != 24));
 		let usual = usual_traffic(&all);
 		assert!(usual[DEVICE].learning);

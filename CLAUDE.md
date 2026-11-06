@@ -18,6 +18,13 @@
   Before staging, scan the changed docs for this. Ask before any web search or
   external request that would contain household equipment details.
 
+## Text on the page
+
+- **What the page displays states only what was measured.** A sensor hears
+  traffic on one channel, so it can't say what a device is doing. Never display
+  "when it talks" or anything like it. Use terms for the measurement instead:
+  traffic, bytes a minute, heard.
+
 ## Where things are
 
 - `docs/sensor.md`: design, layout, pitfalls, and the chunked plan.
