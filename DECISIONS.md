@@ -321,3 +321,13 @@
 **Decision:** The collector keeps one row per MAC in `device_streams`, written by a conditional upsert in the report's transaction: an `assoc` count replaces anything, a `probe` count replaces only a smaller `probe` count. `first_at` and `assoc_at` are each set once. There's no reference to `reports`, and a report with a bad count is refused like one with a bad MAC.
 **Why:** One statement can't race with a second sensor posting the same MAC, and the count goes in with its report or not at all. The times answer test 2 in `docs/streams.md`, how long until a member has a count with probes and without, which the current count alone can't once an association request has replaced a probe. A count has to outlive any report it came from.
 **Alternatives:** Read the row in core and decide in Rust (easier to unit test, but not atomic); a `streams` column on `device_minutes` (the whole history, for a value that rarely changes); ignoring a bad count and storing the report (keeps the minute, but hides a firmware bug, and the firmware doesn't send one).
+
+## 2026-11-06 - A DNS query's device: both sweeps around it must agree
+**Decision:** A query joined through the sweeps looks at the last sweep up to its time and the first after it, each only within a day. If they name two MACs it isn't counted. Addresses the DNS server's table lists under two MACs go to the sweeps.
+**Why:** Nothing says when between two sweeps an address moved, so any pick can credit one device's lookups to another; a domain list that's wrong is worse than one that's short. The cost is that a query newer than the last sweep has to wait for the next one.
+**Alternatives:** The nearest sweep (needs less waiting, but when a lease moves it credits part of the gap to the wrong device); any two MACs within a fixed window (needs no wait, but credits the old device until the next sweep, and drops good queries after it).
+
+## 2026-11-06 - Domains by the ICANN part of the Public Suffix List
+**Decision:** A query's registrable domain is worked out with the list's ICANN rules only, so `d1234.cloudfront.net` counts as `cloudfront.net`. Reverse lookups, single labels and service labels aren't counted.
+**Why:** The list's private section makes every CDN customer and bucket its own domain: long random names that fill a top list and say less than the hosting company does. The list gives an idea; for the full names the panel links to the DNS server's own query log.
+**Alternatives:** The full list (what browsers use for cookies, the usual meaning of "registrable"; `someone.github.io` stays apart from others, at the price of those rows); counting reverse lookups as one row (they say nothing about what a device talks to).

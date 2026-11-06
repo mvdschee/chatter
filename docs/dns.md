@@ -1,6 +1,7 @@
 # DNS names per device (research and plan)
 
-Status, 2026-10-23: researched and planned; nothing built. This is
+Status, 2026-11-06: chunk 1 built (the join and the counts, in
+`crates/collector/src/core/models/dns.rs`); nothing calls it yet. This is
 `docs/monitoring.md` plan step 8.
 
 ## Goal
@@ -76,21 +77,34 @@ timeline) may depend on it.
   1. The DNS server's own table first: Pi-hole's `network/devices` maps
      IPv4 and IPv6 addresses to MACs; AdGuard's DHCP leases do when it
      serves DHCP.
-  2. Else the stored sweeps (`scan_hosts`): the MAC that had that IPv4
-     address in the sweep nearest the query's time, as leases move. An
-     address two MACs had around then is left out rather than guessed.
+     An address the table lists under two MACs goes on to the sweeps: the
+     table has no times, so it can't say which has it now.
+  2. Else the stored sweeps (`scan_hosts`), as leases move: the last sweep
+     up to the query's time and the first one after it, each only if it's
+     within a day. If both name one MAC, or only one is that close, it's
+     that MAC. If they disagree the address moved somewhere between them,
+     and the query is left out rather than guessed.
   3. Else the query isn't counted. Queries over IPv6 from a server without
      a MAC table mostly end up here.
-- **What's stored**: per device per day, a registrable domain
+- **What's stored**: per device per day (UTC), a registrable domain
   (`api.example.com` and `cdn.example.com` both count as `example.com`)
   and how many queries. Not the queries themselves: a log is large, and a
   home's browsing history shouldn't be kept longer than the DNS server
   keeps it. The registrable part comes from the Public Suffix List, which
   the `psl` crate compiles in, so nothing is fetched. Kept 30 days.
+- **Which names count**: only the list's ICANN section decides the domain,
+  so `d1234.cloudfront.net` counts as `cloudfront.net` rather than one row
+  per customer. Left out: single labels (`printer`), a public suffix on its
+  own, reverse lookups (`in-addr.arpa`, `ip6.arpa`) and service labels
+  (`_tcp.local`). Names are lower-cased first: resolvers vary the case, and
+  the list only matches lower case.
 - **The panel**: a "Looks up" section on a device's panel, its top
   domains over the last 7 days with a count each, the rest as "and 40
   more". Missing when there's no DNS source; "nothing seen" when there is
-  one and the device asked nothing.
+  one and the device asked nothing. The list gives an idea; for the details
+  (full names, single queries) a link opens the DNS server's own query log,
+  filtered to the device's address where the server allows it. The app
+  keeps none of that itself.
 
 ## Pitfalls
 
@@ -99,9 +113,10 @@ timeline) may depend on it.
   every query coming from the router, and nothing can be credited to a
   device ([Pi-hole's FAQ thread](https://discourse.pi-hole.net/t/why-do-i-only-see-my-routers-ip-address-instead-of-individual-devices-in-the-top-clients-section-and-query-log/3653)).
   The app knows the gateway's address (the sweep looks it up); when it
-  makes most of the queries, the router's panel says why and what fixes it
-  (the router handing out the filter's address over DHCP), instead of the
-  router "looking up" everything.
+  makes most of the queries (over half, of at least 100, counted before the
+  join so queries left out there can't skew it), the router's panel says why
+  and what fixes it (the router handing out the filter's address over DHCP),
+  instead of the router "looking up" everything.
 - **Devices that skip the filter.** Some devices use a public resolver
   they have built in, and browsers and phones may use DNS over HTTPS. They
   show few or no names, which doesn't mean they're quiet: the sensor's
@@ -111,10 +126,12 @@ timeline) may depend on it.
   rotates starts over as a new device, as everywhere else in the app.
 - **Pi-hole's sessions.** Logging in on every poll fills its seats, so one
   session is kept and renewed when it's refused.
-- **Leases move.** The sweep runs every few minutes, so an address that
-  changed hands between two sweeps can be credited to the wrong device for
-  those minutes; leaving out addresses two MACs had around then covers
-  most of it.
+- **Leases move.** The sweep runs every few minutes, so an address can
+  change hands between two sweeps. Those minutes are left out, which takes
+  a sweep after the query: a query newer than the last sweep has to wait for
+  the next one (chunk 3). The server's own table has no times, so reading
+  far back after a long gap can still credit a moved address to its new
+  device.
 - **The filter itself.** Its own lookups (blocklist updates, upstream
   checks) come from its own address, which is a device too. Fine: they're
   its names.
@@ -126,7 +143,7 @@ timeline) may depend on it.
 
 One commit each.
 
-1. **Core**: the join (a query's IP and time to a MAC, from the DNS
+1. **Core** (built): the join (a query's IP and time to a MAC, from the DNS
    server's table, else the sweeps), the registrable domain, the count per
    device, day and domain, and the router check.
    Check: host tests on made-up data: a lease that moves between sweeps,
@@ -139,12 +156,16 @@ One commit each.
    Check: tests on recorded answers (made up, in the shape the specs give),
    and the owner's DNS server answering from the Mac.
 3. **Polling and storage**: `CHATTER_DNS`, a migration for the daily
-   counts and the last query's time, the poller, 30 days kept.
+   counts, the last query's time and the router check's totals, the poller,
+   30 days kept. Queries joined through the sweeps wait for the sweep after
+   them (`scans.finished_at` is a sighting's time), unless sweeps have
+   stopped.
    Check: without `CHATTER_DNS` the collector makes no request and writes
    no row (a test); with it, an hour of the owner's queries lands on the
    right devices.
-4. **Panel**: "Looks up" on a device's panel, the router's message, a
-   layout check scene with made-up domains.
+4. **Panel**: "Looks up" on a device's panel, the link to the DNS server's
+   query log, the router's message, a layout check scene with made-up
+   domains.
    Check: the layout check at both widths; the owner reads a few devices'
    lists.
 5. **Names from the DNS server**: the client names it
@@ -178,3 +199,7 @@ Only the owner can judge:
    should be left out of the top list, and by what list.
 4. Log files (dnsmasq, Unbound) for homes without an API: only if someone
    asks.
+5. The query log's address per server, for the panel's link. From memory,
+   to check in chunk 4: Pi-hole `/admin/queries?client_ip=…`, AdGuard Home
+   `/#logs?search=…`. The link's base is `CHATTER_DNS`, so it only opens
+   where the browser can reach that address.
