@@ -231,3 +231,35 @@ pub const IDENTIFY_SESSIONS_UPSERT: &str = "INSERT INTO identify_sessions \
 /// The identify sessions that overlap `?1` up to `?2`, oldest first.
 pub const IDENTIFY_SESSIONS_BETWEEN: &str = "SELECT sensor, started_at, ended_at \
 	FROM identify_sessions WHERE ended_at >= ?1 AND started_at < ?2 ORDER BY started_at";
+
+// --- dns -------------------------------------------------------------------
+
+/// `?1` mac, `?2` day, `?3` domain, `?4` queries, added to what's there.
+pub const DNS_DOMAINS_ADD: &str = "INSERT INTO dns_domains (mac, day, domain, queries) \
+	VALUES (?1, ?2, ?3, ?4) \
+	ON CONFLICT (mac, day, domain) DO UPDATE SET queries = queries + excluded.queries";
+
+pub const DNS_DOMAINS_DELETE_BEFORE: &str = "DELETE FROM dns_domains WHERE day < ?1";
+
+/// `?1` day, `?2` total, `?3` from_gateway, added to what's there.
+pub const DNS_DAYS_ADD: &str = "INSERT INTO dns_days (day, total, from_gateway) \
+	VALUES (?1, ?2, ?3) \
+	ON CONFLICT (day) DO UPDATE SET total = total + excluded.total, \
+	from_gateway = from_gateway + excluded.from_gateway";
+
+pub const DNS_DAYS_DELETE_BEFORE: &str = "DELETE FROM dns_days WHERE day < ?1";
+
+/// How far the log has been read: `read_until`. No row before the first read.
+pub const DNS_READ_UNTIL: &str = "SELECT read_until FROM dns_poll";
+
+pub const DNS_READ_UNTIL_SET: &str = "INSERT INTO dns_poll (id, read_until) VALUES (1, ?1) \
+	ON CONFLICT (id) DO UPDATE SET read_until = excluded.read_until";
+
+/// When the newest sweep finished: `t`, NULL before the first.
+pub const SCANS_LAST_SWEEP: &str = "SELECT max(finished_at) AS t FROM scans WHERE kind = 'sweep'";
+
+/// Who had which address in the sweeps that finished from `?1` up to `?2`:
+/// `at`, `ip`, `mac`. Port scans take too long to say when they saw a host.
+pub const SCAN_HOSTS_SIGHTINGS_BETWEEN: &str = "SELECT s.finished_at AS at, h.ip, h.mac \
+	FROM scan_hosts h JOIN scans s ON s.id = h.scan_id \
+	WHERE s.kind = 'sweep' AND s.finished_at >= ?1 AND s.finished_at <= ?2";

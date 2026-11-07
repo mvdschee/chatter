@@ -3,7 +3,7 @@ use std::env;
 use crate::{
 	Error, Result,
 	core::models::{
-		config::{Command, Config},
+		config::{Command, Config, DnsSource},
 		scan::{PortScanAt, ScanTargets},
 	},
 };
@@ -31,6 +31,11 @@ const SWEEP_EVERY_MIN_DEFAULT: u64 = 10;
 /// The daily port scan's local time, `HH:MM`, or `off`.
 const PORT_SCAN_AT_KEY: &str = "CHATTER_PORT_SCAN_AT";
 const PORT_SCAN_AT_DEFAULT: &str = "18:00";
+
+/// The DNS server to read the query log of, `pihole+http://…`. Unset: none.
+const DNS_KEY: &str = "CHATTER_DNS";
+/// Its password; for Pi-hole, an app password does.
+const DNS_PASSWORD_KEY: &str = "CHATTER_DNS_PASSWORD";
 
 impl Config {
 	pub fn init() -> Result<Self> {
@@ -60,6 +65,11 @@ impl Config {
 				"off" => None,
 				at => Some(PortScanAt::new(at)?),
 			},
+			dns: load_env(DNS_KEY)
+				.ok()
+				.filter(|dns| !dns.trim().is_empty())
+				.map(|dns| DnsSource::new(&dns, load_env(DNS_PASSWORD_KEY).ok()))
+				.transpose()?,
 			command: command()?,
 		})
 	}

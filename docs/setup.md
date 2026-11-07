@@ -133,6 +133,11 @@ tests, and `make check` runs clippy (host and riscv32imac) plus a fmt check.
   - `CHATTER_PORT_SCAN_AT`: the daily port scan's local time, `18:00` if
     unset, or `off`. A missed one (the collector was down) runs 5 minutes
     after it starts. `make port-scan SUDO=1` runs one now.
+  - `CHATTER_DNS`: optional, a DNS server to read the query log of, as
+    `pihole+http://…` (no space: `.env` stops reading at an unquoted one).
+    Unset: nothing is asked and nothing is stored.
+  - `CHATTER_DNS_PASSWORD`: its password. For Pi-hole, an app password from its
+    Settings → Web interface / API; it travels unencrypted over `http://`.
 
   `CHATTER_COLLECTOR_ADDR` is where the sensor sends its reports, a different
   key: for the sensor to reach this collector, it's this machine's LAN address,

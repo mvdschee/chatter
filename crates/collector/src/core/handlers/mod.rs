@@ -1,5 +1,6 @@
 pub mod baseline;
 pub mod device;
+pub mod dns;
 pub mod floorplan;
 pub mod identify;
 pub mod overview;

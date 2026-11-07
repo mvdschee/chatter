@@ -69,7 +69,7 @@ impl HttpServer {
 }
 
 /// Ctrl-C, or SIGTERM from `docker stop`.
-async fn shutdown() {
+pub async fn shutdown() {
 	let ctrl_c = async {
 		let _ = signal::ctrl_c().await;
 	};

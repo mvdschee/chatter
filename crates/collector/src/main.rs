@@ -21,8 +21,8 @@ use crate::{
 			identify::SharedIdentify,
 		},
 		setup::{
-			HandleBaselines, HandleDatabase, HandleIdentify, HandlePortScan, HandleScans,
-			HandleServerApi, HandleVendors,
+			HandleBaselines, HandleDatabase, HandleDns, HandleIdentify, HandlePortScan,
+			HandleScans, HandleServerApi, HandleVendors,
 		},
 	},
 	services::web::HttpServerState,
@@ -42,6 +42,7 @@ async fn main() -> Result<()> {
 
 	HandleScans::new(db.clone(), &config, vendors).run();
 	HandleBaselines::new(db.clone()).run();
+	let dns = HandleDns::new(db.clone(), &config).run()?;
 	let identify = SharedIdentify::default();
 	HandleIdentify::new(db.clone(), &config, identify.clone()).run();
 
@@ -52,6 +53,9 @@ async fn main() -> Result<()> {
 		identify,
 	};
 	HandleServerApi::new(&config, state).await?.run().await?;
+	if let Some(dns) = dns {
+		let _ = dns.await;
+	}
 
 	Err(Error::MainLoopClosed)
 }

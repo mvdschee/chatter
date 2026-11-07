@@ -1,9 +1,9 @@
 # DNS names per device (research and plan)
 
-Status, 2026-11-06: chunk 1 built (the join and the counts, in
-`crates/collector/src/core/models/dns.rs`) and the Pi-hole half of chunk 2 (in
-`crates/collector/src/services/dns/`); nothing calls them yet. This is
-`docs/monitoring.md` plan step 8.
+Status, 2026-11-07: chunks 1 and 3 built (the join and the counts, the polling
+and the storage), and the Pi-hole half of chunk 2 (in
+`crates/collector/src/services/dns/`). Nothing shows it on the page yet. This
+is `docs/monitoring.md` plan step 8.
 
 ## Goal
 
@@ -78,26 +78,34 @@ timeline) may depend on it.
   by default, which the client refuses, so its address is `http://`; the
   password then crosses the LAN readable, which is a reason to use an app
   password.
-- **Polling**: every minute, one window of time, `from <= query < until` in
-  whole seconds (Pi-hole `from` and `until`, AdGuard backwards with
-  `older_than`), paged until done. Not one request per device. The next window
-  starts where the last ended, so each query is read once, whatever else shares
-  its second. `until` stays a little behind now, for a server's clock that's
-  ahead and for a query still on its way into the log. Where the last window
-  ended is kept in the database, so a restart picks up there; after a long gap
-  it reads at most the last day.
+- **Polling**: every minute it looks for one window of time to read,
+  `from <= query < until` in whole seconds (Pi-hole `from` and `until`, AdGuard
+  backwards with `older_than`), paged until done. Not one request per device.
+  The next window starts where the last ended, so each query is read once,
+  whatever else shares its second. A window ends at the last sweep, as a newer
+  query has no sweep after it yet, so with sweeps every 10 minutes the server
+  gets a request every 10 minutes and the counts are that far behind. `until`
+  also stays a minute behind now, for a server's clock that's ahead and for a
+  query still on its way into the log. Sweeps count as stopped after an hour, or
+  three missed sweeps if that's longer, and then the windows no longer wait.
+  Where the last window ended is stored with its counts, in one transaction, so
+  a restart or a failure picks up there; after a long gap it reads at most the
+  last day.
 - **The join to a MAC** is the hard part. The log knows an IP, the app
   knows devices by MAC.
-  1. The DNS server's own table first: Pi-hole's `network/devices` maps
-     IPv4 and IPv6 addresses to MACs; AdGuard's DHCP leases do when it
-     serves DHCP.
-     An address the table lists under two MACs goes on to the sweeps: the
-     table has no history, so it can't say which had it at the query's time.
-  2. Else the stored sweeps (`scan_hosts`), as leases move: the last sweep
-     up to the query's time and the first one after it, each only if it's
-     within a day. If both name one MAC, or only one is that close, it's
-     that MAC. If they disagree the address moved somewhere between them,
-     and the query is left out rather than guessed.
+  An address is only good for a time: after a DHCP release it can be another
+  device. So the time and the address decide together.
+  1. The stored sweeps (`scan_hosts`) first: the last sweep up to the query's
+     time and the first one after it, each only if it's within a day. If both
+     name one MAC, it's that MAC. If only one is that close, it has to be within
+     an hour, with nothing to check it against. If they disagree the address
+     moved somewhere between them, and the query is left out rather than
+     guessed; the table doesn't get a say.
+  2. Else, with no sweep near, the DNS server's own table: Pi-hole's
+     `network/devices` maps IPv4 and IPv6 addresses to MACs; AdGuard's DHCP
+     leases do when it serves DHCP. The table has no history, so it comes second,
+     and mostly answers for IPv6, which the sweeps don't see. An address it lists
+     under two MACs gets no answer.
   3. Else the query isn't counted. Queries over IPv6 from a server without
      a MAC table mostly end up here.
 - **What's stored**: per device per day (UTC), a registrable domain
@@ -109,15 +117,16 @@ timeline) may depend on it.
 - **Which names count**: only the list's ICANN section decides the domain,
   so `d1234.cloudfront.net` counts as `cloudfront.net` rather than one row
   per customer. Left out: single labels (`printer`), a public suffix on its
-  own, reverse lookups (`in-addr.arpa`, `ip6.arpa`) and service labels
-  (`_tcp.local`). Names are lower-cased first: resolvers vary the case, and
+  own, everything under `.arpa` (reverse lookups, and `_dns.resolver.arpa`, a
+  device looking for a resolver) and service labels (`_tcp.local`). Names are lower-cased first: resolvers vary the case, and
   the list only matches lower case.
 - **The panel**: a "Looks up" section on a device's panel, its top
   domains over the last 7 days with a count each, the rest as "and 40
   more". Missing when there's no DNS source; "nothing seen" when there is
   one and the device asked nothing. The list gives an idea; for the details
   (full names, single queries) a link opens the DNS server's own query log,
-  filtered to the device's address where the server allows it. The app
+  filtered to the device's address and the time it had that address, where the
+  server allows it: earlier, that address may have been another device. The app
   keeps none of that itself.
 
 ## Pitfalls
@@ -148,9 +157,8 @@ timeline) may depend on it.
 - **Leases move.** The sweep runs every few minutes, so an address can
   change hands between two sweeps. Those minutes are left out, which takes
   a sweep after the query: a query newer than the last sweep has to wait for
-  the next one (chunk 3). The server's own table has no history, so reading
-  far back after a long gap can still credit a moved address to its new
-  device.
+  the next one. Where no sweep is near, the server's own table can still credit
+  a moved address to its new device.
 - **The filter itself.** Its own lookups (blocklist updates, upstream
   checks) come from its own address, which is a device too. Fine: they're
   its names.
@@ -175,11 +183,10 @@ One commit each.
    Check: tests on made-up answers, against a stand-in server that behaves as
    the sources do, and a real server answering from the Mac (each adapter's
    ignored `live` test, which prints counts only).
-3. **Polling and storage**: `CHATTER_DNS`, a migration for the daily
-   counts, the last query's time and the router check's totals, the poller,
-   30 days kept. Queries joined through the sweeps wait for the sweep after
-   them (`scans.finished_at` is a sighting's time), unless sweeps have
-   stopped.
+3. **Polling and storage** (built): `CHATTER_DNS`, a migration for the daily
+   counts, how far the log was read and the router check's totals, the poller,
+   30 days kept. A window ends at the last sweep (`scans.finished_at` is a
+   sighting's time), unless sweeps have stopped.
    Check: without `CHATTER_DNS` the collector makes no request and writes
    no row (a test); with it, an hour of the owner's queries lands on the
    right devices.
@@ -219,10 +226,9 @@ Only the owner can judge:
    should be left out of the top list, and by what list.
 4. Log files (dnsmasq, Unbound) for homes without an API: only if someone
    asks.
-5. The query log's address per server, for the panel's link. From memory,
-   to check in chunk 4: Pi-hole `/admin/queries?client_ip=…`, AdGuard Home
-   `/#logs?search=…`. The link's base is `CHATTER_DNS`, so it only opens
+5. The query log's address per server, for the panel's link, and whether it can
+   carry a time range. From memory, to check in chunk 4: Pi-hole
+   `/admin/queries?client_ip=…`, AdGuard Home `/#logs?search=…`. The link's base is `CHATTER_DNS`, so it only opens
    where the browser can reach that address.
-6. Whether Pi-hole's `ips[].lastSeen` should settle an address it lists under
-   two MACs, for queries from around that time, rather than leaving it to the
-   sweeps. It's only the latest sighting per MAC, not a history.
+6. Whether Pi-hole's `ips[].lastSeen` should limit its table, the way the hour
+   limits a lone sweep. It's the latest sighting per MAC, not a history.

@@ -3,20 +3,31 @@ use std::{
 	sync::{Arc, RwLock},
 };
 
+use tokio::task::JoinHandle;
+
 use crate::{
 	Result,
 	core::{
 		handlers::{
 			baseline::baseline_loop,
+			dns::dns_loop,
 			identify::identify_sweep_loop,
 			scan::{current_targets, port_scan, port_scan_loop, sweep_loop},
 			vendor::{load_vendors, vendor_loop},
 		},
-		models::{config::Config, identify::SharedIdentify, vendor::SharedVendors},
+		models::{
+			config::{Config, DnsServer, DnsSource},
+			identify::SharedIdentify,
+			vendor::SharedVendors,
+		},
 	},
 	info,
 	repository::db::DatabaseRepository,
-	services::web::{HttpServer, HttpServerConfig, HttpServerState},
+	services::{
+		dns::pihole::PiHole,
+		http,
+		web::{HttpServer, HttpServerConfig, HttpServerState},
+	},
 };
 
 /// Opens the database and brings its tables up to date.
@@ -140,6 +151,40 @@ impl HandleBaselines {
 	}
 }
 
+/// The names devices look up, when `CHATTER_DNS` says where from.
+pub struct HandleDns {
+	db: DatabaseRepository,
+	source: Option<DnsSource>,
+	sweep_every_s: i64,
+}
+
+impl HandleDns {
+	pub fn new(db: DatabaseRepository, config: &Config) -> Self {
+		Self {
+			db,
+			source: config.dns.clone(),
+			sweep_every_s: config.sweep_every_min as i64 * 60,
+		}
+	}
+
+	/// The poller, to wait for when stopping: it closes its session then. `None`
+	/// without a DNS server: nothing runs, and nothing is ever asked or stored.
+	pub fn run(self) -> Result<Option<JoinHandle<()>>> {
+		let Some(source) = self.source else {
+			return Ok(None);
+		};
+		let client = http::create_client()?;
+		info!("reading the DNS server's query log");
+		Ok(Some(match source.server {
+			DnsServer::PiHole => tokio::spawn(dns_loop(
+				self.db,
+				PiHole::new(client, &source.url, source.password),
+				self.sweep_every_s,
+			)),
+		}))
+	}
+}
+
 /// One port scan, now (`chatter-collector port-scan`).
 pub struct HandlePortScan {
 	db: DatabaseRepository,
@@ -182,5 +227,37 @@ impl HandleVendors {
 		let vendors: SharedVendors = Arc::new(RwLock::new(load_vendors(&self.path)));
 		tokio::spawn(vendor_loop(self.path, vendors.clone()));
 		vendors
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use sqlx::Row;
+
+	use super::*;
+
+	#[tokio::test]
+	async fn without_a_dns_server_nothing_runs_or_is_stored() {
+		let path =
+			std::env::temp_dir().join(format!("chatter-test-no-dns-{}.db", std::process::id()));
+		let _ = std::fs::remove_file(&path);
+		let db = DatabaseRepository::new(path.to_str().unwrap()).await.unwrap();
+		db.init().await.unwrap();
+
+		let dns = HandleDns {
+			db: db.clone(),
+			source: None,
+			sweep_every_s: 600,
+		};
+		assert!(dns.run().unwrap().is_none());
+
+		for table in [
+			"SELECT count(*) AS n FROM dns_domains",
+			"SELECT count(*) AS n FROM dns_days",
+			"SELECT count(*) AS n FROM dns_poll",
+		] {
+			let row = db.get_record(table, vec![]).await.unwrap().unwrap();
+			assert_eq!(row.try_get::<i64, _>("n").unwrap(), 0, "{table}");
+		}
 	}
 }

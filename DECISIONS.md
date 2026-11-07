@@ -331,3 +331,13 @@
 **Decision:** A query's registrable domain is worked out with the list's ICANN rules only, so `d1234.cloudfront.net` counts as `cloudfront.net`. Reverse lookups, single labels and service labels aren't counted.
 **Why:** The list's private section makes every CDN customer and bucket its own domain: long random names that fill a top list and say less than the hosting company does. The list gives an idea; for the full names the panel links to the DNS server's own query log.
 **Alternatives:** The full list (what browsers use for cookies, the usual meaning of "registrable"; `someone.github.io` stays apart from others, at the price of those rows); counting reverse lookups as one row (they say nothing about what a device talks to).
+
+## 2026-11-07 - A DNS query's device: the sweeps before the server's table
+**Decision:** The sweeps around a query decide first, and the DNS server's table only answers where no sweep is near. A sweep with none on the other side counts within an hour, not a day. When the sweeps name two MACs the query is left out, without asking the table. This replaces the order in "A DNS query's device: both sweeps around it must agree"; that entry's rule for two sweeps stands.
+**Why:** An address is only good for a time, since after a DHCP release it can be another device. The table has no history, so it can't say who had an address at a query's time. A lone sweep has nothing to check it against, and a day is long enough for a lease to change hands; a device that stops answering sweeps loses its queries after the hour.
+**Alternatives:** The table first (the old order: it answers at once, and credits a moved address to its new device); never the table (simplest, but IPv6 queries are then never counted, as the sweeps don't see them).
+
+## 2026-11-07 - DNS log: read up to the last sweep, keep nothing waiting
+**Decision:** The poller reads a window of the log that ends at the last sweep, in whole seconds, and stores its counts and the window's end in one transaction. Queries newer than the sweep stay on the DNS server until the next one.
+**Why:** A query needs a sweep after it, and holding queries in the app would mean storing what `docs/dns.md` says the app doesn't keep, and a way to bring them back after a restart. Windows that follow each other count each query once, with nothing to deduplicate. The cost is counts up to one sweep behind, and a DNS server that must keep its log for that long.
+**Alternatives:** Read up to now and hold the newest queries in memory or a table (fresher only in appearance, as they can't be credited yet); resume from the last query's time (re-reads or loses the queries sharing its second).

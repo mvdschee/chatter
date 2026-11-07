@@ -1,6 +1,53 @@
 use std::path::{Path, PathBuf};
 
-use crate::core::models::scan::{PortScanAt, ScanTargets};
+use crate::{
+	Error, Result,
+	core::models::scan::{PortScanAt, ScanTargets},
+};
+
+/// Which kind of DNS server keeps the query log.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DnsServer {
+	PiHole,
+}
+
+/// A DNS server to read the query log of.
+#[derive(Clone, PartialEq)]
+pub struct DnsSource {
+	pub server: DnsServer,
+	pub url: String,
+	pub password: Option<String>,
+}
+
+impl DnsSource {
+	/// `pihole+http://…`. No space between them: `.env` can't hold one unquoted.
+	pub fn new(raw: &str, password: Option<String>) -> Result<Self> {
+		let err = || Error::Config(format!("{raw:?} is not `pihole+http://…`"));
+		let (server, url) = raw.trim().split_once('+').ok_or_else(err)?;
+		if !(url.starts_with("http://") || url.starts_with("https://")) {
+			return Err(err());
+		}
+		let server = match server {
+			"pihole" => DnsServer::PiHole,
+			_ => return Err(err()),
+		};
+		Ok(Self {
+			server,
+			url: url.to_string(),
+			password: password.filter(|p| !p.is_empty()),
+		})
+	}
+}
+
+/// Without the password: `Config` can end up in a log.
+impl std::fmt::Debug for DnsSource {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("DnsSource")
+			.field("server", &self.server)
+			.field("url", &self.url)
+			.finish_non_exhaustive()
+	}
+}
 
 /// What the binary was started to do.
 #[derive(Debug, Clone, PartialEq)]
@@ -22,6 +69,9 @@ pub struct Config {
 	pub sweep_every_min: u64,
 	/// The daily port scan's time; `None`: no port scans.
 	pub port_scan_at: Option<PortScanAt>,
+	/// Where the names devices look up come from; `None`: nowhere, and no DNS
+	/// section anywhere.
+	pub dns: Option<DnsSource>,
 	pub command: Command,
 }
 
@@ -32,5 +82,38 @@ impl Config {
 			Some(dir) if !dir.as_os_str().is_empty() => dir.to_path_buf(),
 			_ => PathBuf::from("."),
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn a_dns_source_names_its_server_and_address() {
+		let source =
+			DnsSource::new("pihole+http://192.0.2.5:8081", Some("made-up".into())).unwrap();
+		assert_eq!(source.server, DnsServer::PiHole);
+		assert_eq!(source.url, "http://192.0.2.5:8081");
+		assert_eq!(source.password.as_deref(), Some("made-up"));
+
+		let source = DnsSource::new("pihole+https://192.0.2.5", Some(String::new())).unwrap();
+		assert_eq!(source.url, "https://192.0.2.5");
+		assert_eq!(source.password, None);
+	}
+
+	#[test]
+	fn a_dns_source_that_cant_be_read_is_an_error() {
+		for raw in
+			["http://192.0.2.5", "pihole http://192.0.2.5", "pihole+192.0.2.5", "other+http://x"]
+		{
+			assert!(DnsSource::new(raw, None).is_err(), "{raw}");
+		}
+	}
+
+	#[test]
+	fn the_password_stays_out_of_the_debug_output() {
+		let source = DnsSource::new("pihole+http://192.0.2.5", Some("made-up".into())).unwrap();
+		assert!(!format!("{source:?}").contains("made-up"));
 	}
 }
