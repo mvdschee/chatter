@@ -41,8 +41,8 @@
   can't complete: theories, tests and the build plan; the sensor's part and the
   collector's storage built.
 - `docs/dns.md`: the names each device looks up, from a DNS filter's query
-  log, optional: research and plan; the join and the counts built, adapters
-  next.
+  log, optional: research and plan; the join, the counts and the Pi-hole
+  adapter built, AdGuard Home's next.
 - `docs/setup.md`: the install log. Add every install or setup step as it is
   run.
 - `DECISIONS.md`: why things are the way they are.

@@ -37,6 +37,9 @@ pub enum Error {
 	#[error("identify: {0}")]
 	Identify(String),
 
+	#[error("DNS server: {0}")]
+	Dns(String),
+
 	#[error("HTTP error: {0}")]
 	Http(String),
 }

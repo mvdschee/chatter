@@ -28,7 +28,7 @@ pub struct DnsQuery {
 }
 
 /// An address and its MAC, from the DNS server's own table. The table has no
-/// times: it's what the server knows now.
+/// history: it's what the server knows now.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DnsClient {
 	pub ip: IpAddr,

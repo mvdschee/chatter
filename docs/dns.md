@@ -1,7 +1,8 @@
 # DNS names per device (research and plan)
 
 Status, 2026-11-06: chunk 1 built (the join and the counts, in
-`crates/collector/src/core/models/dns.rs`); nothing calls it yet. This is
+`crates/collector/src/core/models/dns.rs`) and the Pi-hole half of chunk 2 (in
+`crates/collector/src/services/dns/`); nothing calls them yet. This is
 `docs/monitoring.md` plan step 8.
 
 ## Goal
@@ -40,12 +41,18 @@ timeline) may depend on it.
     header. Sessions expire unless used, and there's a limit on how many
     are open ("API seats exceeded"), so the app keeps one, renews it, and
     logs out (`DELETE /api/auth`) when it stops.
-  - `GET /api/queries` with `from`, `until`, `length` (100 by default),
-    `cursor` and filters (`client_ip`, `domain`, …). Each query has `time`,
-    `type`, `domain`, `client.ip`, `client.name`, `status` and `id`.
+  - `GET /api/queries` with `from` (inclusive), `until` (exclusive), `length`
+    (100 by default, 10,000 at most), `start`, `cursor` and filters
+    (`client_ip`, `domain`, …). Each query has `time`, `type`, `domain`,
+    `client.ip`, `client.name`, `status` and `id`. Newest first. The spec reads
+    as if `cursor` points at the next page, but FTL's source sends the same one
+    back: it pins the first page, and `start` is what walks on.
   - `GET /api/network/devices` lists what Pi-hole has seen: `hwaddr` (the
     MAC), `macVendor`, `numQueries`, and `ips[]` with `ip` (IPv4 and IPv6),
-    `name` and `lastSeen`. It's the IP-to-MAC table, IPv6 included.
+    `name` and `lastSeen`. It's the IP-to-MAC table, IPv6 included. Without
+    `max_devices` and `max_addresses` it stops at 10 devices of 3 addresses.
+    `hwaddr` is `ip-<address>` for a client whose MAC it can't see, and all
+    zeros for a loopback.
 - **AdGuard Home** has a REST API under `/control`
   ([openapi.yaml](https://github.com/AdguardTeam/AdGuardHome/blob/master/openapi/openapi.yaml)),
   with HTTP Basic auth:
@@ -64,21 +71,28 @@ timeline) may depend on it.
   queries since a cursor, and the client table (IP, MAC if known, name).
   Pi-hole and AdGuard Home each implement it in `services/dns/`. A third
   server is a third file.
-- **Settings**: `CHATTER_DNS` (`pihole http://…` or `adguard http://…`)
+- **Settings**: `CHATTER_DNS` (`pihole+http://…` or `adguard+http://…`, no
+  space: `.env` can't hold an unquoted one, and stops reading at that line)
   and `CHATTER_DNS_PASSWORD` (for AdGuard, `user:password`). Without
-  `CHATTER_DNS` nothing starts.
-- **Polling**: every minute, one request for everything since the last
-  query seen (Pi-hole `from` and `cursor`, AdGuard `older_than`), paged
-  until done. Not one request per device. The last query's time is kept
-  in the database, so a restart picks up where it stopped; after a long
-  gap it reads at most the last day.
+  `CHATTER_DNS` nothing starts. Pi-hole's HTTPS has a self-signed certificate
+  by default, which the client refuses, so its address is `http://`; the
+  password then crosses the LAN readable, which is a reason to use an app
+  password.
+- **Polling**: every minute, one window of time, `from <= query < until` in
+  whole seconds (Pi-hole `from` and `until`, AdGuard backwards with
+  `older_than`), paged until done. Not one request per device. The next window
+  starts where the last ended, so each query is read once, whatever else shares
+  its second. `until` stays a little behind now, for a server's clock that's
+  ahead and for a query still on its way into the log. Where the last window
+  ended is kept in the database, so a restart picks up there; after a long gap
+  it reads at most the last day.
 - **The join to a MAC** is the hard part. The log knows an IP, the app
   knows devices by MAC.
   1. The DNS server's own table first: Pi-hole's `network/devices` maps
      IPv4 and IPv6 addresses to MACs; AdGuard's DHCP leases do when it
      serves DHCP.
      An address the table lists under two MACs goes on to the sweeps: the
-     table has no times, so it can't say which has it now.
+     table has no history, so it can't say which had it at the query's time.
   2. Else the stored sweeps (`scan_hosts`), as leases move: the last sweep
      up to the query's time and the first one after it, each only if it's
      within a day. If both name one MAC, or only one is that close, it's
@@ -124,12 +138,17 @@ timeline) may depend on it.
 - **Private and rotating MACs.** A phone's made-up MAC is the one the
   sweep and the DNS server both see, so the join still holds. A MAC that
   rotates starts over as a new device, as everywhere else in the app.
+- **A server that can't see MACs.** Pi-hole fills its table from the neighbour
+  table of the machine it runs on. Where that shows it none of the LAN (in a
+  container on its own bridge network, most likely), nearly every `hwaddr` is
+  `ip-<address>` and the table is no use, so the sweeps do the whole join. IPv4
+  still lands; IPv6 queries aren't counted.
 - **Pi-hole's sessions.** Logging in on every poll fills its seats, so one
   session is kept and renewed when it's refused.
 - **Leases move.** The sweep runs every few minutes, so an address can
   change hands between two sweeps. Those minutes are left out, which takes
   a sweep after the query: a query newer than the last sweep has to wait for
-  the next one (chunk 3). The server's own table has no times, so reading
+  the next one (chunk 3). The server's own table has no history, so reading
   far back after a long gap can still credit a moved address to its new
   device.
 - **The filter itself.** Its own lookups (blocklist updates, upstream
@@ -150,11 +169,12 @@ One commit each.
    an address two MACs had, IPv6 with and without a table, a router that
    makes most of the queries, `a.b.example.co.uk` counting as
    `example.co.uk`.
-2. **Adapters**: `DnsLog`, Pi-hole and AdGuard Home in `services/dns/`,
-   parsing the APIs' JSON into core's query and client types; the session
-   for Pi-hole.
-   Check: tests on recorded answers (made up, in the shape the specs give),
-   and the owner's DNS server answering from the Mac.
+2. **Adapters**: `DnsLog`, Pi-hole (built) and AdGuard Home in
+   `services/dns/`, parsing the APIs' JSON into core's query and client types;
+   the session for Pi-hole. One commit each.
+   Check: tests on made-up answers, against a stand-in server that behaves as
+   the sources do, and a real server answering from the Mac (each adapter's
+   ignored `live` test, which prints counts only).
 3. **Polling and storage**: `CHATTER_DNS`, a migration for the daily
    counts, the last query's time and the router check's totals, the poller,
    30 days kept. Queries joined through the sweeps wait for the sweep after
@@ -203,3 +223,6 @@ Only the owner can judge:
    to check in chunk 4: Pi-hole `/admin/queries?client_ip=…`, AdGuard Home
    `/#logs?search=…`. The link's base is `CHATTER_DNS`, so it only opens
    where the browser can reach that address.
+6. Whether Pi-hole's `ips[].lastSeen` should settle an address it lists under
+   two MACs, for queries from around that time, rather than leaving it to the
+   sweeps. It's only the latest sighting per MAC, not a history.
