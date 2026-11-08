@@ -17,7 +17,7 @@ async fn overview_get_handler(
 	State(state): State<HttpServerState>,
 ) -> Result<Json<Overview>, StatusCode> {
 	info!("GET /v1/overview");
-	overview(&state.db).await.map(Json).map_err(|e| {
+	overview(&state.db, state.dns.as_ref()).await.map(Json).map_err(|e| {
 		error!("overview: {e}");
 		StatusCode::INTERNAL_SERVER_ERROR
 	})

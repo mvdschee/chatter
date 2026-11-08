@@ -11,9 +11,11 @@ use crate::{
 		handlers::{baseline::load_usual_traffic, device::device_names},
 		models::{
 			baseline::{ScoreScale, hour_of},
+			config::DnsSource,
+			dns::{first_shown_day, router_forwards, top_domains},
 			overview::{
-				DeviceOverview, LOOP_MINUTES, Overview, PortOverview, RECENT_S, SensorStatus,
-				seq_stats,
+				DeviceDns, DeviceOverview, DnsOverview, LOOP_MINUTES, Overview, PortOverview,
+				RECENT_S, SensorStatus, seq_stats,
 			},
 		},
 	},
@@ -21,8 +23,9 @@ use crate::{
 		db::{DatabaseRepository, DbValue},
 		schemas::{
 			DEVICE_MINUTES_COUNT_FOR_REPORT, DEVICE_MINUTES_DEVICES, DEVICE_MINUTES_LAST_N_REPORTS,
-			REPORTS_LAST_N, REPORTS_LATEST_TIME, REPORTS_SENSORS, REPORTS_TIMES_SINCE,
-			SCAN_HOSTS_LAST_PORT_SCAN, SCAN_HOSTS_LATEST, SCAN_PORTS_LATEST,
+			DNS_DAYS_SINCE, DNS_DOMAINS_SINCE, REPORTS_LAST_N, REPORTS_LATEST_TIME,
+			REPORTS_SENSORS, REPORTS_TIMES_SINCE, SCAN_HOSTS_LAST_PORT_SCAN, SCAN_HOSTS_LATEST,
+			SCAN_PORTS_LATEST,
 		},
 	},
 };
@@ -41,8 +44,9 @@ pub async fn latest_report(db: &DatabaseRepository) -> Result<i64> {
 }
 
 /// The live part: the loop's minutes, every device ever heard, and the
-/// sensors. The history is `timeline`.
-pub async fn overview(db: &DatabaseRepository) -> Result<Overview> {
+/// sensors. The history is `timeline`. With a DNS server, also what its log
+/// says about each device.
+pub async fn overview(db: &DatabaseRepository, dns: Option<&DnsSource>) -> Result<Overview> {
 	let latest = latest_report(db).await?;
 	let since = latest - RECENT_S;
 
@@ -79,6 +83,7 @@ pub async fn overview(db: &DatabaseRepository) -> Result<Overview> {
 				ports: None,
 				port_scanned_at: None,
 				minutes: vec![[0, 0]; loop_reports.len()],
+				dns: None,
 			})
 		})
 		.collect::<Result<_>>()?;
@@ -122,6 +127,11 @@ pub async fn overview(db: &DatabaseRepository) -> Result<Overview> {
 			});
 		}
 	}
+
+	let dns = match dns {
+		Some(source) => Some(add_dns(db, source, latest, &mut devices).await?),
+		None => None,
+	};
 
 	// each sensor's last 24 hours: its sequence numbers and report times, in order
 	let mut recent: HashMap<String, (Vec<i64>, Vec<i64>)> = HashMap::new();
@@ -168,5 +178,38 @@ pub async fn overview(db: &DatabaseRepository) -> Result<Overview> {
 		score: ScoreScale::default(),
 		sensors,
 		devices,
+		dns,
+	})
+}
+
+/// Each device's top domains over the days shown, and the link to its address in
+/// the DNS server's query log. Every device gets them, an empty list included.
+async fn add_dns(
+	db: &DatabaseRepository,
+	source: &DnsSource,
+	latest: i64,
+	devices: &mut [DeviceOverview],
+) -> Result<DnsOverview> {
+	let since = first_shown_day(latest);
+	let rows = db
+		.get_records(DNS_DOMAINS_SINCE, vec![DbValue::Int(since)])
+		.await?
+		.iter()
+		.map(|row| Ok((row.try_get("mac")?, row.try_get("domain")?, row.try_get("queries")?)))
+		.collect::<Result<_>>()?;
+	let mut top = top_domains(rows);
+	for device in devices.iter_mut() {
+		device.dns = Some(DeviceDns {
+			domains: top.remove(&device.mac).unwrap_or_default(),
+			query_log: device.ip.as_deref().map(|ip| source.query_log(ip)),
+		});
+	}
+	let (total, from_gateway) =
+		match db.get_record(DNS_DAYS_SINCE, vec![DbValue::Int(since)]).await? {
+			Some(row) => (row.try_get("total")?, row.try_get("from_gateway")?),
+			None => (0, 0),
+		};
+	Ok(DnsOverview {
+		router_forwards: router_forwards(from_gateway, total),
 	})
 }

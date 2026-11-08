@@ -17,7 +17,7 @@ mod utils;
 use crate::{
 	core::{
 		models::{
-			config::{Command, Config},
+			config::{Command, Config, DnsSource},
 			identify::SharedIdentify,
 		},
 		setup::{
@@ -51,6 +51,10 @@ async fn main() -> Result<()> {
 		ui_dir: config.ui_dir.clone(),
 		data_dir: config.data_dir(),
 		identify,
+		dns: config.dns.clone().map(|dns| DnsSource {
+			password: None,
+			..dns
+		}),
 	};
 	HandleServerApi::new(&config, state).await?.run().await?;
 	if let Some(dns) = dns {

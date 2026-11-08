@@ -4,7 +4,10 @@ use axum::Router;
 use tokio::{net::TcpListener, signal};
 
 use crate::{
-	Error, Result, core::models::identify::SharedIdentify, info, repository::db::DatabaseRepository,
+	Error, Result,
+	core::models::{config::DnsSource, identify::SharedIdentify},
+	info,
+	repository::db::DatabaseRepository,
 };
 
 pub mod handlers;
@@ -22,6 +25,9 @@ pub struct HttpServerState {
 	/// Where the collector keeps its files (the plan's underlay image).
 	pub data_dir: PathBuf,
 	pub identify: SharedIdentify,
+	/// The DNS server, for the overview's links to its query log. Without its
+	/// password: nothing here needs it.
+	pub dns: Option<DnsSource>,
 }
 
 pub struct HttpServer {

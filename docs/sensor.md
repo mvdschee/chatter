@@ -226,7 +226,7 @@ Every 60 s, one JSON document:
 
 ## Layout
 
-Same split as `inkday/docs/project-structure.md`, adapted for firmware. Core is
+Same split as `~/.claude/docs/project-structure.md`, adapted for firmware. Core is
 its own crate so its tests run on the Mac (see `DECISIONS.md`):
 
 | Path | What |

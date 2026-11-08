@@ -341,3 +341,9 @@
 **Decision:** The poller reads a window of the log that ends at the last sweep, in whole seconds, and stores its counts and the window's end in one transaction. Queries newer than the sweep stay on the DNS server until the next one.
 **Why:** A query needs a sweep after it, and holding queries in the app would mean storing what `docs/dns.md` says the app doesn't keep, and a way to bring them back after a restart. Windows that follow each other count each query once, with nothing to deduplicate. The cost is counts up to one sweep behind, and a DNS server that must keep its log for that long.
 **Alternatives:** Read up to now and hold the newest queries in memory or a table (fresher only in appearance, as they can't be credited yet); resume from the last query's time (re-reads or loses the queries sharing its second).
+
+## 2026-11-08 - DNS on the panel: in the overview, the router note on every device
+
+**Decision:** Each device's top DNS domains (7 days) and its query-log link come with `/v1/overview`, and the overview has a `dns` field that is `null` without `CHATTER_DNS`, which hides the section. When the router makes most of the queries, every device's DNS section says so, not only the router's. The link filters Pi-hole's log by the device's address only.
+**Why:** The overview already has every device and is fetched anyway; ten rows a device is small. Marking only the router's panel needs the gateway's address, which isn't stored, and `nmap --iflist` per overview request is too slow. Pi-hole's page doesn't apply a time range from its URL on the first load, so the link doesn't claim one.
+**Alternatives:** A `/v1/devices/{mac}/dns` request when a panel opens (one more request and loading state for no gain); storing the gateway with each sweep to mark the router's panel (a migration for one message); `from` in the link (untested, and by Pi-hole's source not applied).

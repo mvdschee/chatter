@@ -604,4 +604,60 @@ mod tests {
 		assert_eq!(days.len(), 1);
 		assert_eq!(days[0].try_get::<i64, _>("day").unwrap(), today - KEEP_DAYS);
 	}
+
+	#[tokio::test]
+	async fn the_overview_shows_the_counts_only_with_a_dns_server() {
+		use crate::core::{
+			handlers::{overview::overview, report::store_report},
+			models::{
+				config::DnsSource,
+				dns::{SHOWN_DAYS, day_of},
+				report::{Report, ReportPayload},
+			},
+		};
+		let db = database().await;
+		let mut payload: ReportPayload = serde_json::from_str(&format!(
+			r#"{{"sensor":"s","seq":1,"uptime_s":60,"channel":6,"dropped":0,"overflow":0,"nets_known":[0],
+			"devices":[{{"mac":"{MAC_A}","net":0,"tx_frames":1,"tx_bytes":100,"rx_frames":1,"rx_bytes":100,"retries":0,"rssi_max":-50}}],
+			"broadcast":[]}}"#
+		))
+		.unwrap();
+		payload.received_at = T + 3 * EVERY;
+		store_report(&db, &Report::try_from(payload).unwrap()).await.unwrap();
+		sweep(&db, T, &[(IP, MAC_A)]).await;
+		sweep(&db, T + EVERY, &[(IP, MAC_A)]).await;
+		let mut log = FakeLog::with(vec![
+			query(T + 60, IP, "a.example.com"),
+			query(T + 120, IP, "b.example.com"),
+			query(T + 180, IP, "example.org"),
+		]);
+		poll_at(&db, &mut log, T + EVERY + 2 * READ_BEHIND_S).await.unwrap();
+		// a day too old to show
+		let too_old = day_of(T) - SHOWN_DAYS;
+		db.execute_all(vec![(
+			DNS_DOMAINS_ADD,
+			vec![
+				DbValue::Text(MAC_A.into()),
+				DbValue::Int(too_old),
+				DbValue::Text("example.net".into()),
+				DbValue::Int(50),
+			],
+		)])
+		.await
+		.unwrap();
+
+		let o = overview(&db, None).await.unwrap();
+		assert!(o.dns.is_none());
+		assert!(o.devices[0].dns.is_none());
+
+		let source = DnsSource::new("pihole+http://192.0.2.53", None).unwrap();
+		let o = overview(&db, Some(&source)).await.unwrap();
+		assert!(!o.dns.unwrap().router_forwards, "too few queries to say");
+		let dns = o.devices[0].dns.as_ref().unwrap();
+		let top: Vec<(&str, i64)> =
+			dns.domains.top.iter().map(|d| (d.domain.as_str(), d.queries)).collect();
+		assert_eq!(top, [("example.com", 2), ("example.org", 1)]);
+		assert_eq!(dns.domains.more, 0);
+		assert_eq!(dns.query_log.as_deref(), Some(source.query_log(IP).as_str()));
+	}
 }

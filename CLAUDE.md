@@ -42,7 +42,7 @@
   collector's storage built.
 - `docs/dns.md`: the names each device looks up, from a DNS filter's query
   log, optional: research and plan; the join, the counts, the polling and the
-  Pi-hole adapter built; the panel and AdGuard Home's adapter next.
+  Pi-hole adapter and the panel built; AdGuard Home's adapter next.
 - `docs/setup.md`: the install log. Add every install or setup step as it is
   run.
 - `DECISIONS.md`: why things are the way they are.

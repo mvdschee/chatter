@@ -309,7 +309,7 @@ mod tests {
 		let scan = Scan::from(NmapRun::from_xml(SWEEP_XML).unwrap());
 		store_scan(&db, "sweep", &targets, &scan).await.unwrap();
 
-		let o = overview(&db).await.unwrap();
+		let o = overview(&db, None).await.unwrap();
 		let d = &o.devices[0];
 		assert_eq!(d.hostname.as_deref(), Some("ESP_00001.lan"));
 		assert_eq!((d.ip.as_deref(), d.vendor.as_deref()), (Some("192.0.2.10"), Some("Espressif")));
@@ -318,7 +318,7 @@ mod tests {
 
 		let scan = Scan::from(NmapRun::from_xml(PORTS_XML).unwrap());
 		store_scan(&db, "ports", &targets, &scan).await.unwrap();
-		let o = overview(&db).await.unwrap();
+		let o = overview(&db, None).await.unwrap();
 		let ports: Vec<i64> = o.devices[0].ports.as_ref().unwrap().iter().map(|p| p.port).collect();
 		assert_eq!(ports, [80, 5353]);
 		assert_eq!(o.devices[0].port_scanned_at, Some(1_700_051_900));

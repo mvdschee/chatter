@@ -47,6 +47,10 @@ export const DEVICES = [];
 
 // The newest report's time, from the overview.
 let latest = 0;
+
+// What the DNS server's log says about the whole network, `{ router_forwards }`;
+// null without a DNS server, and then no device panel has a DNS section.
+export let DNS = null;
 // The moment DEVICES were picked for.
 let pickedAt = null;
 
@@ -108,7 +112,7 @@ export const vendorless = (mac) => (parseInt(mac[1], 16) & 2 ? "private address 
 // Each flow starts partway to its next train of packets, or every arc stays
 // empty for the first seconds and then they all fire at once.
 function newDevice(mac) {
-	return { id: mac, name: mac, short: mac.slice(9), room: "waiting to be placed", x: 0, y: 0, mac, vendor: "unknown", ports: [], dns: [],
+	return { id: mac, name: mac, short: mac.slice(9), room: "waiting to be placed", x: 0, y: 0, mac, vendor: "unknown", ports: [],
 		particles: [], spawn: [rand(), rand()], shownAt: -1e9, screen: [0, 0] };
 }
 
@@ -134,6 +138,7 @@ function applyOverview(o) {
 	loopHours = pad(o.hours, null);
 	SCALE = o.score;
 	latest = o.latest;
+	DNS = o.dns;
 	const old = new Map(everHeard.map((d) => [d.id, d]));
 	everHeard = [...o.devices].sort((a, b) => a.mac.localeCompare(b.mac)).map((x) => {
 		const d = old.get(x.mac) ?? newDevice(x.mac);
@@ -144,6 +149,8 @@ function applyOverview(o) {
 			minutes: pad(x.minutes), rssi: x.rssi_max, firstSeen: x.first_seen, lastSeen: Math.max(x.last_seen, x.swept_at ?? 0), given: x.name,
 			name: x.name ?? host ?? x.mac, short: x.name ?? host ?? x.mac.slice(9), vendor: x.vendor ?? vendorless(x.mac),
 			ip: x.ip, hostname: x.hostname, ports: x.ports, portScannedAt: x.port_scanned_at, usual: x.usual,
+			// `{ top: [{ domain, queries }], more, query_log }`, null without a DNS server
+			dns: x.dns,
 		});
 		return d;
 	});

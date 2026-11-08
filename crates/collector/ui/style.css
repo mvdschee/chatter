@@ -303,6 +303,9 @@ canvas#heat:focus-visible { outline: 1px solid var(--signal); }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { font: 12px/1 var(--mono); padding: 5px 7px; border: 1px solid var(--line); color: var(--phosphor); }
 .note { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+.note a { color: var(--phosphor); }
+.chip.dns { line-height: 1.35; padding: 3px 7px; overflow-wrap: anywhere; }
+.chip .n { color: var(--muted); white-space: nowrap; }
 .alert {
 	border-left: 2px solid var(--heat);
 	padding: 8px 10px;

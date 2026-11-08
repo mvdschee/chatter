@@ -2,7 +2,7 @@
 // panels are in sensors.js), and what they show refreshed when the data changes.
 
 import { score, scoreColor } from "./colour.js";
-import { DEVICES, EVENTS, LOOP, TL, bucketOf, loopHours, renameDevice, sum } from "./data.js";
+import { DEVICES, DNS, EVENTS, LOOP, TL, bucketOf, loopHours, renameDevice, sum } from "./data.js";
 import { DATE_TIME, esc, fmtBytes, hhmm } from "./format.js";
 import { hourNow, play, shownMoment } from "./playback.js";
 import { openSensor, openSensorName, openSensors } from "./sensors.js";
@@ -115,7 +115,6 @@ export function select(d) {
 			? d.ports.map((p) => `<span class="chip" title="${esc(p.product ?? "")}">${p.port}/${esc(p.protocol)}${p.service ? ` ${esc(p.service)}` : ""}</span>`).join("")
 			: `<span class="note">none open</span>`;
 	const scanned = d.portScannedAt ? `<p class="note">port scan of ${DATE_TIME.format(new Date(d.portScannedAt * 1000))}</p>` : "";
-	const dns = d.dns.length ? d.dns.map((n) => `<span class="chip">${esc(n)}</span>`).join("") : `<span class="note">no lookups seen</span>`;
 	const alert = d.outlier ? `<div class="alert">Sent ${fmtBytes(d.outlier.bytes)} in one minute, about ${d.outlier.times}× its usual for this hour. Email sent.</div>` : "";
 	side.innerHTML = `
 		${CLOSE}
@@ -145,8 +144,7 @@ export function select(d) {
 		<div class="chips">${ports}</div>
 		${scanned}
 
-		<div class="eyebrow">Looked up</div>
-		<div class="chips">${dns}</div>
+		${dnsSection(d)}
 
 		<div class="eyebrow">Device</div>
 		<dl class="kv">
@@ -179,6 +177,27 @@ export function select(d) {
 		const r = ev.currentTarget.getBoundingClientRect();
 		seek(Math.floor(((ev.clientX - r.left) / r.width) * bars.length) * per);
 	});
+}
+
+// Its queries in the DNS server's log, by domain: none of it without a DNS
+// server. Few or none doesn't make a device quiet: it may use another resolver,
+// or the join may have left its queries out (docs/dns.md).
+function dnsSection(d) {
+	if (!DNS || !d.dns) return "";
+	const { top, more, query_log } = d.dns;
+	const chips = top.length
+		? top.map((x) => `<span class="chip dns">${esc(x.domain)} <span class="n">${x.queries.toLocaleString()}</span></span>`).join("")
+		: `<span class="note">no queries credited to it</span>`;
+	const router = DNS.router_forwards
+		? `<p class="note">Most of the DNS server's queries come from the router's address, so few can be credited to a device. That usually means the router hands out its own address as the DNS server; handing out the DNS server's address over DHCP fixes that.</p>`
+		: "";
+	const log = query_log ? `<p class="note"><a href="${esc(query_log)}" target="_blank" rel="noopener">All queries from this address</a></p>` : "";
+	return `
+		<div class="eyebrow">DNS queries, last 7 days</div>
+		${router}
+		<div class="chips">${chips}</div>
+		${more ? `<p class="note">and ${more} more</p>` : ""}
+		${log}`;
 }
 
 // The device's traffic over the shown stretch in at most 48 bars, each the

@@ -1,9 +1,9 @@
 # DNS names per device (research and plan)
 
-Status, 2026-11-07: chunks 1 and 3 built (the join and the counts, the polling
-and the storage), and the Pi-hole half of chunk 2 (in
-`crates/collector/src/services/dns/`). Nothing shows it on the page yet. This
-is `docs/monitoring.md` plan step 8.
+Status, 2026-11-08: chunks 1, 3 and 4 built (the join and the counts, the
+polling and the storage, the panel), and the Pi-hole half of chunk 2 (in
+`crates/collector/src/services/dns/`). This is `docs/monitoring.md` plan
+step 8.
 
 ## Goal
 
@@ -120,14 +120,19 @@ timeline) may depend on it.
   own, everything under `.arpa` (reverse lookups, and `_dns.resolver.arpa`, a
   device looking for a resolver) and service labels (`_tcp.local`). Names are lower-cased first: resolvers vary the case, and
   the list only matches lower case.
-- **The panel**: a "Looks up" section on a device's panel, its top
-  domains over the last 7 days with a count each, the rest as "and 40
-  more". Missing when there's no DNS source; "nothing seen" when there is
-  one and the device asked nothing. The list gives an idea; for the details
-  (full names, single queries) a link opens the DNS server's own query log,
-  filtered to the device's address and the time it had that address, where the
-  server allows it: earlier, that address may have been another device. The app
-  keeps none of that itself.
+- **The panel**: a "DNS queries, last 7 days" section on a device's panel
+  (the page names the measurement, not what the device does), its top 10
+  domains over the last 7 UTC days up to the newest report's, with a count
+  each, the rest as "and 40 more". Missing when there's no DNS source; "no
+  queries credited to it" when there is one and none were: the join leaves
+  some out, so a device can have queries in the log and none here. It comes with `/v1/overview`, per device, so the page needs no
+  request of its own. The list gives an idea; for the details (full names,
+  single queries) a link opens the DNS server's own query log, filtered to
+  the device's current address: Pi-hole's `/admin/queries?client_ip=…`. The
+  address only, not the time the device had it: Pi-hole's page reads `from`
+  and `until` from its URL too, but by its source not on the first load, so
+  the link would claim a range it doesn't apply. Earlier queries there may be
+  another device's. The app keeps none of that itself.
 
 ## Pitfalls
 
@@ -137,9 +142,11 @@ timeline) may depend on it.
   device ([Pi-hole's FAQ thread](https://discourse.pi-hole.net/t/why-do-i-only-see-my-routers-ip-address-instead-of-individual-devices-in-the-top-clients-section-and-query-log/3653)).
   The app knows the gateway's address (the sweep looks it up); when it
   makes most of the queries (over half, of at least 100, counted before the
-  join so queries left out there can't skew it), the router's panel says why
-  and what fixes it (the router handing out the filter's address over DHCP),
-  instead of the router "looking up" everything.
+  join so queries left out there can't skew it, over the 7 days shown), every
+  device's DNS section says why and what fixes it (the router handing out the
+  filter's address over DHCP). Every device's, not only the router's: the
+  overview would need the gateway's address, which isn't stored, and the
+  devices with few or no queries are where the reason is wanted.
 - **Devices that skip the filter.** Some devices use a public resolver
   they have built in, and browsers and phones may use DNS over HTTPS. They
   show few or no names, which doesn't mean they're quiet: the sensor's
@@ -190,11 +197,11 @@ One commit each.
    Check: without `CHATTER_DNS` the collector makes no request and writes
    no row (a test); with it, an hour of the owner's queries lands on the
    right devices.
-4. **Panel**: "Looks up" on a device's panel, the link to the DNS server's
-   query log, the router's message, a layout check scene with made-up
-   domains.
+4. **Panel** (built): "DNS queries, last 7 days" on a device's panel, the
+   link to the DNS server's query log, the router's message, made-up
+   domains in the layout check and a scene without a DNS server.
    Check: the layout check at both widths; the owner reads a few devices'
-   lists.
+   lists (after a deploy: it needs the server's counts).
 5. **Names from the DNS server**: the client names it
    knows (Pi-hole's `ips[].name`, AdGuard's `auto_clients`) fill in the
    hostname where the sweep's reverse DNS found none.
@@ -226,9 +233,9 @@ Only the owner can judge:
    should be left out of the top list, and by what list.
 4. Log files (dnsmasq, Unbound) for homes without an API: only if someone
    asks.
-5. The query log's address per server, for the panel's link, and whether it can
-   carry a time range. From memory, to check in chunk 4: Pi-hole
-   `/admin/queries?client_ip=…`, AdGuard Home `/#logs?search=…`. The link's base is `CHATTER_DNS`, so it only opens
-   where the browser can reach that address.
+5. AdGuard Home's query log address for the panel's link, from memory
+   `/#logs?search=…`; check with its adapter. Pi-hole's is settled (see the
+   panel). The link's base is `CHATTER_DNS`, so it only opens where the
+   browser can reach that address, and Pi-hole asks its own login first.
 6. Whether Pi-hole's `ips[].lastSeen` should limit its table, the way the hour
    limits a lone sweep. It's the latest sighting per MAC, not a history.

@@ -65,8 +65,19 @@ const DEVICES = Array.from({ length: 40 }, (_, i) => {
 		port_scanned_at: i % 6 === 0 ? NOW - 7200 : null,
 		minutes: Array.from({ length: 5 }, () => [int(4 * MiB), int(MiB)]),
 		usual: i % 2 ? null : { hours: Array.from({ length: 24 }, () => [8 + rand() * 4, 1]), all: [10, 1.2], learning: i % 4 === 0 },
+		dns: dnsOf(i),
 	};
 });
+
+// A full list with long names and big counts, and now and then none at all.
+function dnsOf(i) {
+	if (i % 5 === 2) return { top: [], more: 0, query_log: null };
+	const top = Array.from({ length: 10 }, (_, k) => ({
+		domain: k % 3 ? `${hex(6)}.example` : `${hex(12)}-${hex(12)}.example.co.uk`,
+		queries: 120_000 >> k,
+	}));
+	return { top, more: 40 + int(200), query_log: `http://192.0.2.53/admin/queries?client_ip=10.0.0.${i}` };
+}
 
 function overview() {
 	const minutes = Array.from({ length: 5 }, (_, i) => LATEST - (4 - i) * 60);
@@ -74,7 +85,11 @@ function overview() {
 		latest: LATEST, minutes, hours: minutes.map((t) => new Date(t * 1000).getHours()),
 		score: { k: 0.6745, floor: 0.1, white: 1, red: 3.5 },
 		// the sensors' ages stay put however long the run takes
-		sensors: SENSORS.map((s) => ({ ...s, last_seen: s.last_seen + since() })), devices: DEVICES,
+		sensors: SENSORS.map((s) => ({ ...s, last_seen: s.last_seen + since() })),
+		// with a DNS server, whose queries mostly come from the router (the
+		// longest panel); a scene without one
+		devices: dnsOn ? DEVICES : DEVICES.map((d) => ({ ...d, dns: null })),
+		dns: dnsOn ? { router_forwards: true } : null,
 	};
 }
 
@@ -110,6 +125,8 @@ function timeline(q) {
 // What /v1/identify answers, set per scene: no session (the sensor step), one
 // not posting yet (move) or one posting (find; back is its Stop).
 let identify = "none";
+// Whether the overview has a DNS server, set per scene.
+let dnsOn = true;
 function identifyView() {
 	const s = SENSORS[1];
 	const session = { sensor: s.name, left_s: 432, received_at: identify === "find" ? NOW + since() - 2 : null,
@@ -411,7 +428,8 @@ const EVERY_CALLOUT = `Promise.all([import("/data.js"), import("/panel.js"), imp
 
 // `act`: what to click, in order; `zoom`: then shift-drag across the middle
 // of the graph; `ready`: what to wait for after; `every`: then select each
-// device in turn and check its callout. The page opens live here
+// device in turn and check its callout; `scroll`: the side panel scrolled to
+// its end. The page opens live here
 // (reduced motion doesn't play), so the other states of the timeline's head
 // are scenes of their own.
 const panel = (name, act, ready = "document.querySelector('#side.open')") => ({ name, act, ready });
@@ -425,6 +443,8 @@ const SCENES = [
 	{ name: "tasks menu", act: ["#tasks-btn"], ready: "document.querySelector('#tasks-btn[aria-expanded=true]')" },
 	panel("devices", ["#devices-btn"]),
 	panel("a device", ["#devices-btn", "#side .list button"], "document.querySelector('#side .name')"),
+	{ ...panel("a device's DNS queries", ["#devices-btn", "#side .list button"], "document.querySelector('#side .name')"), scroll: true },
+	{ ...panel("a device without a DNS server", ["#devices-btn", "#side .list button"], "document.querySelector('#side .name')"), dns: false },
 	{ ...panel("every device's callout", ["#devices-btn"]), every: true },
 	panel("events", ["#events-btn"]),
 	panel("sensors", ["#sensors-btn"]),
@@ -463,6 +483,7 @@ async function main() {
 				if (!title.includes(only)) continue;
 				ran++;
 				identify = scene.identify ?? "none";
+				dnsOn = scene.dns ?? true;
 				// a URL of its own, or one that differs only in its hash isn't loaded
 				// again; and the old page is marked, to wait until it's gone
 				await tab.evaluate("window.stale = true");
@@ -482,6 +503,7 @@ async function main() {
 					await mouse("mouseReleased", r.left + r.width * 0.6);
 				}
 				if (scene.ready) await tab.waitFor(scene.ready);
+				if (scene.scroll) await tab.evaluate("document.querySelector('#side').scrollTop = 1e6");
 				// let fetches that follow a click land, and the canvas draw
 				await new Promise((ok) => setTimeout(ok, 300));
 				await tab.evaluate(frames);

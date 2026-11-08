@@ -249,6 +249,15 @@ pub const DNS_DAYS_ADD: &str = "INSERT INTO dns_days (day, total, from_gateway) 
 
 pub const DNS_DAYS_DELETE_BEFORE: &str = "DELETE FROM dns_days WHERE day < ?1";
 
+/// Each device's queries per domain from day `?1` on: `mac`, `domain`, `queries`.
+pub const DNS_DOMAINS_SINCE: &str = "SELECT mac, domain, sum(queries) AS queries \
+	FROM dns_domains WHERE day >= ?1 GROUP BY mac, domain";
+
+/// Every query from day `?1` on, and how many came from the gateway: `total`,
+/// `from_gateway`.
+pub const DNS_DAYS_SINCE: &str = "SELECT coalesce(sum(total), 0) AS total, \
+	coalesce(sum(from_gateway), 0) AS from_gateway FROM dns_days WHERE day >= ?1";
+
 /// How far the log has been read: `read_until`. No row before the first read.
 pub const DNS_READ_UNTIL: &str = "SELECT read_until FROM dns_poll";
 

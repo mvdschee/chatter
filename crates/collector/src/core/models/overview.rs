@@ -5,7 +5,10 @@
 
 use serde::Serialize;
 
-use crate::core::models::baseline::{ScoreScale, UsualTraffic};
+use crate::core::models::{
+	baseline::{ScoreScale, UsualTraffic},
+	dns::TopDomains,
+};
 
 /// Minutes in the page's replay loop.
 pub const LOOP_MINUTES: usize = 5;
@@ -26,6 +29,24 @@ pub struct Overview {
 	pub score: ScoreScale,
 	pub sensors: Vec<SensorStatus>,
 	pub devices: Vec<DeviceOverview>,
+	/// `None` without a DNS server: the page shows no DNS section.
+	pub dns: Option<DnsOverview>,
+}
+
+/// What the DNS server's log says about the whole network, over the days shown.
+#[derive(Debug, Serialize)]
+pub struct DnsOverview {
+	/// The router makes most of the queries, so few can be credited to a device.
+	pub router_forwards: bool,
+}
+
+/// A device's queries in the DNS server's log, over the days shown.
+#[derive(Debug, Default, Serialize)]
+pub struct DeviceDns {
+	#[serde(flatten)]
+	pub domains: TopDomains,
+	/// The DNS server's query log for its address; `None` without one.
+	pub query_log: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -100,6 +121,8 @@ pub struct DeviceOverview {
 	pub minutes: Vec<[i64; 2]>,
 	/// Its baselines; `None` before the first are worked out.
 	pub usual: Option<UsualTraffic>,
+	/// `None` without a DNS server.
+	pub dns: Option<DeviceDns>,
 }
 
 #[cfg(test)]

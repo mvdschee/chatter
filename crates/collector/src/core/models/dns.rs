@@ -8,6 +8,7 @@ use std::{
 };
 
 use psl::{List, Psl, Type};
+use serde::Serialize;
 
 use crate::core::models::report::Mac;
 
@@ -25,9 +26,12 @@ pub const CATCH_UP_S: i64 = 86_400;
 /// How many days of counts are kept.
 pub const KEEP_DAYS: i64 = 30;
 /// Fewer queries than this don't say whether the router forwards the rest.
-// used from the panel's message, which comes with docs/dns.md chunk 4
-#[allow(dead_code)]
 pub const ROUTER_MIN_QUERIES: i64 = 100;
+
+/// The panel shows this many UTC days of counts, today's included.
+pub const SHOWN_DAYS: i64 = 7;
+/// The panel lists this many of a device's domains; the rest are a number.
+pub const TOP_DOMAINS: usize = 10;
 
 const SECONDS_A_DAY: i64 = 86_400;
 
@@ -63,6 +67,53 @@ pub struct DomainCount {
 	pub day: i64,
 	pub domain: String,
 	pub queries: i64,
+}
+
+/// A domain on a device's panel, with its queries over the days shown.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DomainQueries {
+	pub domain: String,
+	pub queries: i64,
+}
+
+/// A device's domains with the most queries, most first (ties by name), and how
+/// many more domains it had.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct TopDomains {
+	pub top: Vec<DomainQueries>,
+	pub more: usize,
+}
+
+/// The first day the panel shows, when the newest report is at `latest`.
+pub fn first_shown_day(latest: i64) -> i64 {
+	day_of(latest) - (SHOWN_DAYS - 1)
+}
+
+/// Each device's top domains, from `(mac, domain, queries)` summed over the
+/// days shown, in any order.
+pub fn top_domains(rows: Vec<(String, String, i64)>) -> HashMap<String, TopDomains> {
+	let mut per_mac: HashMap<String, Vec<DomainQueries>> = HashMap::new();
+	for (mac, domain, queries) in rows {
+		per_mac.entry(mac).or_default().push(DomainQueries {
+			domain,
+			queries,
+		});
+	}
+	per_mac
+		.into_iter()
+		.map(|(mac, mut domains)| {
+			domains.sort_by(|a, b| b.queries.cmp(&a.queries).then_with(|| a.domain.cmp(&b.domain)));
+			let more = domains.len().saturating_sub(TOP_DOMAINS);
+			domains.truncate(TOP_DOMAINS);
+			(
+				mac,
+				TopDomains {
+					top: domains,
+					more,
+				},
+			)
+		})
+		.collect()
 }
 
 /// The queries that could be credited to a device, counted per device, day
@@ -304,8 +355,6 @@ pub fn day_totals(queries: &[DnsQuery], gateway: Option<IpAddr>) -> Vec<DayTotal
 
 /// Whether the router makes most of the queries: then it hands out its own
 /// address as the DNS server and the filter can't see who's asking.
-// used from the panel's message, which comes with docs/dns.md chunk 4
-#[allow(dead_code)]
 pub fn router_forwards(from_gateway: i64, total: i64) -> bool {
 	total >= ROUTER_MIN_QUERIES && from_gateway * 2 > total
 }
@@ -604,6 +653,48 @@ mod tests {
 				count(MAC_A, day, "example.org", 1),
 				count(MAC_A, day + 1, "example.com", 1),
 			]
+		);
+	}
+
+	#[test]
+	fn a_device_shows_its_top_domains_and_how_many_more() {
+		let row = |mac: &str, domain: &str, queries| (mac.to_string(), domain.to_string(), queries);
+		let mut rows: Vec<_> = (0..TOP_DOMAINS + 3)
+			.map(|i| row(MAC_A, &format!("d{i:02}.example"), i as i64))
+			.collect();
+		// a tie goes by name; another device's rows stay its own
+		rows.push(row(MAC_A, "a-tie.example", 20));
+		rows.push(row(MAC_A, "b-tie.example", 20));
+		rows.push(row(MAC_B, "example.org", 1));
+		let top = top_domains(rows);
+
+		let a = &top[MAC_A];
+		let names: Vec<&str> = a.top.iter().map(|d| d.domain.as_str()).collect();
+		assert_eq!(&names[..3], ["a-tie.example", "b-tie.example", "d12.example"]);
+		assert_eq!(a.top.len(), TOP_DOMAINS);
+		assert_eq!(a.more, 5);
+		assert!(a.top.windows(2).all(|w| w[0].queries >= w[1].queries));
+
+		assert_eq!(
+			top[MAC_B],
+			TopDomains {
+				top: vec![DomainQueries {
+					domain: "example.org".into(),
+					queries: 1
+				}],
+				more: 0
+			}
+		);
+		assert!(!top.contains_key(MAC_C));
+	}
+
+	#[test]
+	fn the_days_shown_end_with_the_newest_reports_day() {
+		let today = day_of(T);
+		assert_eq!(first_shown_day(T), today - SHOWN_DAYS + 1);
+		assert_eq!(
+			first_shown_day(today * SECONDS_A_DAY),
+			first_shown_day(today * SECONDS_A_DAY + 86_399)
 		);
 	}
 

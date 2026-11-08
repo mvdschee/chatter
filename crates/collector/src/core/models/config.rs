@@ -37,6 +37,15 @@ impl DnsSource {
 			password: password.filter(|p| !p.is_empty()),
 		})
 	}
+
+	/// The DNS server's own query log, filtered to one address. Only the
+	/// address: before the device had it, it may have been another's.
+	pub fn query_log(&self, ip: &str) -> String {
+		let base = self.url.trim_end_matches('/');
+		match self.server {
+			DnsServer::PiHole => format!("{base}/admin/queries?client_ip={ip}"),
+		}
+	}
 }
 
 /// Without the password: `Config` can end up in a log.
@@ -108,6 +117,17 @@ mod tests {
 			["http://192.0.2.5", "pihole http://192.0.2.5", "pihole+192.0.2.5", "other+http://x"]
 		{
 			assert!(DnsSource::new(raw, None).is_err(), "{raw}");
+		}
+	}
+
+	#[test]
+	fn the_query_log_link_filters_to_the_address() {
+		for raw in ["pihole+http://192.0.2.5:8081", "pihole+http://192.0.2.5:8081/"] {
+			let source = DnsSource::new(raw, None).unwrap();
+			assert_eq!(
+				source.query_log("192.0.2.10"),
+				"http://192.0.2.5:8081/admin/queries?client_ip=192.0.2.10"
+			);
 		}
 	}
 
